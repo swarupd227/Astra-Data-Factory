@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.tf text eol=lf
+*.tfvars text eol=lf
+*.hcl text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Makefile text eol=lf
+*.docx binary
+*.pdf binary
+*.png binary

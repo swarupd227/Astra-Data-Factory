@@ -1,0 +1,52 @@
+# Validation for infra/terraform/snowflake on every change.
+# Runs without Snowflake credentials: format check, validate, unit tests.
+# Plan and apply against real environments arrive with S1.2.2 (CI/CD).
+
+name: terraform-snowflake
+
+on:
+  pull_request:
+    paths:
+      - "infra/terraform/snowflake/**"
+      - ".github/workflows/terraform-snowflake.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/terraform/snowflake/**"
+      - ".github/workflows/terraform-snowflake.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: fmt, validate, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform/snowflake
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.1"
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff
+
+      - name: Init (no backend)
+        run: terraform init -input=false -backend=false
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Unit tests
+        run: terraform test
+
+      - name: Environment files plan completely
+        run: |
+          for e in dev qa uat prod; do
+            echo "== $e"
+            terraform test -test-directory=tests/environments -var-file="environments/$e.tfvars"
+          done

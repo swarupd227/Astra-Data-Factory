@@ -1,0 +1,28 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Credentials and keys must never be committed
+*.p8
+*.pem
+*.key
+.env
+.env.*
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
