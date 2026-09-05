@@ -15,6 +15,7 @@ once.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from astra_opencatalog.client import Credentials, OpenCatalogClient
@@ -53,8 +54,8 @@ class EnvironmentSpec:
     def __post_init__(self) -> None:
         if not self.prefix.isidentifier() or self.prefix != self.prefix.lower():
             raise ValueError("prefix must be a lower-case identifier, e.g. astra")
-        if self.environment not in ("dev", "qa", "uat", "prod"):
-            raise ValueError("environment must be one of dev, qa, uat, prod")
+        if not re.fullmatch(r"[a-z][a-z0-9]{1,7}", self.environment):
+            raise ValueError("environment must be 2 to 8 lower-case letters or digits, starting with a letter (dev, qa, uat, prod, perf, ...)")
         if not self.base_location.startswith("s3://") or not self.base_location.endswith("/"):
             raise ValueError("base_location must look like s3://bucket/ or s3://bucket/prefix/")
         if not self.role_arn.startswith("arn:aws:iam::"):

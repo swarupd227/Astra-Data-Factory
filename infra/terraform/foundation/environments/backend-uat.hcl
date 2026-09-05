@@ -1,8 +1,8 @@
-# Remote state for the uat environment. The bucket belongs to the client
-# account that hosts the environment; replace the placeholder name when the
-# account is provisioned. Nothing here is secret.
-bucket       = "astra-data-factory-terraform-state"
-key          = "snowflake/uat/terraform.tfstate"
+# Remote state for the uat environment. The bucket is created once per AWS
+# account by infra/terraform/bootstrap; replace the placeholder with its
+# output state_bucket_name. Nothing here is secret.
+bucket       = "astra-data-factory-terraform-state-<aws account id>"
+key          = "foundation/uat/terraform.tfstate"
 region       = "us-east-1"
 encrypt      = true
 use_lockfile = true

@@ -3,12 +3,12 @@
 # ---------------------------------------------------------------------------
 
 variable "environment" {
-  description = "Environment this configuration manages. Becomes part of every object name."
+  description = "Environment this configuration manages. Becomes part of every object name. The standard set is dev, qa, uat and prod; further short names (for example perf, dr) are allowed."
   type        = string
 
   validation {
-    condition     = contains(["dev", "qa", "uat", "prod"], var.environment)
-    error_message = "environment must be one of: dev, qa, uat, prod."
+    condition     = can(regex("^[a-z][a-z0-9]{1,7}$", var.environment))
+    error_message = "environment must be 2 to 8 lower-case letters or digits, starting with a letter (dev, qa, uat, prod, perf, ...)."
   }
 }
 

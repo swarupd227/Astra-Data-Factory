@@ -9,12 +9,14 @@ on:
   pull_request:
     paths:
       - "infra/terraform/foundation/**"
+      - "infra/terraform/bootstrap/**"
       - "tools/opencatalog/**"
       - ".github/workflows/terraform-foundation.yml"
   push:
     branches: [main]
     paths:
       - "infra/terraform/foundation/**"
+      - "infra/terraform/bootstrap/**"
       - "tools/opencatalog/**"
       - ".github/workflows/terraform-foundation.yml"
 
@@ -72,9 +74,19 @@ jobs:
           terraform init -input=false -backend=false
           terraform test
 
-      - name: Environment files plan completely
+      - name: Environment files plan the standard inventory
         run: |
-          for e in dev qa uat prod; do
-            echo "== $e"
-            terraform test -test-directory=tests/environments -var-file="environments/$e.tfvars"
+          for f in environments/*.tfvars; do
+            echo "== $f"
+            terraform test -test-directory=tests/environments -var-file="$f"
           done
+
+      - name: Environments differ only by variables
+        run: sh scripts/check-env-parity.sh
+
+      - name: Bootstrap root validates
+        working-directory: infra/terraform/bootstrap
+        run: |
+          terraform fmt -check -diff
+          terraform init -input=false -backend=false
+          terraform validate

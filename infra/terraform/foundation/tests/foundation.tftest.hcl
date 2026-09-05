@@ -317,11 +317,24 @@ run "credit_quota_attaches_a_monitor_to_every_warehouse" {
 # Input validation
 # ---------------------------------------------------------------------------
 
-run "rejects_unknown_environment" {
+run "accepts_additional_short_environment_names" {
   command = plan
 
   variables {
-    environment = "sandbox"
+    environment = "perf"
+  }
+
+  assert {
+    condition     = snowflake_database.this.name == "ASTRA_PERF" && snowflake_warehouse.tier["simple"].name == "ASTRA_PERF_WH_SIMPLE"
+    error_message = "A new environment is only a name; every object follows the same naming rule."
+  }
+}
+
+run "rejects_malformed_environment_name" {
+  command = plan
+
+  variables {
+    environment = "Prod-1"
   }
 
   expect_failures = [var.environment]

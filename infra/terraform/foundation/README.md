@@ -8,6 +8,26 @@ Terraform configuration for everything an Astra Data Factory environment runs on
 
 Every environment (dev, qa, uat, prod) is created from this same configuration. Only `environments/<env>.tfvars` and `environments/backend-<env>.hcl` differ.
 
+## Environments (S1.2.1)
+
+An environment is a name plus two files. Nothing in a `.tf` file may branch on the environment; whatever must differ is a variable with a value in the tfvars file. The rule is enforced, not assumed:
+
+```bash
+sh scripts/check-env-parity.sh     # fails on environment-conditional code or mismatched files;
+                                   # prints the diff of every tfvars file against dev
+make check                         # also plans every tfvars file against the standard inventory
+```
+
+To add an environment (for example `perf`):
+
+```bash
+sh scripts/new-environment.sh perf qa   # scaffolds perf.tfvars and backend-perf.hcl from qa
+```
+
+Then follow [docs/runbooks/new-environment.md](../../../docs/runbooks/new-environment.md), which budgets the whole path at under two hours. The state bucket every environment needs is created once per AWS account by [infra/terraform/bootstrap](../bootstrap/README.md).
+
+Environment names are two to eight lower-case letters or digits. The standard four are dev, qa, uat and prod.
+
 ## What gets created
 
 Object names are `<PREFIX>_<ENV>_...`; the default prefix is `ASTRA`. For `dev`:
@@ -192,6 +212,13 @@ For S1.1.3:
 pip install boto3 snowflake-connector-python
 python scripts/verify_snowpipe.py --environment dev
 ```
+
+For S1.2.1:
+
+| Criterion | Verified by |
+|---|---|
+| Diff of object definitions across environments is empty except for variables | `scripts/check-env-parity.sh` in CI: no environment-conditional code, no environment-named code files, matching tfvars and backend files; prints the tfvars diff, which is the whole difference. Every tfvars file is also planned against the standard inventory. |
+| A new environment can be created in under two hours | `scripts/new-environment.sh` plus the timed runbook `docs/runbooks/new-environment.md` (100 minutes budgeted). Measured when the next environment is stood up. |
 
 Unit tests in `tests/*.tftest.hcl` run against mocked providers and cover object names, sizes, the access matrix, cost control, the volume, the Open Catalog wiring, the landing pipeline and every validation rule. The bucket hardening is tested in `modules/private-bucket/tests`. All of it runs in CI on every change and needs no credentials.
 

@@ -48,6 +48,15 @@ def env(name: str) -> str:
     return value
 
 
+def environment_name(value: str) -> str:
+    """argparse type: the same rule as the Terraform `environment` variable."""
+    import re
+
+    if not re.fullmatch(r"[a-z][a-z0-9]{1,7}", value):
+        raise argparse.ArgumentTypeError("must be 2 to 8 lower-case letters or digits, starting with a letter")
+    return value
+
+
 def connect_snowflake():
     import snowflake.connector
 
@@ -110,7 +119,7 @@ def wait_for_log(con, log_table: str, file_name: str, status: str, timeout: floa
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--environment", required=True, choices=["dev", "qa", "uat", "prod"])
+    parser.add_argument("--environment", required=True, type=environment_name, help="dev, qa, uat, prod or another short lower-case name")
     parser.add_argument("--prefix", default="ASTRA")
     parser.add_argument("--bucket", help="landing bucket (default: Terraform naming <prefix>-<env>-landing-<account id>)")
     parser.add_argument("--landing-prefix", default="landing")

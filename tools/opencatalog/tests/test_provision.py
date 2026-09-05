@@ -21,7 +21,8 @@ def test_names_follow_the_terraform_naming_rule():
     "kwargs",
     [
         {"prefix": "Astra"},
-        {"environment": "sandbox"},
+        {"environment": "Prod-1"},
+        {"environment": "a"},
         {"base_location": "s3://bucket"},
         {"base_location": "gs://bucket/"},
         {"role_arn": "role"},

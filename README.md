@@ -9,8 +9,9 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | Path | Plane | Contents |
 |---|---|---|
 | `infra/terraform/foundation` | Control (E1) | Per environment: Snowflake database, schemas, roles, tier-sized warehouses, Iceberg bucket and external volume, Open Catalog sync, landing zone with Snowpipe and file load log |
+| `infra/terraform/bootstrap` | Control (E1) | Once per AWS account: the bucket that holds Terraform state for every environment |
 | `tools/opencatalog` | Control (E1) | Provisions and verifies Snowflake Open Catalog, which has no Terraform provider |
-| `docs` | | Specification, backlog and architecture decision records |
+| `docs` | | Specification, backlog, architecture decision records and runbooks |
 
 Further planes (knowledge, generation, verification, agents, workbench) are added as their epics start.
 

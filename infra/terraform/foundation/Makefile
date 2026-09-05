@@ -36,12 +36,22 @@ check-env: init-local
 	$(TF) test -test-directory=tests/environments -var-file=environments/$(ENV).tfvars
 
 check-envs: init-local
-	@for e in dev qa uat prod; do \
+	@for f in environments/*.tfvars; do \
+		e=$$(basename $$f .tfvars); \
 		echo "== $$e"; \
-		$(TF) test -test-directory=tests/environments -var-file=environments/$$e.tfvars || exit 1; \
+		$(TF) test -test-directory=tests/environments -var-file=$$f || exit 1; \
 	done
 
-check: fmt-check validate test check-envs
+# Environments differ only by variables (S1.2.1).
+parity:
+	sh scripts/check-env-parity.sh
+
+# Scaffold a new environment from a template: make new-env ENV=perf FROM=qa
+FROM ?= qa
+new-env:
+	sh scripts/new-environment.sh $(ENV) $(FROM)
+
+check: fmt-check validate test check-envs parity
 
 plan: init
 	$(TF) plan -input=false -var-file=environments/$(ENV).tfvars

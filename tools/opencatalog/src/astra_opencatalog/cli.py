@@ -34,6 +34,15 @@ def _env(name: str) -> str:
     return value
 
 
+def environment_name(value: str) -> str:
+    """argparse type: the same rule as the Terraform `environment` variable."""
+    import re
+
+    if not re.fullmatch(r"[a-z][a-z0-9]{1,7}", value):
+        raise argparse.ArgumentTypeError("must be 2 to 8 lower-case letters or digits, starting with a letter")
+    return value
+
+
 def _admin_client() -> OpenCatalogClient:
     return OpenCatalogClient(
         _env("OPEN_CATALOG_URL"),
@@ -184,7 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--environment", required=True, choices=["dev", "qa", "uat", "prod"])
+    common.add_argument("--environment", required=True, type=environment_name, help="dev, qa, uat, prod or another short lower-case name")
     common.add_argument("--prefix", default="astra", help="object name prefix, lower case (default: astra)")
     common.add_argument("--json", action="store_true", help="machine-readable output")
 
