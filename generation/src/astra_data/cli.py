@@ -15,6 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from astra_data.bundle import BundleError, DeployError, Target, check_bundles, deploy, run_tests
+from astra_data.custodians import custodians_from_configs, sync, sync_statements
 from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExecutor, connect
 from astra_data.validate import Problem, validate_paths
 
@@ -139,6 +140,47 @@ def cmd_test(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _custodian_summary(custodians, style: str) -> None:
+    for c in custodians:
+        schedule = f"cutoff {c.cutoff_time} {c.timezone} on {c.business_days_text or 'no days'}" if c.business_days else "no delivery schedule"
+        _summary(f"custodian {c.custodian_id}: {schedule}; {len(c.files)} expected file(s); late={c.late_severity}, task_failure={c.failure_severity}", style)
+
+
+def cmd_custodians_render(args: argparse.Namespace) -> int:
+    custodians, problems = custodians_from_configs(args.paths, root=Path(args.root))
+    if problems:
+        _print_problems(problems, args.format)
+        return 1
+    target = Target(args.environment, args.prefix)
+    if args.format == "json":
+        print(json.dumps({"custodians": [asdict(c) for c in custodians], "statements": sync_statements(custodians, target)}, indent=2, default=list))
+    else:
+        _custodian_summary(custodians, args.format)
+        print(";\n".join(sync_statements(custodians, target)) + ";")
+    return 0
+
+
+def cmd_custodians_sync(args: argparse.Namespace) -> int:
+    custodians, problems = custodians_from_configs(args.paths, root=Path(args.root))
+    if problems:
+        _print_problems(problems, args.format)
+        return 1
+    target = Target(args.environment, args.prefix)
+    executor = _executor()
+    try:
+        count = sync(executor, custodians, target)
+    except Exception as exc:  # the database's own error is the message
+        print(f"::error title=Custodian sync failed::{exc}" if args.format == "github" else f"error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        executor.close()
+    _custodian_summary(custodians, args.format)
+    _summary(f"synced {count} custodian{'s' if count != 1 else ''} to {target.environment_database}.CONTROL", args.format)
+    if args.format == "json":
+        print(json.dumps([asdict(c) for c in custodians], indent=2, default=list))
+    return 0
+
+
 # -- parser ------------------------------------------------------------------
 
 
@@ -166,6 +208,18 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--environment", required=True, type=environment_name)
         p.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"), help="object name prefix (default: ASTRA_PREFIX or ASTRA)")
         p.add_argument("releases", nargs="?", default="releases")
+        p.set_defaults(func=func)
+
+    cu = sub.add_parser("custodians", help="custodian delivery expectations and alert severities, from configs to CONTROL")
+    cusub = cu.add_subparsers(dest="custodians_command", required=True)
+    for name, func, help_text in (
+        ("render", cmd_custodians_render, "print the SQL that would bring CONTROL.CUSTODIANS in line with the configs"),
+        ("sync", cmd_custodians_sync, "bring CONTROL.CUSTODIANS and CUSTODIAN_FILES in line with the configs"),
+    ):
+        p = cusub.add_parser(name, help=help_text)
+        p.add_argument("--environment", required=True, type=environment_name)
+        p.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+        p.add_argument("paths", nargs="*", default=["configs"], help="config files or directories (default: configs)")
         p.set_defaults(func=func)
 
     return parser

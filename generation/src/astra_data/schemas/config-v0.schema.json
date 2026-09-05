@@ -94,6 +94,45 @@
     "resolution": {
       "type": "object",
       "description": "Resolution parameters (account, security, transaction code, price). Free-form in version 0."
+    },
+    "delivery": {
+      "type": "object",
+      "description": "When the custodian delivers and which files are expected every business day. Drives the 'late' alert (S1.2.4). Shared by every source of the same custodian; sources must agree.",
+      "additionalProperties": false,
+      "required": ["cutoff_time", "timezone", "files"],
+      "properties": {
+        "cutoff_time": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "HH:MM in the custodian's timezone" },
+        "timezone": { "type": "string", "pattern": "^(UTC|[A-Za-z_]+/[A-Za-z_+-]+(/[A-Za-z_+-]+)?)$", "description": "IANA name, for example America/New_York" },
+        "business_days": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] },
+          "description": "Defaults to Monday to Friday"
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["pattern"],
+            "properties": {
+              "pattern": { "type": "string", "minLength": 1, "description": "SQL LIKE pattern of the file path relative to the landing prefix, for example pershing/GCUS_%_POS_%.dat" },
+              "description": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "alerts": {
+      "type": "object",
+      "description": "Alert severity for this custodian. Both default to error.",
+      "additionalProperties": false,
+      "properties": {
+        "late": { "$ref": "#/$defs/severity", "description": "Severity of the alert raised when expected files are missing after the cutoff" },
+        "task_failure": { "$ref": "#/$defs/severity", "description": "Severity of the alert raised when one of the custodian's tasks fails" }
+      }
     }
   },
   "$defs": {
@@ -104,6 +143,9 @@
     "date": {
       "type": "string",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "severity": {
+      "enum": ["info", "warning", "error", "critical"]
     }
   }
 }

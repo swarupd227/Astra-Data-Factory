@@ -17,6 +17,8 @@ pytest
 | `astra-data bundles check [releases]` | Checks every release bundle's manifest, files and placeholders | nothing |
 | `astra-data deploy --environment <env> [releases]` | Runs every bundle's steps against the environment | Snowflake |
 | `astra-data test --environment <env> [releases]` | Runs every bundle's tests; a test passes when it returns no rows | Snowflake |
+| `astra-data custodians render --environment <env> [paths]` | Folds the configs' `delivery` and `alerts` blocks into one row per custodian and prints the SQL that syncs `CONTROL.CUSTODIANS` | nothing |
+| `astra-data custodians sync --environment <env> [paths]` | Applies that SQL in one transaction | Snowflake |
 
 `--format github` prints workflow annotations, which is how a failing pull request shows each problem on its file and line. `--format json` is for other tools. Exit code 0 means nothing wrong, 1 means problems or failing tests, 2 means a usage or connection error.
 

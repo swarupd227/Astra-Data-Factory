@@ -213,7 +213,33 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
         elif rule_status[rule_id] == "rejected":
             problems.append(Problem(display, line_of(data, ["mappings", i, "rule"]), f"mappings[{i}].rule '{rule_id}' has been rejected by its owner; a config may not use a rejected rule"))
 
+    delivery = data.get("delivery")
+    if delivery:
+        timezone = delivery["timezone"]
+        if not _timezone_exists(timezone):
+            problems.append(Problem(display, line_of(data, ["delivery", "timezone"]), f"delivery.timezone '{timezone}' is not a known IANA timezone"))
+        seen_patterns: set[str] = set()
+        for i, file in enumerate(delivery["files"]):
+            if file["pattern"] in seen_patterns:
+                problems.append(Problem(display, line_of(data, ["delivery", "files", i, "pattern"]), f"delivery.files[{i}].pattern '{file['pattern']}' is listed more than once"))
+            seen_patterns.add(file["pattern"])
+
     return problems
+
+
+def _timezone_exists(name: str) -> bool:
+    """True unless the timezone database is present and does not know the name."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
+
+    if name == "UTC":
+        return True
+    if not available_timezones():
+        return True  # no tz database on this machine; the shape check has already passed
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+    return True
 
 
 def _dedupe(problems: list[Problem]) -> list[Problem]:

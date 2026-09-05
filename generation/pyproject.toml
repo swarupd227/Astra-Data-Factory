@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
   "pyyaml>=6.0",
   "jsonschema>=4.20",
+  "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

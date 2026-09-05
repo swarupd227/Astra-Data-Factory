@@ -90,6 +90,17 @@ runs:
         SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
       run: astra-data --format github deploy --environment "${{ inputs.environment }}" releases
 
+    - name: Sync custodian delivery expectations and alert severities
+      shell: bash
+      env:
+        SNOWFLAKE_ORGANIZATION_NAME: ${{ inputs.snowflake-organization }}
+        SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
+        SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
+        SNOWFLAKE_PRIVATE_KEY: ${{ inputs.snowflake-private-key }}
+        SNOWFLAKE_ROLE: ${{ inputs.snowflake-role }}
+        SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
+      run: astra-data --format github custodians sync --environment "${{ inputs.environment }}" configs
+
     - name: Run generated tests
       shell: bash
       env:

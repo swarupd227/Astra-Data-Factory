@@ -291,6 +291,94 @@ variable "sandbox_max_age_hours" {
 }
 
 # ---------------------------------------------------------------------------
+# Alerts (S1.2.4)
+# ---------------------------------------------------------------------------
+
+variable "alert_email_recipients" {
+  description = "Email addresses that receive alerts. Empty disables the email channel."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for a in var.alert_email_recipients : can(regex("^[^@\\s,]+@[^@\\s,]+\\.[^@\\s,]+$", a))])
+    error_message = "Every alert_email_recipients entry must be an email address."
+  }
+}
+
+variable "slack_webhook_secret" {
+  description = "Secret path of the Slack incoming webhook URL, the part after https://hooks.slack.com/services/. Null disables the Slack channel. Supply via TF_VAR_slack_webhook_secret."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "jira" {
+  description = "Jira Cloud site alerts are raised in as issues. Null disables the Jira channel. jira_api_token must be set with it."
+  type = object({
+    site_url    = string
+    project_key = string
+    user_email  = string
+    issue_type  = optional(string, "Task")
+  })
+  default = null
+
+  validation {
+    condition     = var.jira == null || can(regex("^https://[a-z0-9.-]+$", var.jira.site_url))
+    error_message = "jira.site_url must be https://<site>.atlassian.net with no trailing path."
+  }
+
+  validation {
+    condition     = var.jira == null || can(regex("^[A-Z][A-Z0-9_]{1,9}$", var.jira.project_key))
+    error_message = "jira.project_key must be an upper-case Jira project key."
+  }
+
+  validation {
+    condition     = var.jira == null || var.jira_api_token != null
+    error_message = "jira requires jira_api_token (supply via TF_VAR_jira_api_token, never in a file)."
+  }
+}
+
+variable "jira_api_token" {
+  description = "API token of the Jira user alerts are raised as. Sensitive."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "alert_interval_minutes" {
+  description = "How often failed tasks and late custodians are detected and alerts dispatched."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.alert_interval_minutes >= 1 && var.alert_interval_minutes <= 5 && floor(var.alert_interval_minutes) == var.alert_interval_minutes
+    error_message = "alert_interval_minutes must be a whole number between 1 and 5 so a failure is alerted within five minutes."
+  }
+}
+
+variable "alert_lookback_hours" {
+  description = "How far back task history is scanned for failures on each run. Covers a paused alerting task catching up."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.alert_lookback_hours >= 1 && var.alert_lookback_hours <= 24
+    error_message = "alert_lookback_hours must be between 1 and 24."
+  }
+}
+
+variable "alert_delivery_attempts" {
+  description = "Maximum delivery attempts per alert and channel before it is left as failed in ALERT_DELIVERIES."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.alert_delivery_attempts >= 1 && var.alert_delivery_attempts <= 20
+    error_message = "alert_delivery_attempts must be between 1 and 20."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Snowflake Open Catalog (S1.1.2)
 # ---------------------------------------------------------------------------
 

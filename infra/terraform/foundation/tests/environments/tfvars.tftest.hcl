@@ -92,4 +92,15 @@ run "environment_file_plans_the_standard_inventory" {
     )
     error_message = "The environment must have the sandbox tags, log and reaper."
   }
+
+  # Alerts (S1.2.4)
+  assert {
+    condition = (
+      snowflake_iceberg_table.alerts.name == "ALERTS" &&
+      snowflake_iceberg_table.custodians.name == "CUSTODIANS" &&
+      snowflake_procedure_sql.run_alerting.name == "RUN_ALERTING" &&
+      snowflake_task.raise_alerts.started
+    )
+    error_message = "The environment must have alert detection and dispatch."
+  }
 }

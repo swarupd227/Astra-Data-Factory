@@ -36,22 +36,23 @@ locals {
       );
       LET c CURSOR FOR found;
       FOR rec IN c DO
+        LET sandbox_name STRING := rec.NAME;
+        LET created_at TIMESTAMP_NTZ := rec.CREATED_AT;
         LET meta VARIANT := TRY_PARSE_JSON(rec.COMMENT);
         LET task_id STRING := COALESCE(meta:task::STRING, 'unknown');
         LET expires_at TIMESTAMP_NTZ := TRY_TO_TIMESTAMP_NTZ(meta:expires_at::STRING);
         LET reason STRING := NULL;
         IF (expires_at IS NOT NULL AND expires_at <= SYSDATE()) THEN
           reason := 'expired';
-        ELSEIF (rec.CREATED_AT <= DATEADD('hour', -${var.sandbox_max_age_hours}, SYSDATE())) THEN
+        ELSEIF (created_at <= DATEADD('hour', -${var.sandbox_max_age_hours}, SYSDATE())) THEN
           reason := 'max_age';
         END IF;
         IF (reason IS NOT NULL) THEN
-          EXECUTE IMMEDIATE 'DROP WAREHOUSE IF EXISTS "' || rec.NAME || '_WH"';
-          EXECUTE IMMEDIATE 'DROP DATABASE IF EXISTS "' || rec.NAME || '"';
+          LET detail STRING := 'Dropped by the reaper. expires_at=' || COALESCE(expires_at::STRING, 'none') || ', created_at=' || created_at::STRING;
+          EXECUTE IMMEDIATE 'DROP WAREHOUSE IF EXISTS "' || sandbox_name || '_WH"';
+          EXECUTE IMMEDIATE 'DROP DATABASE IF EXISTS "' || sandbox_name || '"';
           INSERT INTO ${local.sandbox_log_fqn} (TASK_ID, SANDBOX, EVENT, REASON, DETAIL, OCCURRED_AT)
-            VALUES (:task_id, rec.NAME, 'destroyed', :reason,
-                    'Dropped by the reaper. expires_at=' || COALESCE(:expires_at::STRING, 'none') || ', created_at=' || rec.CREATED_AT::STRING,
-                    SYSDATE());
+            VALUES (:task_id, :sandbox_name, 'destroyed', :reason, :detail, SYSDATE());
           dropped := dropped + 1;
         END IF;
       END FOR;

@@ -44,3 +44,21 @@ dq_rules:
     check: trailer record count equals the number of detail records
     severity: error
     owner: steward@example.com
+
+# When the custodian delivers and what is expected. Shared by every source of
+# the same custodian; a 'late' alert lists whichever of these is missing after
+# the cutoff on a business day.
+delivery:
+  cutoff_time: "06:00"
+  timezone: America/New_York
+  business_days: [mon, tue, wed, thu, fri]
+  files:
+    - pattern: pershing/GCUS_%_POS_%.dat
+      description: Positions
+    - pattern: pershing/GCUS_%_TRN_%.dat
+      description: Transactions
+
+# Alert severity for this custodian. Routes per severity are operations data.
+alerts:
+  late: error
+  task_failure: error

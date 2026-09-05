@@ -70,6 +70,11 @@ Object names are `<PREFIX>_<ENV>_...`; the default prefix is `ASTRA`. For `dev`:
 | Iceberg table | `ASTRA_DEV.CONTROL.SANDBOX_LOG` | Every sandbox created and destroyed, with the reason. |
 | Procedure | `ASTRA_DEV.CONTROL.REAP_SANDBOXES` | Drops sandboxes past their expiry or older than the hard maximum; logs each drop. |
 | Task | `ASTRA_DEV.CONTROL.REAP_SANDBOXES` | Serverless, every 10 minutes by default. Calls the reaper. |
+| Iceberg tables | `ASTRA_DEV.CONTROL.ALERTS`, `ALERT_DELIVERIES`, `ALERT_ROUTES` | Every alert raised, every delivery attempt, and which severity goes to which channel. |
+| Iceberg tables | `ASTRA_DEV.CONTROL.CUSTODIANS`, `CUSTODIAN_FILES` | Cutoff, timezone, business days, expected files and alert severities per custodian, synced from configs. |
+| Procedures | `ASTRA_DEV.CONTROL.DETECT_TASK_FAILURES`, `DETECT_LATE_CUSTODIANS`, `DISPATCH_ALERTS`, `RUN_ALERTING` | Detection and dispatch. |
+| Task | `ASTRA_DEV.CONTROL.RAISE_ALERTS` | Serverless, every minute by default. Calls `RUN_ALERTING`. |
+| Integrations | `ASTRA_DEV_ALERT_EMAIL`, `ASTRA_DEV_ALERT_SLACK`, `ASTRA_DEV_ALERT_JIRA` | Each only when its channel is configured. Webhook secrets are Snowflake secrets in CONTROL. |
 
 The database is configured so that every table created in it is a Snowflake-managed Iceberg table on the external volume (`EXTERNAL_VOLUME`, `CATALOG = 'SNOWFLAKE'`) with `STORAGE_SERIALIZATION_POLICY = 'COMPATIBLE'`, which keeps the Parquet files readable by external engines.
 
@@ -124,6 +129,13 @@ ENGINEER and PIPELINE also hold the account-level `EXECUTE TASK` and `EXECUTE MA
 | `sandbox_prefix` | `sandbox` | Landing-bucket prefix where sandbox runs stage sample files; must not be inside `landing_prefix` |
 | `sandbox_reap_interval_minutes` | `10` | Cadence of the sandbox reaper task |
 | `sandbox_max_age_hours` | `24` | Hard limit on any sandbox's life, whatever expiry it declares |
+| `alert_email_recipients` | `[]` | Email addresses that receive alerts; empty disables the email channel |
+| `slack_webhook_secret` | `null` | Secret path of the Slack incoming webhook, sensitive; null disables Slack. Supply via `TF_VAR_slack_webhook_secret`. |
+| `jira` | `null` | `{ site_url, project_key, user_email, issue_type? }`; null disables Jira. Requires `jira_api_token`. |
+| `jira_api_token` | `null` | API token of the Jira user, sensitive. Supply via `TF_VAR_jira_api_token`. |
+| `alert_interval_minutes` | `1` | Detection and dispatch cadence, at most 5 |
+| `alert_lookback_hours` | `2` | How far back task history is scanned each run |
+| `alert_delivery_attempts` | `5` | Maximum attempts per alert and channel |
 
 Every variable is validated. A wrong environment name, an unknown warehouse size, a missing tier or an unknown role in an access list fails before any plan is made.
 
@@ -238,6 +250,16 @@ For S1.2.3 (the runner is in `verification/`):
 | Sandbox created in under two minutes with the requested config deployed | `astra-verify sandbox check --bundle <bundle>` times creation plus bundle deploy and fails above 120 s |
 | Destroyed automatically after the task or after a time limit | Unit tests prove the context manager destroys on success and failure; unit test `reaper_drops_expired_sandboxes_on_a_schedule` checks the reaper's logic and schedule; `astra-verify sandbox reap` exercises it live |
 | Cost tagged to the task | Unit tests check the `TASK_ID` and `PURPOSE` tags on both objects and the query tag; the live check reads the tag back with `SYSTEM$GET_TAG` |
+
+For S1.2.4 (alerts):
+
+| Criterion | Verified by |
+|---|---|
+| A failed Task raises an alert on all three channels within five minutes | Unit tests check the detection SQL, the routes (critical and error to Slack, Jira and email) and the one-minute serverless schedule. Live: suspend a task's warehouse, let a run fail, and watch `ALERT_DELIVERIES` for three `sent` rows. |
+| A custodian past its cutoff raises a 'late' alert with the missing files listed | Unit test `late_custodians_become_alerts_listing_missing_files` checks cutoff, business days, the arrival comparison and the listed patterns. Live: set a cutoff a minute ahead for a custodian with an unmatched pattern. |
+| Alert severity is configurable per custodian | `alerts.late` and `alerts.task_failure` in the source config, synced by `astra-data custodians sync` (unit-tested), read by the detection procedures. |
+
+Alerts are raised into `CONTROL.ALERTS` even when no channel is configured, so the audit trail exists before the channels do. To raise a test alert by hand: insert a row into `ALERTS` with a severity that has routes and call `CONTROL.DISPATCH_ALERTS()`.
 
 Unit tests in `tests/*.tftest.hcl` run against mocked providers and cover object names, sizes, the access matrix, cost control, the volume, the Open Catalog wiring, the landing pipeline and every validation rule. The bucket hardening is tested in `modules/private-bucket/tests`. All of it runs in CI on every change and needs no credentials.
 

@@ -26,3 +26,23 @@ A problem is reported with file, line and a plain sentence: a missing field, an 
 The schema is versioned by `config_version` and lives at `generation/src/astra_data/schemas/config-v<n>.schema.json`. Version 0 fixes identity, ownership, references and the shape of rules; field-level mapping semantics arrive with the config compiler (S3.1.1).
 
 Files starting with `_` are ignored, so a draft can sit beside real configs without failing the build.
+
+## Delivery expectations and alert severity
+
+Two optional blocks drive the alerts of S1.2.4. Every source of the same custodian must agree on them; the file lists are merged.
+
+```yaml
+delivery:
+  cutoff_time: "06:00"            # HH:MM in the custodian's timezone
+  timezone: America/New_York      # IANA name
+  business_days: [mon, tue, wed, thu, fri]   # default
+  files:
+    - pattern: pershing/GCUS_%_POS_%.dat     # SQL LIKE pattern relative to the landing prefix
+      description: Positions
+
+alerts:
+  late: error                     # severity when expected files are missing after the cutoff
+  task_failure: error             # severity when one of the custodian's tasks fails
+```
+
+Severities are `info`, `warning`, `error` or `critical`; which channels each reaches is operations data in `CONTROL.ALERT_ROUTES`. The deploy pipeline runs `astra-data custodians sync` after the bundles, so `CONTROL.CUSTODIANS` and `CUSTODIAN_FILES` always reflect what was merged. `astra-data custodians render --environment dev` prints the SQL without connecting.
