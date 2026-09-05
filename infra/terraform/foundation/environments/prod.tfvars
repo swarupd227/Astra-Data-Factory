@@ -6,6 +6,9 @@
 
 environment         = "prod"
 data_retention_days = 7
+aws_region          = "us-east-1"
+
+# open_catalog: see dev.tfvars for the shape; set after provisioning.
 
 warehouse_tiers = {
   simple = {

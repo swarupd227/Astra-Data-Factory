@@ -8,7 +8,8 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 
 | Path | Plane | Contents |
 |---|---|---|
-| `infra/terraform/snowflake` | Control (E1) | Snowflake databases, schemas, roles and tier-sized warehouses per environment |
+| `infra/terraform/foundation` | Control (E1) | Per environment: Snowflake database, schemas, roles, tier-sized warehouses, Iceberg bucket and external volume, Open Catalog sync |
+| `tools/opencatalog` | Control (E1) | Provisions and verifies Snowflake Open Catalog, which has no Terraform provider |
 | `docs` | | Specification, backlog and architecture decision records |
 
 Further planes (knowledge, generation, verification, agents, workbench) are added as their epics start.

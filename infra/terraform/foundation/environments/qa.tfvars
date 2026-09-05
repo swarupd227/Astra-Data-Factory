@@ -1,8 +1,10 @@
-# Development environment. Only values that differ between environments live
-# in this file; object definitions are shared (S1.2.1).
+# QA environment. Generated tests and dry-runs execute here; sizes match dev.
 
-environment         = "dev"
+environment         = "qa"
 data_retention_days = 1
+aws_region          = "us-east-1"
+
+# open_catalog: see dev.tfvars for the shape; set after provisioning.
 
 warehouse_tiers = {
   simple = {

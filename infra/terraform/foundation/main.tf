@@ -6,6 +6,14 @@ resource "snowflake_database" "this" {
   name                        = local.database_name
   comment                     = "Astra Data Factory ${var.environment} environment. Managed by Terraform; do not edit by hand."
   data_retention_time_in_days = var.data_retention_days
+
+  # Every table created in this database is a Snowflake-managed Iceberg table
+  # on the environment's external volume unless a renderer says otherwise.
+  # COMPATIBLE serialization keeps the Parquet files readable by external
+  # engines (pg_lake, Spark, DuckDB) through Open Catalog.
+  external_volume              = snowflake_external_volume.iceberg.name
+  catalog                      = "SNOWFLAKE"
+  storage_serialization_policy = "COMPATIBLE"
 }
 
 resource "snowflake_schema" "this" {

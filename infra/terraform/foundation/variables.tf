@@ -180,6 +180,81 @@ variable "warehouse_tiers" {
 }
 
 # ---------------------------------------------------------------------------
+# Iceberg storage (S1.1.2)
+# ---------------------------------------------------------------------------
+
+variable "aws_region" {
+  description = "AWS region of the Iceberg bucket. Should match the Snowflake account's region to avoid cross-region egress."
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "iceberg_bucket_name" {
+  description = "Name of the S3 bucket that holds Iceberg data and metadata. Leave null to derive <prefix>-<env>-iceberg-<aws account id>."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.iceberg_bucket_name == null || can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.iceberg_bucket_name))
+    error_message = "iceberg_bucket_name must be a valid S3 bucket name: lower-case letters, digits, dots and hyphens, 3 to 63 characters."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Snowflake Open Catalog (S1.1.2)
+# ---------------------------------------------------------------------------
+
+variable "open_catalog" {
+  description = <<-EOT
+    Snowflake Open Catalog that Iceberg table metadata is synced to, so that external engines
+    (pg_lake, Spark, DuckDB) read the same files through the Iceberg REST API. Leave null until
+    the Open Catalog account exists and the catalog has been provisioned with
+    tools/opencatalog. iam_user_arn and external_id are reported by that provisioning step;
+    once set, the IAM role Open Catalog assumes to read the bucket is created.
+  EOT
+  type = object({
+    account_url  = string
+    catalog_name = string
+    iam_user_arn = optional(string)
+    external_id  = optional(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.open_catalog == null || can(regex("^https://[a-z0-9._-]+\\.snowflakecomputing\\.com$", var.open_catalog.account_url))
+    error_message = "open_catalog.account_url must be https://<org>-<account>.snowflakecomputing.com with no trailing path."
+  }
+
+  validation {
+    condition     = var.open_catalog == null || can(regex("^[a-z][a-z0-9_]{0,62}$", var.open_catalog.catalog_name))
+    error_message = "open_catalog.catalog_name must be lower-case letters, digits and underscores, starting with a letter."
+  }
+
+  validation {
+    condition     = var.open_catalog == null || (var.open_catalog_client_id != null && var.open_catalog_client_secret != null)
+    error_message = "open_catalog requires open_catalog_client_id and open_catalog_client_secret (supply the secret via TF_VAR_open_catalog_client_secret, never in a file)."
+  }
+
+  validation {
+    condition     = var.open_catalog == null || ((var.open_catalog.iam_user_arn == null) == (var.open_catalog.external_id == null))
+    error_message = "open_catalog.iam_user_arn and open_catalog.external_id must be set together."
+  }
+}
+
+variable "open_catalog_client_id" {
+  description = "OAuth client id of the Open Catalog service connection that Snowflake uses to sync table metadata."
+  type        = string
+  default     = null
+}
+
+variable "open_catalog_client_secret" {
+  description = "OAuth client secret of that service connection. Supply from the secret manager via TF_VAR_open_catalog_client_secret."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+# ---------------------------------------------------------------------------
 # Cost control
 # ---------------------------------------------------------------------------
 

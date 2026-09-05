@@ -7,6 +7,7 @@
 # is scripts/verify-idempotent.sh.
 
 mock_provider "snowflake" {}
+mock_provider "aws" {}
 
 variables {
   environment = "dev"

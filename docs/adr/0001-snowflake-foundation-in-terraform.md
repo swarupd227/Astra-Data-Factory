@@ -10,7 +10,7 @@ Every Astra Data Factory environment needs the same Snowflake objects: a databas
 
 ## Decision
 
-1. **One root module at `infra/terraform/snowflake`, one tfvars file per environment.** No Terraform workspaces and no per-environment directories. Environment parity is a property of the layout, not a review checklist item.
+1. **One root module at `infra/terraform/foundation`, one tfvars file per environment.** No Terraform workspaces and no per-environment directories. Environment parity is a property of the layout, not a review checklist item.
 
 2. **Provider `snowflakedb/snowflake` 2.x with key-pair authentication from environment variables.** The provider reads organisation, account, user and private key from the environment. No connection detail or secret is stored in the repository.
 

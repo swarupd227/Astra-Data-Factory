@@ -9,6 +9,14 @@
 
 mock_provider "snowflake" {}
 
+mock_provider "aws" {
+  mock_data "aws_iam_policy_document" {
+    defaults = {
+      json = "{}"
+    }
+  }
+}
+
 run "environment_file_plans_completely" {
   command = plan
 

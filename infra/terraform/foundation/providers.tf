@@ -12,3 +12,17 @@
 provider "snowflake" {
   role = var.terraform_role
 }
+
+# AWS credentials come from the environment or an assumed role (OIDC in CI).
+# The bucket and IAM roles are created in the client's own AWS account.
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      Platform    = "astra-data-factory"
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
+}
