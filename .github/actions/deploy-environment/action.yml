@@ -1,0 +1,110 @@
+# Deploys one environment: the foundation (Terraform apply), then every
+# release bundle (astra-data deploy), then the generated tests
+# (astra-data test). Used by deploy.yml for dev and qa with the same steps,
+# which is the point: promotion changes the target, never the procedure.
+
+name: Deploy environment
+description: Apply the foundation, deploy release bundles and run generated tests against one environment.
+
+inputs:
+  environment:
+    description: Environment name (dev, qa, uat, prod)
+    required: true
+  aws-role-arn:
+    description: IAM role assumed through OIDC
+    required: true
+  aws-region:
+    required: true
+  state-bucket:
+    description: S3 bucket holding Terraform state (from infra/terraform/bootstrap)
+    required: true
+  snowflake-organization:
+    required: true
+  snowflake-account:
+    required: true
+  snowflake-user:
+    required: true
+  snowflake-private-key:
+    description: PEM private key of the service user
+    required: true
+  snowflake-role:
+    description: Role for astra-data deploy and test
+    required: true
+  snowflake-warehouse:
+    required: true
+  open-catalog-client-secret:
+    description: Only when the environment has Open Catalog configured
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Start clock
+      shell: bash
+      run: echo "DEPLOY_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+    - uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "1.16.1"
+        terraform_wrapper: false
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.aws-role-arn }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Apply foundation
+      shell: bash
+      working-directory: infra/terraform/foundation
+      env:
+        SNOWFLAKE_ORGANIZATION_NAME: ${{ inputs.snowflake-organization }}
+        SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
+        SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
+        SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
+        SNOWFLAKE_PRIVATE_KEY: ${{ inputs.snowflake-private-key }}
+        TF_VAR_open_catalog_client_secret: ${{ inputs.open-catalog-client-secret }}
+      run: |
+        terraform init -input=false \
+          -backend-config="environments/backend-${{ inputs.environment }}.hcl" \
+          -backend-config="bucket=${{ inputs.state-bucket }}"
+        terraform apply -input=false -auto-approve -no-color \
+          -var-file="environments/${{ inputs.environment }}.tfvars" | tail -n 5
+
+    - name: Install astra-data
+      shell: bash
+      run: python -m pip install --quiet -e "generation[deploy]"
+
+    - name: Deploy release bundles
+      shell: bash
+      env:
+        SNOWFLAKE_ORGANIZATION_NAME: ${{ inputs.snowflake-organization }}
+        SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
+        SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
+        SNOWFLAKE_PRIVATE_KEY: ${{ inputs.snowflake-private-key }}
+        SNOWFLAKE_ROLE: ${{ inputs.snowflake-role }}
+        SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
+      run: astra-data --format github deploy --environment "${{ inputs.environment }}" releases
+
+    - name: Run generated tests
+      shell: bash
+      env:
+        SNOWFLAKE_ORGANIZATION_NAME: ${{ inputs.snowflake-organization }}
+        SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
+        SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
+        SNOWFLAKE_PRIVATE_KEY: ${{ inputs.snowflake-private-key }}
+        SNOWFLAKE_ROLE: ${{ inputs.snowflake-role }}
+        SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
+      run: astra-data --format github test --environment "${{ inputs.environment }}" releases
+
+    - name: Record duration
+      if: always()
+      shell: bash
+      run: |
+        seconds=$(( $(date +%s) - DEPLOY_STARTED ))
+        echo "DEPLOY_SECONDS=$seconds" >> "$GITHUB_ENV"
+        echo "| ${{ inputs.environment }} deploy | $(( seconds / 60 )) min $(( seconds % 60 )) s |" >> "$GITHUB_STEP_SUMMARY"

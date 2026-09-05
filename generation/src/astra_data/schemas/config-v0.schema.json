@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/config-v0.schema.json",
+  "title": "Astra Data Factory source config, version 0",
+  "description": "One versioned instance of a Source Spec mapped to a canonical model under a Target Profile, with rules, DQ rules and resolution parameters (product spec Section 4). Version 0 fixes identity, ownership, references and the shape of rules; field-level mapping semantics arrive with the config compiler (S3.1.1).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["config_version", "source", "spec", "target_profile", "domain_pack", "effective_from", "owner"],
+  "properties": {
+    "config_version": {
+      "const": 0,
+      "description": "Schema version this file is written against."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "custodian", "file_type", "tier"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier", "description": "Unique source id; the file must be named <id>.yaml." },
+        "custodian": { "$ref": "#/$defs/identifier" },
+        "file_type": { "$ref": "#/$defs/identifier", "description": "position, transaction, price, ..." },
+        "family": { "$ref": "#/$defs/identifier", "description": "Layout family assigned by the Pattern Matcher." },
+        "tier": { "enum": ["simple", "medium", "complex"] },
+        "description": { "type": "string" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$", "description": "Source Spec id in the spec registry." },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "target_profile": { "$ref": "#/$defs/identifier" },
+    "domain_pack": { "$ref": "#/$defs/identifier" },
+    "effective_from": { "$ref": "#/$defs/date", "description": "Business date from which this config is in force." },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "email"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "email": { "type": "string", "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
+      }
+    },
+    "mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target", "source"],
+        "properties": {
+          "target": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$", "description": "entity.field in the canonical model" },
+          "source": { "type": "string", "minLength": 1, "description": "Source field name from the spec" },
+          "transform": { "type": "string" },
+          "rule": { "$ref": "#/$defs/identifier", "description": "Rule id from `rules` that governs this mapping." }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text", "class", "citation", "status"],
+        "properties": {
+          "id": { "$ref": "#/$defs/identifier" },
+          "text": { "type": "string", "minLength": 1 },
+          "class": { "enum": ["ingestion", "business", "normalisation"] },
+          "citation": { "type": "string", "minLength": 1, "description": "file:line, spec page, or approver" },
+          "status": { "enum": ["recovered", "confirmed", "rejected", "legacy_defect"] },
+          "owner": { "type": "string" }
+        }
+      }
+    },
+    "dq_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "level", "check"],
+        "properties": {
+          "id": { "$ref": "#/$defs/identifier" },
+          "level": { "enum": ["file", "record", "pair", "business"] },
+          "check": { "type": "string", "minLength": 1 },
+          "threshold": { "type": "number" },
+          "severity": { "enum": ["info", "warning", "error"] },
+          "owner": { "type": "string" }
+        }
+      }
+    },
+    "resolution": {
+      "type": "object",
+      "description": "Resolution parameters (account, security, transaction code, price). Free-form in version 0."
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    }
+  }
+}

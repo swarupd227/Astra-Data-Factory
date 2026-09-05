@@ -1,0 +1,46 @@
+# Example source config. Validated in CI as a smoke test of the config
+# schema; never deployed. Real configs live beside it, one directory per
+# custodian, one file per source named <source id>.yaml.
+config_version: 0
+
+source:
+  id: pershing_position
+  custodian: pershing
+  file_type: position
+  family: pershing_gcus
+  tier: medium
+  description: Pershing GCUS position file, one record per account and security.
+
+spec:
+  id: GCUS_20170725
+  version: "2017-07-25"
+
+target_profile: snowflake_iceberg
+domain_pack: custodial_wealth
+effective_from: 2026-09-01
+
+owner:
+  name: Data steward, custodial
+  email: steward@example.com
+
+mappings:
+  - target: position.account_number
+    source: ACCOUNT_NUMBER
+  - target: position.quantity
+    source: QUANTITY
+    transform: signed_implied_decimal(13, 5)
+    rule: quantity_sign
+
+rules:
+  - id: quantity_sign
+    text: Quantity is unsigned digits with the sign in the following field; a blank sign means unknown, not zero.
+    class: normalisation
+    citation: GCUS_20170725 page 14
+    status: recovered
+
+dq_rules:
+  - id: trailer_control_total
+    level: file
+    check: trailer record count equals the number of detail records
+    severity: error
+    owner: steward@example.com

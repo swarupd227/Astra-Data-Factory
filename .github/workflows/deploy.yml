@@ -1,0 +1,98 @@
+# Every merge to main deploys to dev, then to qa once a reviewer approves the
+# qa environment (a protection rule on the GitHub environment, see
+# docs/runbooks/ci-cd-setup.md). The same composite action deploys both, so
+# promotion changes the target and nothing else.
+#
+# Time budget (S1.2.2): merge to qa deployed in under 30 minutes. Each deploy
+# job is capped at 12 minutes; the qa job reports the wall-clock time since
+# the merge commit, which includes the approval wait.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  dev:
+    name: deploy dev
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 12
+    outputs:
+      merged_at: ${{ steps.merge.outputs.merged_at }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record merge time
+        id: merge
+        run: |
+          merged_at=$(git show -s --format=%ct HEAD)
+          echo "merged_at=$merged_at" >> "$GITHUB_OUTPUT"
+          echo "## Deploy timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Stage | Duration |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: ./.github/actions/deploy-environment
+        with:
+          environment: dev
+          aws-role-arn: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          state-bucket: ${{ vars.TF_STATE_BUCKET }}
+          snowflake-organization: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
+          snowflake-account: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
+          snowflake-user: ${{ vars.SNOWFLAKE_USER }}
+          snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          snowflake-role: ${{ vars.SNOWFLAKE_DEPLOY_ROLE }}
+          snowflake-warehouse: ${{ vars.SNOWFLAKE_DEPLOY_WAREHOUSE }}
+          open-catalog-client-secret: ${{ secrets.OPEN_CATALOG_CLIENT_SECRET }}
+
+  qa:
+    name: deploy qa
+    needs: dev
+    runs-on: ubuntu-latest
+    environment: qa
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Timing header
+        run: |
+          echo "## Deploy timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Stage | Duration |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: ./.github/actions/deploy-environment
+        with:
+          environment: qa
+          aws-role-arn: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          state-bucket: ${{ vars.TF_STATE_BUCKET }}
+          snowflake-organization: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
+          snowflake-account: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
+          snowflake-user: ${{ vars.SNOWFLAKE_USER }}
+          snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          snowflake-role: ${{ vars.SNOWFLAKE_DEPLOY_ROLE }}
+          snowflake-warehouse: ${{ vars.SNOWFLAKE_DEPLOY_WAREHOUSE }}
+          open-catalog-client-secret: ${{ secrets.OPEN_CATALOG_CLIENT_SECRET }}
+
+      - name: Merge to qa elapsed
+        if: always()
+        run: |
+          merged_at=${{ needs.dev.outputs.merged_at }}
+          total=$(( $(date +%s) - merged_at ))
+          minutes=$(( total / 60 ))
+          echo "| merge to qa deployed (includes approval wait) | ${minutes} min $(( total % 60 )) s |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| target | under 30 min |" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$minutes" -ge 30 ]; then
+            echo "::warning title=Deploy time::Merge to qa took ${minutes} minutes, over the 30 minute target. Approval wait is included; the deploy jobs themselves are capped at 12 minutes each."
+          fi
