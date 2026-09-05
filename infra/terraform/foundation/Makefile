@@ -29,6 +29,7 @@ validate: init-local
 
 test: init-local
 	$(TF) test
+	cd modules/private-bucket && $(TF) init -input=false -backend=false >/dev/null && $(TF) test
 
 # Proves that one environment's tfvars file produces a complete plan.
 check-env: init-local

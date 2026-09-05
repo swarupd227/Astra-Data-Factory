@@ -30,7 +30,42 @@ output "resource_monitor_name" {
 
 output "iceberg_bucket_name" {
   description = "S3 bucket holding Iceberg data and metadata."
-  value       = aws_s3_bucket.iceberg.bucket
+  value       = module.iceberg_bucket.name
+}
+
+output "landing_bucket_name" {
+  description = "S3 bucket custodian files are delivered to."
+  value       = module.landing_bucket.name
+}
+
+output "landing_base_url" {
+  description = "Location Snowpipe watches. Files dropped beneath it appear in BRONZE.RAW_LINES."
+  value       = local.landing_base_url
+}
+
+output "landing_stage" {
+  description = "Fully qualified name of the external stage over the landing zone."
+  value       = local.landing_stage_fqn
+}
+
+output "raw_lines_table" {
+  description = "Fully qualified name of the Bronze raw-lines table."
+  value       = local.raw_lines_table_fqn
+}
+
+output "raw_lines_pipe" {
+  description = "Fully qualified name of the auto-ingest pipe."
+  value       = snowflake_pipe.raw_lines.fully_qualified_name
+}
+
+output "file_load_log_table" {
+  description = "Fully qualified name of the file load log (LOADED, FAILED, DUPLICATE, CONFLICT per arrival)."
+  value       = local.file_load_log_fqn
+}
+
+output "snowpipe_notification_channel" {
+  description = "SQS queue ARN Snowflake listens on for this account and region; the landing bucket notification targets it."
+  value       = snowflake_pipe.raw_lines.notification_channel
 }
 
 output "iceberg_base_url" {

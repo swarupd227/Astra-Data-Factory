@@ -66,6 +66,12 @@ jobs:
       - name: Unit tests
         run: terraform test
 
+      - name: Module tests
+        working-directory: infra/terraform/foundation/modules/private-bucket
+        run: |
+          terraform init -input=false -backend=false
+          terraform test
+
       - name: Environment files plan completely
         run: |
           for e in dev qa uat prod; do

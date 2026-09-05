@@ -11,6 +11,17 @@
 # because it differs between the bootstrap run and steady-state runs.
 provider "snowflake" {
   role = var.terraform_role
+
+  # Resources the provider still marks as preview. They are pinned by the
+  # provider version constraint and the lock file; review this list when the
+  # provider is upgraded.
+  preview_features_enabled = [
+    "snowflake_storage_integration_aws_resource",
+    "snowflake_file_format_csv_resource",
+    "snowflake_stage_external_s3_resource",
+    "snowflake_pipe_resource",
+    "snowflake_iceberg_table_resource",
+  ]
 }
 
 # AWS credentials come from the environment or an assumed role (OIDC in CI).

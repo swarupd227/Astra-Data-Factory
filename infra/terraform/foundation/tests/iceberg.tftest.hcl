@@ -25,40 +25,14 @@ variables {
 # Storage
 # ---------------------------------------------------------------------------
 
-run "creates_a_locked_down_bucket" {
+# The bucket hardening itself is tested in modules/private-bucket/tests.
+
+run "creates_the_iceberg_bucket_with_the_configured_name" {
   command = plan
 
   assert {
-    condition     = aws_s3_bucket.iceberg.bucket == "astra-dev-iceberg-123456789012"
+    condition     = module.iceberg_bucket.name == "astra-dev-iceberg-123456789012"
     error_message = "The bucket must use the configured name."
-  }
-
-  assert {
-    condition = (
-      aws_s3_bucket_public_access_block.iceberg.block_public_acls &&
-      aws_s3_bucket_public_access_block.iceberg.block_public_policy &&
-      aws_s3_bucket_public_access_block.iceberg.ignore_public_acls &&
-      aws_s3_bucket_public_access_block.iceberg.restrict_public_buckets
-    )
-    error_message = "All public access must be blocked."
-  }
-
-  assert {
-    condition     = aws_s3_bucket_versioning.iceberg.versioning_configuration[0].status == "Enabled"
-    error_message = "Versioning must be enabled so Iceberg metadata can be recovered."
-  }
-
-  assert {
-    condition = anytrue([
-      for r in aws_s3_bucket_server_side_encryption_configuration.iceberg.rule :
-      anytrue([for d in r.apply_server_side_encryption_by_default : d.sse_algorithm == "AES256"])
-    ])
-    error_message = "Objects must be encrypted with SSE-S3, matching the external volume's AWS_SSE_S3."
-  }
-
-  assert {
-    condition     = aws_s3_bucket_ownership_controls.iceberg.rule[0].object_ownership == "BucketOwnerEnforced"
-    error_message = "ACLs must be disabled."
   }
 }
 
@@ -70,7 +44,7 @@ run "bucket_name_is_derived_when_not_set" {
   }
 
   assert {
-    condition     = startswith(aws_s3_bucket.iceberg.bucket, "astra-dev-iceberg-")
+    condition     = startswith(module.iceberg_bucket.name, "astra-dev-iceberg-")
     error_message = "Derived bucket name must be <prefix>-<env>-iceberg-<account id>."
   }
 }

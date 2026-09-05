@@ -102,6 +102,11 @@ variable "schemas" {
   }
 
   validation {
+    condition     = contains(keys(var.schemas), "BRONZE") && contains(keys(var.schemas), "CONTROL")
+    error_message = "schemas must include BRONZE (raw lines) and CONTROL (file load log); the landing pipeline creates objects in both."
+  }
+
+  validation {
     condition = alltrue(flatten([
       for _, s in var.schemas : [
         for r in setunion(s.readers, s.writers, s.creators) :
@@ -197,6 +202,49 @@ variable "iceberg_bucket_name" {
   validation {
     condition     = var.iceberg_bucket_name == null || can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.iceberg_bucket_name))
     error_message = "iceberg_bucket_name must be a valid S3 bucket name: lower-case letters, digits, dots and hyphens, 3 to 63 characters."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Landing zone and Snowpipe (S1.1.3)
+# ---------------------------------------------------------------------------
+
+variable "landing_bucket_name" {
+  description = "Name of the S3 bucket custodian files are delivered to. Leave null to derive <prefix>-<env>-landing-<aws account id>."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.landing_bucket_name == null || can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.landing_bucket_name))
+    error_message = "landing_bucket_name must be a valid S3 bucket name: lower-case letters, digits, dots and hyphens, 3 to 63 characters."
+  }
+}
+
+variable "landing_prefix" {
+  description = "Key prefix inside the landing bucket that Snowpipe watches. Custodian folders live beneath it. No leading or trailing slash."
+  type        = string
+  default     = "landing"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9_/-]*[a-z0-9]$", var.landing_prefix)) && !strcontains(var.landing_prefix, "//")
+    error_message = "landing_prefix must be lower-case letters, digits, underscores, hyphens and single slashes, with no leading or trailing slash."
+  }
+}
+
+variable "landing_noncurrent_version_days" {
+  description = "Days to keep superseded versions of landed files (a re-delivered file overwrites the previous object; the old version stays this long). Null keeps every version."
+  type        = number
+  default     = 30
+}
+
+variable "landing_reconcile_interval_minutes" {
+  description = "How often the file load log is reconciled against the landing zone and Snowpipe history. Duplicates are reported within this interval of arriving."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.landing_reconcile_interval_minutes >= 1 && var.landing_reconcile_interval_minutes <= 60 && floor(var.landing_reconcile_interval_minutes) == var.landing_reconcile_interval_minutes
+    error_message = "landing_reconcile_interval_minutes must be a whole number between 1 and 60."
   }
 }
 

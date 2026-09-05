@@ -3,8 +3,10 @@ terraform {
 
   required_providers {
     snowflake = {
-      source  = "snowflakedb/snowflake"
-      version = "~> 2.0"
+      source = "snowflakedb/snowflake"
+      # Preview resources (see providers.tf) may change between minor
+      # versions; the lock file pins the exact version that was tested.
+      version = "~> 2.20"
     }
     aws = {
       source  = "hashicorp/aws"
