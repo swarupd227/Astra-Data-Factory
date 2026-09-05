@@ -95,3 +95,9 @@ class SnowflakeExecutor:
 
     def close(self) -> None:
         self._con.close()
+
+    def __enter__(self) -> "SnowflakeExecutor":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()

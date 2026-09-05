@@ -39,8 +39,8 @@ run "environment_file_plans_the_standard_inventory" {
   }
 
   assert {
-    condition     = length(snowflake_account_role.this) == 6
-    error_message = "The environment must define the six functional roles."
+    condition     = length(snowflake_account_role.this) == 7
+    error_message = "The environment must define the seven functional roles."
   }
 
   assert {
@@ -80,5 +80,16 @@ run "environment_file_plans_the_standard_inventory" {
   assert {
     condition     = length(aws_s3_bucket_notification.landing.queue) == 1
     error_message = "The landing bucket must notify Snowpipe."
+  }
+
+  # Sandboxes (S1.2.3)
+  assert {
+    condition = (
+      snowflake_tag.task_id.name == "TASK_ID" &&
+      snowflake_iceberg_table.sandbox_log.name == "SANDBOX_LOG" &&
+      snowflake_procedure_sql.reap_sandboxes.name == "REAP_SANDBOXES" &&
+      snowflake_task.reap_sandboxes.started
+    )
+    error_message = "The environment must have the sandbox tags, log and reaper."
   }
 }

@@ -69,9 +69,9 @@ run "creates_every_object_from_defaults" {
   assert {
     condition = toset([for r in snowflake_account_role.this : r.name]) == toset([
       "ASTRA_DEV_ADMIN", "ASTRA_DEV_ENGINEER", "ASTRA_DEV_PIPELINE",
-      "ASTRA_DEV_STEWARD", "ASTRA_DEV_CONSUMER", "ASTRA_DEV_AUDITOR",
+      "ASTRA_DEV_STEWARD", "ASTRA_DEV_CONSUMER", "ASTRA_DEV_AUDITOR", "ASTRA_DEV_SANDBOX",
     ])
-    error_message = "Six functional roles must be created with the environment prefix."
+    error_message = "Seven functional roles must be created with the environment prefix."
   }
 
   assert {
@@ -186,7 +186,7 @@ run "grants_follow_the_schema_access_matrix" {
   command = plan
 
   assert {
-    condition     = toset(keys(snowflake_grant_privileges_to_account_role.database_usage)) == toset(["ADMIN", "ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR"])
+    condition     = toset(keys(snowflake_grant_privileges_to_account_role.database_usage)) == toset(["ADMIN", "ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR", "SANDBOX"])
     error_message = "Every functional role gets USAGE on the database."
   }
 
@@ -248,7 +248,7 @@ run "grants_follow_the_schema_access_matrix" {
   }
 
   assert {
-    condition     = toset(keys(snowflake_grant_account_role.to_admin)) == toset(["ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR"])
+    condition     = toset(keys(snowflake_grant_account_role.to_admin)) == toset(["ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR", "SANDBOX"])
     error_message = "Every non-admin role is granted to ADMIN."
   }
 

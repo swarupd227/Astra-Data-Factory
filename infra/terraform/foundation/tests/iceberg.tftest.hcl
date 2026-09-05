@@ -98,8 +98,8 @@ run "table_creating_roles_can_use_the_volume" {
   command = plan
 
   assert {
-    condition     = toset(keys(snowflake_grant_privileges_to_account_role.external_volume_usage)) == toset(["ADMIN", "ENGINEER", "PIPELINE"])
-    error_message = "ADMIN, ENGINEER and PIPELINE get USAGE on the external volume; read-only roles do not."
+    condition     = toset(keys(snowflake_grant_privileges_to_account_role.external_volume_usage)) == toset(["ADMIN", "ENGINEER", "PIPELINE", "SANDBOX"])
+    error_message = "ADMIN, ENGINEER, PIPELINE and SANDBOX get USAGE on the external volume; read-only roles do not."
   }
 
   assert {

@@ -45,31 +45,51 @@ class DeployError(RuntimeError):
         super().__init__(f"{bundle}: step {step} failed: {cause}")
 
 
+IDENTIFIER_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,254}$")
+
+
 @dataclass(frozen=True)
 class Target:
-    """Where a bundle is deployed. Names follow the foundation's naming rule."""
+    """Where a bundle is deployed. Names follow the foundation's naming rule.
+
+    `database` and `warehouse` override the derived names. A sandbox (S1.2.3)
+    uses them to point the same bundle at its own database and warehouse.
+    """
 
     environment: str
     prefix: str = "ASTRA"
+    database: str | None = None
+    warehouse: str | None = None
 
     def __post_init__(self) -> None:
         if not ENVIRONMENT_PATTERN.match(self.environment):
             raise ValueError("environment must be 2 to 8 lower-case letters or digits, starting with a letter")
         if not PREFIX_PATTERN.match(self.prefix):
             raise ValueError("prefix must be upper-case letters and digits, starting with a letter")
+        for name, value in (("database", self.database), ("warehouse", self.warehouse)):
+            if value is not None and not IDENTIFIER_PATTERN.match(value):
+                raise ValueError(f"{name} must be an unquoted upper-case Snowflake identifier")
+        if self.database is None:
+            object.__setattr__(self, "database", f"{self.prefix}_{self.environment.upper()}")
 
     @property
-    def database(self) -> str:
+    def environment_database(self) -> str:
+        """The shared environment database, whatever this target points at."""
         return f"{self.prefix}_{self.environment.upper()}"
 
     def parameters(self) -> dict[str, str]:
+        tiers = {
+            "WAREHOUSE_SIMPLE": f"{self.environment_database}_WH_SIMPLE",
+            "WAREHOUSE_MEDIUM": f"{self.environment_database}_WH_MEDIUM",
+            "WAREHOUSE_COMPLEX": f"{self.environment_database}_WH_COMPLEX",
+        }
+        if self.warehouse is not None:
+            tiers = {key: self.warehouse for key in tiers}
         return {
             "ENVIRONMENT": self.environment,
             "PREFIX": self.prefix,
             "DATABASE": self.database,
-            "WAREHOUSE_SIMPLE": f"{self.database}_WH_SIMPLE",
-            "WAREHOUSE_MEDIUM": f"{self.database}_WH_MEDIUM",
-            "WAREHOUSE_COMPLEX": f"{self.database}_WH_COMPLEX",
+            **tiers,
         }
 
 

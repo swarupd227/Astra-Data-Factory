@@ -21,6 +21,7 @@ provider "snowflake" {
     "snowflake_stage_external_s3_resource",
     "snowflake_pipe_resource",
     "snowflake_iceberg_table_resource",
+    "snowflake_procedure_sql_resource",
   ]
 }
 

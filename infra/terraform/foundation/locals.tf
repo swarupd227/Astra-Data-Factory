@@ -4,7 +4,7 @@ locals {
 
   # Functional roles created for every environment. The names are stable so
   # that grants, CI and the workbench can refer to them without lookup.
-  functional_roles = ["ADMIN", "ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR"]
+  functional_roles = ["ADMIN", "ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR", "SANDBOX"]
   role_names       = { for r in local.functional_roles : r => "${local.name_prefix}_${r}" }
 
   warehouse_names = { for tier, _ in var.warehouse_tiers : tier => "${local.name_prefix}_WH_${upper(tier)}" }

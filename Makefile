@@ -5,15 +5,18 @@
 
 PY ?= python
 
-.PHONY: check configs foundation opencatalog generation
+.PHONY: check configs foundation opencatalog generation verification
 
-check: configs generation opencatalog foundation
+check: configs generation verification opencatalog foundation
 
 configs:
 	$(MAKE) -C generation validate
 
 generation:
 	$(MAKE) -C generation check
+
+verification:
+	$(MAKE) -C verification check
 
 opencatalog:
 	$(MAKE) -C tools/opencatalog check

@@ -90,8 +90,8 @@ run "landing_prefix_is_configurable" {
   }
 
   assert {
-    condition     = toset(snowflake_storage_integration_aws.landing.storage_allowed_locations) == toset(["s3://astra-dev-landing-123456789012/inbound/custodians/"])
-    error_message = "The storage integration must be limited to the landing prefix."
+    condition     = toset(snowflake_storage_integration_aws.landing.storage_allowed_locations) == toset(["s3://astra-dev-landing-123456789012/inbound/custodians/", "s3://astra-dev-landing-123456789012/sandbox/"])
+    error_message = "The storage integration must be limited to the landing and sandbox prefixes."
   }
 }
 
@@ -113,8 +113,8 @@ run "storage_integration_points_at_the_landing_role" {
   }
 
   assert {
-    condition     = toset(keys(snowflake_grant_privileges_to_account_role.storage_integration_usage)) == toset(["ADMIN", "ENGINEER", "PIPELINE"])
-    error_message = "ADMIN, ENGINEER and PIPELINE may use the storage integration."
+    condition     = toset(keys(snowflake_grant_privileges_to_account_role.storage_integration_usage)) == toset(["ADMIN", "ENGINEER", "PIPELINE", "SANDBOX"])
+    error_message = "ADMIN, ENGINEER, PIPELINE and SANDBOX may use the storage integration."
   }
 }
 

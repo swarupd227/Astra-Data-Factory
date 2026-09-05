@@ -90,9 +90,9 @@ variable "schemas" {
       readers = ["AUDITOR"]
     }
     CONTROL = {
-      comment = "Run status, file arrival tracking and published watermarks."
+      comment = "Run status, file arrival tracking, published watermarks, sandbox log and cost tags."
       writers = ["PIPELINE"]
-      readers = ["STEWARD", "CONSUMER", "AUDITOR"]
+      readers = ["STEWARD", "CONSUMER", "AUDITOR", "SANDBOX"]
     }
   }
 
@@ -110,10 +110,10 @@ variable "schemas" {
     condition = alltrue(flatten([
       for _, s in var.schemas : [
         for r in setunion(s.readers, s.writers, s.creators) :
-        contains(["ADMIN", "ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR"], r)
+        contains(["ADMIN", "ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR", "SANDBOX"], r)
       ]
     ]))
-    error_message = "Schema readers, writers and creators must be functional roles: ADMIN, ENGINEER, PIPELINE, STEWARD, CONSUMER, AUDITOR."
+    error_message = "Schema readers, writers and creators must be functional roles: ADMIN, ENGINEER, PIPELINE, STEWARD, CONSUMER, AUDITOR, SANDBOX."
   }
 }
 
@@ -177,10 +177,10 @@ variable "warehouse_tiers" {
   validation {
     condition = alltrue(flatten([
       for _, t in var.warehouse_tiers : [
-        for r in t.users : contains(["ADMIN", "ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR"], r)
+        for r in t.users : contains(["ADMIN", "ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR", "SANDBOX"], r)
       ]
     ]))
-    error_message = "Warehouse users must be functional roles: ADMIN, ENGINEER, PIPELINE, STEWARD, CONSUMER, AUDITOR."
+    error_message = "Warehouse users must be functional roles: ADMIN, ENGINEER, PIPELINE, STEWARD, CONSUMER, AUDITOR, SANDBOX."
   }
 }
 
@@ -245,6 +245,48 @@ variable "landing_reconcile_interval_minutes" {
   validation {
     condition     = var.landing_reconcile_interval_minutes >= 1 && var.landing_reconcile_interval_minutes <= 60 && floor(var.landing_reconcile_interval_minutes) == var.landing_reconcile_interval_minutes
     error_message = "landing_reconcile_interval_minutes must be a whole number between 1 and 60."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Ephemeral sandboxes (S1.2.3)
+# ---------------------------------------------------------------------------
+
+variable "sandbox_prefix" {
+  description = "Key prefix in the landing bucket where sandbox runs stage sample files. Snowpipe does not watch it."
+  type        = string
+  default     = "sandbox"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9_/-]*[a-z0-9]$", var.sandbox_prefix)) && !strcontains(var.sandbox_prefix, "//")
+    error_message = "sandbox_prefix must be lower-case letters, digits, underscores, hyphens and single slashes, with no leading or trailing slash."
+  }
+
+  validation {
+    condition     = var.sandbox_prefix != var.landing_prefix && !startswith(var.sandbox_prefix, "${var.landing_prefix}/")
+    error_message = "sandbox_prefix must not be inside landing_prefix, or Snowpipe would ingest sandbox files."
+  }
+}
+
+variable "sandbox_reap_interval_minutes" {
+  description = "How often the reaper task drops expired sandboxes. A sandbox outlives its expiry by at most this long."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.sandbox_reap_interval_minutes >= 1 && var.sandbox_reap_interval_minutes <= 60 && floor(var.sandbox_reap_interval_minutes) == var.sandbox_reap_interval_minutes
+    error_message = "sandbox_reap_interval_minutes must be a whole number between 1 and 60."
+  }
+}
+
+variable "sandbox_max_age_hours" {
+  description = "Hard limit: any sandbox older than this is dropped whatever its expiry says. The safety net for a runner that wrote a bad expiry or none."
+  type        = number
+  default     = 24
+
+  validation {
+    condition     = var.sandbox_max_age_hours >= 1 && var.sandbox_max_age_hours <= 168
+    error_message = "sandbox_max_age_hours must be between 1 and 168 (one week)."
   }
 }
 

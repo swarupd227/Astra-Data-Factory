@@ -122,11 +122,11 @@ resource "snowflake_storage_integration_aws" "landing" {
 
   storage_provider          = "S3"
   storage_aws_role_arn      = local.snowflake_landing_role_arn
-  storage_allowed_locations = [local.landing_base_url]
+  storage_allowed_locations = [local.landing_base_url, local.sandbox_base_url]
 }
 
 resource "snowflake_grant_privileges_to_account_role" "storage_integration_usage" {
-  for_each = toset(["ADMIN", "ENGINEER", "PIPELINE"])
+  for_each = toset(["ADMIN", "ENGINEER", "PIPELINE", "SANDBOX"])
 
   account_role_name = snowflake_account_role.this[each.key].name
   privileges        = ["USAGE"]

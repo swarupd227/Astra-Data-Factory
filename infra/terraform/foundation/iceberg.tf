@@ -8,7 +8,7 @@ locals {
 
   # Roles that create Iceberg tables need USAGE on the volume even though the
   # database points at it by default.
-  external_volume_users = ["ADMIN", "ENGINEER", "PIPELINE"]
+  external_volume_users = ["ADMIN", "ENGINEER", "PIPELINE", "SANDBOX"]
 }
 
 # --- External volume ------------------------------------------------------

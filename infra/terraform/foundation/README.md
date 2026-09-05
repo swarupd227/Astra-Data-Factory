@@ -5,6 +5,7 @@ Terraform configuration for everything an Astra Data Factory environment runs on
 - **S1.1.1** Snowflake database, schemas, six functional roles, one warehouse per processing tier, and the grants that connect them.
 - **S1.1.2** An S3 bucket for Iceberg data, the IAM roles Snowflake and Open Catalog assume to reach it, a Snowflake external volume, Iceberg-by-default settings on the database, and the catalog integration that syncs table metadata to Snowflake Open Catalog so pg_lake, Spark and DuckDB read the same files.
 - **S1.1.3** A landing bucket, the storage integration and read-only role Snowpipe uses, an external stage with a directory table, the Bronze raw-lines table, an auto-ingest pipe fed by S3 events, and a file load log that records every arrival, including duplicates Snowpipe silently ignores.
+- **S1.2.3** What ephemeral sandboxes need from the environment: the SANDBOX role, cost tags, a sandbox log, and a reaper task that drops expired sandboxes. The runner itself is `verification/astra_verification`.
 
 Every environment (dev, qa, uat, prod) is created from this same configuration. Only `environments/<env>.tfvars` and `environments/backend-<env>.hcl` differ.
 
@@ -64,6 +65,11 @@ Object names are `<PREFIX>_<ENV>_...`; the default prefix is `ASTRA`. For `dev`:
 | Pipe | `ASTRA_DEV.BRONZE.RAW_LINES` | Auto-ingest. Its SQS queue is the target of the landing bucket's event notification. |
 | Iceberg table | `ASTRA_DEV.CONTROL.FILE_LOAD_LOG` | One entry per file arrival: `LOADED`, `FAILED`, `DUPLICATE` or `CONFLICT`, with the reason. |
 | Task | `ASTRA_DEV.CONTROL.RECONCILE_FILE_LOADS` | Serverless, every minute by default. Writes the file load log. |
+| Role | `ASTRA_DEV_SANDBOX` | Sandbox runner: creates and drops `ASTRA_DEV_SBX_<TASK>` databases and warehouses; reads Control; nothing else. |
+| Tags | `ASTRA_DEV.CONTROL.TASK_ID`, `ASTRA_DEV.CONTROL.PURPOSE` | Applied to every sandbox database and warehouse for cost per task. |
+| Iceberg table | `ASTRA_DEV.CONTROL.SANDBOX_LOG` | Every sandbox created and destroyed, with the reason. |
+| Procedure | `ASTRA_DEV.CONTROL.REAP_SANDBOXES` | Drops sandboxes past their expiry or older than the hard maximum; logs each drop. |
+| Task | `ASTRA_DEV.CONTROL.REAP_SANDBOXES` | Serverless, every 10 minutes by default. Calls the reaper. |
 
 The database is configured so that every table created in it is a Snowflake-managed Iceberg table on the external volume (`EXTERNAL_VOLUME`, `CATALOG = 'SNOWFLAKE'`) with `STORAGE_SERIALIZATION_POLICY = 'COMPATIBLE'`, which keeps the Parquet files readable by external engines.
 
@@ -79,7 +85,9 @@ Access is data, not code. Each schema in `var.schemas` lists its `readers`, `wri
 | SILVER | ENGINEER | PIPELINE | STEWARD, AUDITOR |
 | GOLD | ENGINEER | PIPELINE | STEWARD, CONSUMER, AUDITOR |
 | EXCEPTIONS | ENGINEER | PIPELINE, STEWARD | AUDITOR |
-| CONTROL | ENGINEER | PIPELINE | STEWARD, CONSUMER, AUDITOR |
+| CONTROL | ENGINEER | PIPELINE | STEWARD, CONSUMER, AUDITOR, SANDBOX |
+
+SANDBOX additionally holds `INSERT` on `CONTROL.SANDBOX_LOG`, `APPLY` on the two tags, and the account privileges `CREATE DATABASE` and `CREATE WAREHOUSE` (see `sandbox.tf`).
 
 Creators are also writers; writers are also readers. Readers get `SELECT` on future tables, Iceberg tables, views, dynamic tables, materialized views and streams. Writers add `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE` on tables, `OPERATE` on dynamic tables, tasks and pipes, and `USAGE` on stages, file formats, functions, procedures, sequences and data metric functions. Creators get every `CREATE <object>` privilege the generation plane needs.
 
@@ -113,6 +121,9 @@ ENGINEER and PIPELINE also hold the account-level `EXECUTE TASK` and `EXECUTE MA
 | `landing_prefix` | `landing` | Key prefix Snowpipe watches. Custodian folders sit beneath it. |
 | `landing_noncurrent_version_days` | `30` | How long a superseded version of a re-delivered file is kept. Null keeps all. |
 | `landing_reconcile_interval_minutes` | `1` | Cadence of the file load log reconciliation task |
+| `sandbox_prefix` | `sandbox` | Landing-bucket prefix where sandbox runs stage sample files; must not be inside `landing_prefix` |
+| `sandbox_reap_interval_minutes` | `10` | Cadence of the sandbox reaper task |
+| `sandbox_max_age_hours` | `24` | Hard limit on any sandbox's life, whatever expiry it declares |
 
 Every variable is validated. A wrong environment name, an unknown warehouse size, a missing tier or an unknown role in an access list fails before any plan is made.
 
@@ -219,6 +230,14 @@ For S1.2.1:
 |---|---|
 | Diff of object definitions across environments is empty except for variables | `scripts/check-env-parity.sh` in CI: no environment-conditional code, no environment-named code files, matching tfvars and backend files; prints the tfvars diff, which is the whole difference. Every tfvars file is also planned against the standard inventory. |
 | A new environment can be created in under two hours | `scripts/new-environment.sh` plus the timed runbook `docs/runbooks/new-environment.md` (100 minutes budgeted). Measured when the next environment is stood up. |
+
+For S1.2.3 (the runner is in `verification/`):
+
+| Criterion | Verified by |
+|---|---|
+| Sandbox created in under two minutes with the requested config deployed | `astra-verify sandbox check --bundle <bundle>` times creation plus bundle deploy and fails above 120 s |
+| Destroyed automatically after the task or after a time limit | Unit tests prove the context manager destroys on success and failure; unit test `reaper_drops_expired_sandboxes_on_a_schedule` checks the reaper's logic and schedule; `astra-verify sandbox reap` exercises it live |
+| Cost tagged to the task | Unit tests check the `TASK_ID` and `PURPOSE` tags on both objects and the query tag; the live check reads the tag back with `SYSTEM$GET_TAG` |
 
 Unit tests in `tests/*.tftest.hcl` run against mocked providers and cover object names, sizes, the access matrix, cost control, the volume, the Open Catalog wiring, the landing pipeline and every validation rule. The bucket hardening is tested in `modules/private-bucket/tests`. All of it runs in CI on every change and needs no credentials.
 

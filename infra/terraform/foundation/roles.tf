@@ -13,6 +13,8 @@
 #   STEWARD   Reads Silver, Gold and Control; works the exception store.
 #   CONSUMER  Reads Gold and the watermark only (for example UMP via pg_lake).
 #   AUDITOR   Reads everything and changes nothing.
+#   SANDBOX   The sandbox runner: creates and drops per-task databases and
+#             warehouses (S1.2.3). Reads Control to log what it did.
 
 locals {
   role_comments = {
@@ -22,6 +24,7 @@ locals {
     STEWARD  = "Reads Silver, Gold and Control and works the exception store in ${var.environment}."
     CONSUMER = "Reads Gold and the published watermark in ${var.environment}."
     AUDITOR  = "Reads everything in ${var.environment} and changes nothing."
+    SANDBOX  = "Sandbox runner for ${var.environment}: creates and drops per-task sandbox databases and warehouses, nothing else."
   }
 }
 

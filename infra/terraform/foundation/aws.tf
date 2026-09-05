@@ -137,7 +137,10 @@ data "aws_iam_policy_document" "snowflake_landing_access" {
       "s3:GetObject",
       "s3:GetObjectVersion",
     ]
-    resources = ["${module.landing_bucket.arn}/${var.landing_prefix}/*"]
+    resources = [
+      "${module.landing_bucket.arn}/${var.landing_prefix}/*",
+      "${module.landing_bucket.arn}/${var.sandbox_prefix}/*",
+    ]
   }
 
   statement {
@@ -151,7 +154,7 @@ data "aws_iam_policy_document" "snowflake_landing_access" {
     condition {
       test     = "StringLike"
       variable = "s3:prefix"
-      values   = ["${var.landing_prefix}/*"]
+      values   = ["${var.landing_prefix}/*", "${var.sandbox_prefix}/*"]
     }
   }
 }

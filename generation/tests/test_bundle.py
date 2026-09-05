@@ -62,6 +62,16 @@ def test_target_rejects_bad_names(environment, prefix):
         Target(environment, prefix)
 
 
+def test_target_overrides_point_a_bundle_at_a_sandbox():
+    target = Target("dev", database="ASTRA_DEV_SBX_T1", warehouse="ASTRA_DEV_SBX_T1_WH")
+    params = target.parameters()
+    assert params["DATABASE"] == "ASTRA_DEV_SBX_T1"
+    assert params["WAREHOUSE_SIMPLE"] == params["WAREHOUSE_MEDIUM"] == params["WAREHOUSE_COMPLEX"] == "ASTRA_DEV_SBX_T1_WH"
+    assert params["ENVIRONMENT"] == "dev" and target.environment_database == "ASTRA_DEV"
+    with pytest.raises(ValueError):
+        Target("dev", database='bad"name')
+
+
 def test_render_fills_known_placeholders_and_names_unknown_ones():
     assert render("USE {{ DATABASE }}; -- {{DATABASE}} {{ WAREHOUSE_SIMPLE }}", Target("dev")) == "USE ASTRA_DEV; -- ASTRA_DEV ASTRA_DEV_WH_SIMPLE"
     with pytest.raises(KeyError) as excinfo:
