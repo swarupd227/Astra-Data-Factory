@@ -26,6 +26,10 @@ This is the first knowledge-plane story. The config validator in the generation 
 
 7. **The registry ships with a real example**: the Pershing GCUS position layout, two versions, with the 2026 version adding a lot identifier. It is the fixture for the tests and the model for every spec that follows.
 
+## Addendum: search (S2.1.2, 2026-09-06)
+
+`Registry.search` finds specs by custodian, family, file type and business date and ranks them: rank 1 when the spec lists the custodian, rank 2 when it belongs to the family (a reuse candidate for a custodian the registry has not seen), rank 3 when only the file type matched; newest first within a rank. With a date, only versions in force on that date count, one per spec unless all versions are asked for. A spec with no family is flagged on every hit, listed by `astra-spec unclassified`, and reported as a warning by `astra-spec validate`, so classification work is visible without failing the build. This is the query the Pattern Matcher (S5.3.1) runs.
+
 ## Consequences
 
 - Every plane's validator fails the same way: file, line, plain sentence, GitHub annotation.

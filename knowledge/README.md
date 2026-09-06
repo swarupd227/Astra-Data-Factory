@@ -28,6 +28,10 @@ spec.record("detail").field("quantity").picture.scale                 # 5 implie
 | `astra-spec list` | Every version with its effective date, file type and custodians |
 | `astra-spec resolve --custodian <id> --file-type <type> --date <YYYY-MM-DD>` | The version in force on a business date; exit 1 when none |
 | `astra-spec show --id <spec> --version <version>` | Every field with position, picture, type and citation |
+| `astra-spec search [--custodian] [--family] [--file-type] [--date] [--all-versions]` | Ranked matches: specs listing the custodian first, then specs of the family, then file-type-only; newest first within a rank. Specs with no family are flagged. |
+| `astra-spec unclassified` | Specs with no family, waiting for the Pattern Matcher or an architect |
+
+Search is what the Pattern Matcher (S5.3.1) calls: for a new custodian it searches by custodian and the family it suspects, and gets the exact custodian's spec first, then reuse candidates from the same family. With a date, only versions in force on that date are considered; one version per spec is returned unless `--all-versions` is given. `validate` prints a warning for every spec without a family.
 
 `--format github` prints workflow annotations so a failing pull request shows each problem on its file and line. `--format json` is for tools.
 

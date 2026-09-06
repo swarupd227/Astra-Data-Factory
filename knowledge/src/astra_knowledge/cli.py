@@ -80,9 +80,61 @@ def cmd_validate(args: argparse.Namespace) -> int:
     if registry is None:
         return 1
     count = len(registry.specs)
+    unclassified = registry.unclassified()
     if args.format == "json":
-        print("[]")
+        print(json.dumps({"problems": [], "unclassified": [_spec_dict(s, Path(args.root)) for s in unclassified]}, indent=2))
     _summary(f"checked {count} spec version{'s' if count != 1 else ''} across {len(registry.ids())} spec{'s' if len(registry.ids()) != 1 else ''}: no problems" if count else "no specs found", args.format)
+    for spec in unclassified:
+        if args.format == "github":
+            print(f"::warning file={_rel(spec.path, Path(args.root))},title=Spec registry::{spec.label} has no family; needs classification by the Pattern Matcher or an architect")
+        elif args.format == "text":
+            print(f"note: {spec.label} has no family; needs classification")
+    return 0
+
+
+def cmd_unclassified(args: argparse.Namespace) -> int:
+    registry = _load(args)
+    if registry is None:
+        return 1
+    specs = registry.unclassified()
+    if args.format == "json":
+        print(json.dumps([_spec_dict(s, Path(args.root)) for s in specs], indent=2))
+    elif not specs:
+        print("every spec has a family")
+    else:
+        for s in specs:
+            print(f"{s.label}  {s.file_type}  custodians: {', '.join(s.custodians)}  needs classification")
+    return 0
+
+
+def _hit_dict(hit, root: Path) -> dict:
+    payload = _spec_dict(hit.spec, root)
+    payload["rank"] = hit.rank
+    payload["matched_by"] = hit.match
+    payload["flags"] = list(hit.flags)
+    return payload
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    registry = _load(args)
+    if registry is None:
+        return 1
+    try:
+        hits = registry.search(custodian=args.custodian, family=args.family, file_type=args.file_type, business_date=args.date, all_versions=args.all_versions)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.format == "json":
+        print(json.dumps([_hit_dict(h, Path(args.root)) for h in hits], indent=2))
+        return 0 if hits else 1
+    if not hits:
+        print("no matching specs")
+        return 1
+    for i, hit in enumerate(hits, start=1):
+        when = f"in force on {args.date}" if args.date else "latest version"
+        family = hit.spec.family or "no family"
+        flags = f"  [{'; '.join(hit.flags)}]" if hit.flags else ""
+        print(f"{i}. {hit.spec.label}  matched by {hit.match}  {when}  {hit.spec.file_type}  custodians: {', '.join(hit.spec.custodians)}  family: {family}{flags}")
     return 0
 
 
@@ -192,6 +244,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--id", required=True)
     s.add_argument("--version", required=True)
     s.set_defaults(func=cmd_show)
+
+    q = sub.add_parser("search", help="find specs by custodian, family, file type and date, ranked: exact custodian first, then family")
+    q.add_argument("--custodian")
+    q.add_argument("--family")
+    q.add_argument("--file-type")
+    q.add_argument("--date", type=business_date, help="only versions in force on this business date")
+    q.add_argument("--all-versions", action="store_true", help="every matching version, not one per spec")
+    q.set_defaults(func=cmd_search)
+
+    sub.add_parser("unclassified", help="specs with no family, waiting for classification").set_defaults(func=cmd_unclassified)
     return parser
 
 

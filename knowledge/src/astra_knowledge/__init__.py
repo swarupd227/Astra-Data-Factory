@@ -5,6 +5,6 @@ rule catalog (E2) join it here.
 """
 
 from astra_knowledge.picture import Picture, PictureError, parse_picture
-from astra_knowledge.registry import Citation, Field, Record, Registry, SourceSpec, load_spec_file
+from astra_knowledge.registry import Citation, Field, Record, Registry, SearchHit, SourceSpec, load_spec_file
 
-__all__ = ["Citation", "Field", "Picture", "PictureError", "Record", "Registry", "SourceSpec", "load_spec_file", "parse_picture"]
+__all__ = ["Citation", "Field", "Picture", "PictureError", "Record", "Registry", "SearchHit", "SourceSpec", "load_spec_file", "parse_picture"]

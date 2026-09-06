@@ -52,6 +52,8 @@ astra-spec validate                                           # every version, p
 astra-spec list
 astra-spec resolve --custodian pershing --file-type position --date 2026-09-06
 astra-spec show --id pershing_gcus --version 2026-01-01
+astra-spec search --custodian schwab --family pershing_gcus --file-type position   # exact custodian first, then family
+astra-spec unclassified                                                            # specs with no family yet
 ```
 
 Validation reports every problem with file, line and a plain sentence: a field beyond the record length, two fields overlapping, a picture that does not fit the position, a type that does not fit the picture, a date without a format, a code listed twice, a version whose file name does not match, or two versions in force for the same custodian on the same date. CI validates the registry on every pull request and checks that every config's `spec` reference points at a version that exists, lists the config's custodian, and describes the config's file type.

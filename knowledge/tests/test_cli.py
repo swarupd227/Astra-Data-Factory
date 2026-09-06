@@ -55,6 +55,39 @@ def test_show_prints_fields_with_position_picture_and_citation():
     assert quantity == {"name": "quantity", "position": [23, 18], "column": None, "picture": "9(13)V9(5)", "type": "decimal", "format": None, "citation": "page 13, line 2", "codes": []}
 
 
+def test_search_ranks_and_flags_from_the_command_line(tmp_path, capsys):
+    from tests.test_registry import search_registry
+
+    search_registry(tmp_path)
+    specs = str(tmp_path / "specs")
+
+    code = main(["--root", str(tmp_path), "--specs", specs, "search", "--custodian", "acme", "--family", "pershing_gcus", "--file-type", "position"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert out.splitlines()[0].startswith("1. acme_positions 2024-01-01  matched by custodian  latest version  position  custodians: acme  family: pershing_gcus")
+    assert out.splitlines()[1].startswith("2. pershing_gcus 2026-01-01  matched by family")
+
+    code = main(["--root", str(tmp_path), "--specs", specs, "--format", "json", "search", "--file-type", "position", "--date", "2025-06-01"])
+    hits = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert [(h["id"], h["version"], h["rank"], h["flags"]) for h in hits] == [
+        ("acme_positions", "2024-01-01", 3, []),
+        ("other_positions", "2020-05-01", 3, ["no family; needs classification"]),
+        ("pershing_gcus", "2017-07-25", 3, []),
+    ]
+
+    code = main(["--root", str(tmp_path), "--specs", specs, "search", "--custodian", "nobody"])
+    assert code == 1 and "no matching specs" in capsys.readouterr().out
+
+    code = main(["--root", str(tmp_path), "--specs", specs, "unclassified"])
+    assert code == 0 and "other_positions 2020-05-01  position  custodians: other  needs classification" in capsys.readouterr().out
+
+    code = main(["--root", str(tmp_path), "--specs", specs, "--format", "github", "validate"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "::warning file=specs/other_positions/2020-05-01.yaml,title=Spec registry::other_positions 2020-05-01 has no family; needs classification" in out
+
+
 def test_validate_prints_github_annotations_for_a_broken_registry(tmp_path, capsys):
     root = tmp_path / "specs" / "bad_spec"
     root.mkdir(parents=True)

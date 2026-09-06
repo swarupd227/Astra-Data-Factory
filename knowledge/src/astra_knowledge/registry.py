@@ -343,3 +343,71 @@ class Registry:
     def in_force(self, custodian: str, file_type: str, business_date: date) -> list[SourceSpec]:
         """Every version that has ever been or will be in force for the pair, in date order, for display."""
         return sorted((s for s in self.specs if custodian in s.custodians and s.file_type == file_type), key=lambda s: s.effective_from)
+
+    def unclassified(self) -> list[SourceSpec]:
+        """Specs with no family yet: the Pattern Matcher has not classified them."""
+        return [s for s in self.specs if s.family is None]
+
+    def search(
+        self,
+        *,
+        custodian: str | None = None,
+        family: str | None = None,
+        file_type: str | None = None,
+        business_date: date | None = None,
+        all_versions: bool = False,
+    ) -> list["SearchHit"]:
+        """Find specs for a custodian, a family or a file type, ranked.
+
+        Rank 1: the spec lists the custodian. Rank 2: the spec belongs to the
+        family (a reuse candidate for a custodian the registry has not seen).
+        Rank 3: only the file type matched. Within a rank, newest first.
+
+        With a business date, only versions in force on that date are
+        considered. Unless `all_versions` is set, one version per spec is
+        returned: the one in force on the date, or the latest.
+        """
+        if not any([custodian, family, file_type]):
+            raise ValueError("search needs at least one of custodian, family or file_type")
+
+        matched: list[SearchHit] = []
+        for spec in self.specs:
+            if file_type is not None and spec.file_type != file_type:
+                continue
+            if business_date is not None and spec.effective_from > business_date:
+                continue
+            by_custodian = custodian is not None and custodian in spec.custodians
+            by_family = family is not None and spec.family == family
+            if (custodian is not None or family is not None) and not (by_custodian or by_family):
+                continue
+            match = "custodian" if by_custodian else "family" if by_family else "file_type"
+            flags = ("no family; needs classification",) if spec.family is None else ()
+            matched.append(SearchHit(spec=spec, match=match, flags=flags, business_date=business_date))
+
+        if not all_versions:
+            latest: dict[str, SearchHit] = {}
+            for hit in matched:
+                current = latest.get(hit.spec.id)
+                if current is None or hit.spec.effective_from > current.spec.effective_from:
+                    latest[hit.spec.id] = hit
+            matched = list(latest.values())
+
+        return sorted(matched, key=lambda h: (h.rank, -h.spec.effective_from.toordinal(), h.spec.id, h.spec.version))
+
+
+@dataclass(frozen=True)
+class SearchHit:
+    spec: SourceSpec
+    match: str
+    flags: tuple[str, ...] = ()
+    business_date: date | None = None
+
+    RANKS = {"custodian": 1, "family": 2, "file_type": 3}
+
+    @property
+    def rank(self) -> int:
+        return self.RANKS[self.match]
+
+    @property
+    def needs_classification(self) -> bool:
+        return self.spec.family is None

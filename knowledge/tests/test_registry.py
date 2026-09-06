@@ -158,6 +158,61 @@ def test_different_custodians_may_share_a_layout_and_resolve_independently(tmp_p
     assert registry.resolve("acme_custody", "position", date(2026, 3, 1)).version == "2026-01-01"
 
 
+# -- search ----------------------------------------------------------------------
+
+
+def search_registry(tmp_path: Path) -> Registry:
+    """The shipped registry plus a layout shared by another custodian and one unclassified layout."""
+    root = copy_registry(tmp_path)
+    write_variant(root, "acme_positions", "2024-01-01", lambda t: t.replace("custodians: [pershing]", "custodians: [acme]").replace("effective_from: 2017-07-25", "effective_from: 2024-01-01"))
+    write_variant(root, "other_positions", "2020-05-01", lambda t: t.replace("custodians: [pershing]", "custodians: [other]").replace("effective_from: 2017-07-25", "effective_from: 2020-05-01").replace("  family: pershing_gcus\n", ""))
+    write_variant(root, "acme_trades", "2024-01-01", lambda t: t.replace("custodians: [pershing]", "custodians: [acme]").replace("file_type: position", "file_type: transaction").replace("effective_from: 2017-07-25", "effective_from: 2024-01-01").replace("  family: pershing_gcus\n", "  family: acme_trades\n"))
+    registry, problems = Registry.load(root, tmp_path)
+    assert problems == []
+    return registry
+
+
+def test_search_ranks_exact_custodian_above_family(tmp_path):
+    registry = search_registry(tmp_path)
+    hits = registry.search(custodian="acme", family="pershing_gcus", file_type="position")
+    assert [(h.spec.id, h.match, h.rank) for h in hits] == [("acme_positions", "custodian", 1), ("pershing_gcus", "family", 2)]
+
+
+def test_search_by_family_alone_finds_reuse_candidates_for_an_unknown_custodian(tmp_path):
+    registry = search_registry(tmp_path)
+    hits = registry.search(custodian="schwab", family="pershing_gcus")
+    # Both are family matches; within a rank the newest version comes first.
+    assert [(h.spec.id, h.match) for h in hits] == [("pershing_gcus", "family"), ("acme_positions", "family")]
+
+
+def test_search_by_file_type_returns_everything_and_flags_unclassified_specs(tmp_path):
+    registry = search_registry(tmp_path)
+    hits = registry.search(file_type="position")
+    assert [h.spec.id for h in hits] == ["pershing_gcus", "acme_positions", "other_positions"]
+    assert all(h.match == "file_type" for h in hits)
+    flagged = [h for h in hits if h.needs_classification]
+    assert [h.spec.id for h in flagged] == ["other_positions"] and flagged[0].flags == ("no family; needs classification",)
+    assert [s.id for s in registry.unclassified()] == ["other_positions"]
+
+
+def test_search_with_a_date_keeps_the_version_in_force(tmp_path):
+    registry = search_registry(tmp_path)
+    hits = registry.search(custodian="pershing", business_date=date(2025, 6, 1))
+    assert [(h.spec.id, h.spec.version) for h in hits] == [("pershing_gcus", "2017-07-25")]
+    assert registry.search(custodian="pershing", business_date=date(2016, 1, 1)) == []
+    both = registry.search(custodian="pershing", all_versions=True)
+    assert [h.spec.version for h in both] == ["2026-01-01", "2017-07-25"]
+
+
+def test_search_needs_at_least_one_criterion(tmp_path):
+    registry = search_registry(tmp_path)
+    import pytest
+
+    with pytest.raises(ValueError):
+        registry.search()
+    assert registry.search(custodian="acme", file_type="transaction")[0].spec.id == "acme_trades"
+
+
 def test_missing_registry_directory_is_a_problem(tmp_path):
     registry, problems = Registry.load(tmp_path / "nowhere", tmp_path)
     assert registry.specs == [] and problems[0].message == "spec registry directory does not exist"
