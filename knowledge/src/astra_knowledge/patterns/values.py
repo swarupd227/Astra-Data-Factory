@@ -63,11 +63,16 @@ def convert(
     sign: str | None = None,
     has_sign_field: bool = False,
     explicit: bool = False,
+    convention=None,
+    sign_style: str = "separate",
 ) -> Converted:
     """Convert one field. Never raises: a bad value comes back as None with a problem.
 
     `explicit` is for delimited files, where numbers are written as people
     write them ("-123.45") rather than as unsigned digits with implied decimals.
+    `convention` (a numerics.SignConvention) says which sign characters mean
+    what; `sign_style` is "separate" (a sign field) or "leading" (a sign
+    character at the start of the digits).
     """
     try:
         if type_ == "string":
@@ -78,7 +83,7 @@ def convert(
         if type_ == "integer":
             return _explicit_integer(raw) if explicit else _integer(raw)
         if type_ == "decimal":
-            return _explicit_decimal(raw) if explicit else _decimal(raw, scale, sign, has_sign_field)
+            return _explicit_decimal(raw) if explicit else _decimal(raw, scale, sign, has_sign_field, convention, sign_style)
         if type_ == "date":
             return _date(raw, format)
         if type_ == "time":
@@ -114,22 +119,17 @@ def _integer(raw: str) -> Converted:
     return Converted(int(text))
 
 
-def _decimal(raw: str, scale: int, sign: str | None, has_sign_field: bool) -> Converted:
-    text = raw.strip()
-    if not text:
-        return Converted(None)
-    if not text.isdigit():
-        raise ValueError_(f"'{raw}' is not all digits")
-    magnitude = Decimal(text).scaleb(-scale) if scale else Decimal(text)
-    if not has_sign_field:
-        return Converted(magnitude)
-    if sign == "-":
-        return Converted(-magnitude)
-    if sign == "+":
-        return Converted(magnitude)
-    if sign is None or not sign.strip():
-        return Converted(None, "sign is blank; the value is unknown, not zero") if magnitude else Converted(Decimal(0).scaleb(-scale) if scale else Decimal(0))
-    raise ValueError_(f"sign '{sign}' is not '+', '-' or blank")
+def _decimal(raw: str, scale: int, sign: str | None, has_sign_field: bool, convention, sign_style: str) -> Converted:
+    from astra_knowledge.patterns import numerics  # here to avoid an import cycle
+
+    if not has_sign_field and sign_style != "leading":
+        text = raw.strip()
+        if not text:
+            return Converted(None)
+        if not text.isdigit():
+            raise ValueError_(f"'{raw}' is not all digits")
+        return Converted(numerics.implied_decimal(text, scale))
+    return numerics.signed_implied_decimal(raw, sign, scale, convention or numerics.DEFAULT, sign_style=sign_style)
 
 
 EXPLICIT_NUMBER = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)$")

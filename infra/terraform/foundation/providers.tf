@@ -23,6 +23,7 @@ provider "snowflake" {
     "snowflake_iceberg_table_resource",
     "snowflake_procedure_sql_resource",
     "snowflake_email_notification_integration_resource",
+    "snowflake_function_sql_resource",
   ]
 }
 

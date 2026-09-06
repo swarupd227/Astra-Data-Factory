@@ -110,7 +110,8 @@
         "picture": { "type": "string", "pattern": "^S?[9XA]\\([1-9][0-9]*\\)(V9\\([1-9][0-9]*\\))?$", "description": "COBOL-style picture as written in the layout document." },
         "type": { "enum": ["string", "integer", "decimal", "date", "time", "code", "boolean"], "description": "Derived from the picture when omitted." },
         "format": { "type": "string", "minLength": 1, "description": "For dates and times, for example YYYYMMDD." },
-        "sign_field": { "$ref": "#/$defs/identifier", "description": "Field in the same record that carries this number's sign." },
+        "sign_field": { "$ref": "#/$defs/identifier", "description": "Field in the same record that carries this number's sign. Which of its codes mean positive, negative or unknown is declared on those codes." },
+        "sign_style": { "enum": ["separate", "leading"], "description": "separate (default): the sign is in sign_field. leading: a '+' or '-' at the start of the digits, absent for positive." },
         "required": { "type": "boolean" },
         "description": { "type": "string" },
         "citation": {
@@ -132,7 +133,8 @@
             "required": ["value", "meaning"],
             "properties": {
               "value": { "type": "string" },
-              "meaning": { "type": "string", "minLength": 1 }
+              "meaning": { "type": "string", "minLength": 1 },
+              "sign": { "enum": ["positive", "negative", "unknown"], "description": "On the codes of a sign field: what this code means for the number that references it." }
             }
           }
         }

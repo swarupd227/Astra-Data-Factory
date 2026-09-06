@@ -91,9 +91,9 @@ records:
         type: code
         citation: { page: 13, line: 6 }
         codes:
-          - { value: "+", meaning: long }
-          - { value: "-", meaning: short }
-          - { value: " ", meaning: sign unknown; quantity is not zero }
+          - { value: "+", meaning: long, sign: positive }
+          - { value: "-", meaning: short, sign: negative }
+          - { value: " ", meaning: sign unknown; quantity is not zero, sign: unknown }
       - name: price
         position: { start: 42, length: 15 }
         picture: 9(9)V9(6)

@@ -115,4 +115,10 @@ run "environment_file_plans_the_standard_inventory" {
     )
     error_message = "The environment must have PII masking, access history retention and managed secrets."
   }
+
+  # Numerics (S2.2.3)
+  assert {
+    condition     = snowflake_function_sql.signed_implied_decimal.name == "SIGNED_IMPLIED_DECIMAL"
+    error_message = "The environment must ship the signed implied-decimal function."
+  }
 }

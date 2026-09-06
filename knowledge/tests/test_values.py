@@ -34,7 +34,7 @@ def test_implied_decimals_with_a_separate_sign_field():
     assert blank.value is None and blank.problem == "sign is blank; the value is unknown, not zero"
     zero = convert("000000000000000000", "decimal", scale=5, sign=" ", has_sign_field=True)
     assert zero.value == Decimal("0.00000") and zero.problem is None
-    assert convert("000000000012345678", "decimal", scale=5, sign="X", has_sign_field=True).problem == "sign 'X' is not '+', '-' or blank"
+    assert convert("000000000012345678", "decimal", scale=5, sign="X", has_sign_field=True).problem == "sign 'X' is not an accepted sign; accepted signs are '', ' ', '+', '-'"
 
 
 def test_decimals_without_a_sign_field_are_unsigned_magnitudes():

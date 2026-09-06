@@ -59,6 +59,8 @@ def convert_fields(record: Record, raw_of, result: ParsedFile, line_number: int,
             sign=sign,
             has_sign_field=f.sign_field is not None,
             explicit=explicit_numbers and not (f.picture and f.picture.scale),
+            convention=f.sign_convention,
+            sign_style=f.sign_style,
         )
         values[f.name] = converted.value
         if converted.problem:

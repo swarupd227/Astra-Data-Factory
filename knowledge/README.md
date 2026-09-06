@@ -60,6 +60,31 @@ astra-spec parse --id pershing_gcus --version 2017-07-25 sample.dat      # rows,
 
 Value rules, shared by every pattern: strings lose trailing spaces and blank is NULL; a code is kept as written when declared (a blank code is a code) and reported when not; integers are digits; decimals take their scale from the picture and their sign from the separate sign field, where a blank sign makes the value NULL, not zero; dates and times follow the declared format and all zeros is NULL.
 
+### Signed implied-decimal numerics
+
+One function, `patterns.numerics.signed_implied_decimal(digits, sign, scale, convention)`, turns unsigned digits plus a separate sign and implied decimals into a number. The sign convention is configuration: the codes of the sign field in the spec say which values mean positive, negative or unknown (`+`/`-`/blank by default; `C`/`D` or `P`/`N` are a spec change, not a code change):
+
+```yaml
+- name: quantity
+  picture: 9(13)V9(5)
+  sign_field: quantity_sign
+- name: quantity_sign
+  codes:
+    - { value: "+", meaning: long, sign: positive }
+    - { value: "-", meaning: short, sign: negative }
+    - { value: " ", meaning: unknown, sign: unknown }
+```
+
+| digits | sign | result |
+|---|---|---|
+| `000000000012345678` | `+` | `123.45678` |
+| `000000000012345678` | `-` | `-123.45678` |
+| `000000000012345678` | blank | NULL, with "sign is blank; the value is unknown, not zero" |
+| `000000000012345678` | `X` | NULL, with "sign 'X' is not an accepted sign" |
+| `000000000000000000` | blank | `0` (nothing to sign) |
+
+`sign_style: leading` handles a sign character at the start of the digits instead. The same rules ship for Snowflake as `CONTROL.IMPLIED_DECIMAL`, `CONTROL.SIGNED_IMPLIED_DECIMAL` and `CONTROL.SIGNED_IMPLIED_DECIMAL_PROBLEM` (`infra/terraform/foundation/numerics.tf`), so rendered parse code and the reference implementation use one definition.
+
 ## What is checked
 
 Per file: schema shape; version equals the file name and id the directory; a valid effective date; a fixed-width file has a record length and every field a position within it; no two fields overlap; the picture's width equals the position length; the declared type fits the picture; dates and times have a format; codes are unique; a sign field names a field of the same record; several detail record types have names and match rules; every citation has a page or a line.

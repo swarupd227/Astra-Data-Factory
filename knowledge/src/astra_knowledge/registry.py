@@ -49,6 +49,8 @@ class Field:
     label: str | None = None
     format: str | None = None
     sign_field: str | None = None
+    sign_style: str = "separate"
+    sign_convention: object | None = None  # numerics.SignConvention from the sign field's codes, or None for the default
     required: bool = False
     description: str = ""
     codes: tuple[tuple[str, str], ...] = ()
@@ -297,10 +299,30 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
 
         for fi, field in enumerate(record["fields"]):
             sign = field.get("sign_field")
+            where = ["records", ri, "fields", fi]
             if sign and sign not in names:
-                problems.append(Problem(display, line_of(data, ["records", ri, "fields", fi, "sign_field"]), f"records[{ri}].fields[{fi}].sign_field '{sign}' is not a field of this record"))
+                problems.append(Problem(display, line_of(data, where + ["sign_field"]), f"records[{ri}].fields[{fi}].sign_field '{sign}' is not a field of this record"))
+            if sign and field.get("sign_style") == "leading":
+                problems.append(Problem(display, line_of(data, where + ["sign_style"]), f"records[{ri}].fields[{fi}] has both sign_field and sign_style leading; the sign is either in a separate field or at the start of the digits"))
+            if sign and sign in names:
+                sign_codes = record["fields"][names[sign]].get("codes") or []
+                declared = {c.get("sign") for c in sign_codes if c.get("sign")}
+                if declared and not {"positive", "negative"} <= declared:
+                    problems.append(Problem(display, line_of(data, ["records", ri, "fields", names[sign], "codes"]), f"records[{ri}].fields[{names[sign]}] '{sign}' declares sign meanings on its codes but must declare both a positive and a negative code"))
 
     return problems
+
+
+def _sign_convention(record: dict, sign_field: str | None):
+    """The convention declared on the sign field's codes, or None for the default."""
+    from astra_knowledge.patterns.numerics import SignConvention  # here to avoid an import cycle
+
+    if not sign_field:
+        return None
+    for f in record["fields"]:
+        if f["name"] == sign_field:
+            return SignConvention.from_codes((str(c["value"]), c.get("sign")) for c in f.get("codes") or [])
+    return None
 
 
 def _build(data: dict, path: Path) -> SourceSpec:
@@ -322,6 +344,8 @@ def _build(data: dict, path: Path) -> SourceSpec:
                     label=f.get("label"),
                     format=f.get("format"),
                     sign_field=f.get("sign_field"),
+                    sign_style=f.get("sign_style", "separate"),
+                    sign_convention=_sign_convention(r, f.get("sign_field")),
                     required=bool(f.get("required", False)),
                     description=f.get("description", ""),
                     codes=tuple((str(c["value"]), c["meaning"]) for c in f.get("codes") or []),
