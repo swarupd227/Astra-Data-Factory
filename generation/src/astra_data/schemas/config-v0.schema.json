@@ -86,6 +86,14 @@
       "type": "object",
       "description": "Resolution parameters (account, security, transaction code, price). Free-form in version 0."
     },
+    "processing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the source is processed. target_lag_minutes is the TARGET_LAG of the parsed dynamic tables and the interval of the process task (default 15).",
+      "properties": {
+        "target_lag_minutes": { "type": "integer", "minimum": 1, "maximum": 1440 }
+      }
+    },
     "delivery": {
       "type": "object",
       "description": "When the custodian delivers and which files are expected every business day. Drives the 'late' alert (S1.2.4). Shared by every source of the same custodian; sources must agree.",

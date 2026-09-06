@@ -64,6 +64,18 @@ def raw_lines_table(compiled: CompiledConfig) -> str:
     return f"{source_name(compiled)}_RAW_LINES"
 
 
+def classified_view(compiled: CompiledConfig) -> str:
+    return f"{source_name(compiled)}_CLASSIFIED"
+
+
+def parse_problems_table(compiled: CompiledConfig) -> str:
+    return f"{source_name(compiled)}_PARSE_PROBLEMS"
+
+
+def file_metadata_table(compiled: CompiledConfig) -> str:
+    return f"{source_name(compiled)}_FILE_METADATA"
+
+
 def pipe_name(compiled: CompiledConfig) -> str:
     return f"{source_name(compiled)}_PIPE"
 

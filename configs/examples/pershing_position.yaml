@@ -47,6 +47,10 @@ dq_rules:
     severity: error
     owner: steward@example.com
 
+# How stale the parsed tables may be and how often the source is processed.
+processing:
+  target_lag_minutes: 10
+
 # When the custodian delivers and what is expected. Shared by every source of
 # the same custodian; a 'late' alert lists whichever of these is missing after
 # the cutoff on a business day.

@@ -25,6 +25,8 @@ A problem is reported with file, line and a plain sentence: a missing field, an 
 
 The schema is versioned by `config_version` and lives at `generation/src/astra_data/schemas/config-v<n>.schema.json`. Version 0 fixes identity, ownership and references; rules are catalog ids (`rules/<group>/<name>.yaml`, see [rules/README.md](../rules/README.md)); field-level mapping semantics arrive with the config compiler (S3.1.1).
 
+`processing.target_lag_minutes` (default 15) is the TARGET_LAG of the parsed dynamic tables and the interval of the source's process task.
+
 `astra-data compile` goes further than validation: it resolves the spec version, the pattern, the target profile, the domain pack's latest canonical model and the catalog rules, and checks every mapping's target column, source field and transform for type agreement. Mappings name the spec's logical record with `record` when it has more than one; transforms come from the vocabulary in `generation/src/astra_data/transforms.py`. CI compiles every config.
 
 Files starting with `_` are ignored, so a draft can sit beside real configs without failing the build.

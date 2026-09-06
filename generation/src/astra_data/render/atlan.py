@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import custodian_folder, files_table, logical_columns, problems_table, raw_lines_table, record_table, sql_type
+from astra_data.render.names import custodian_folder, file_metadata_table, files_table, parse_problems_table, raw_lines_table, record_table, sql_type
 
 CONNECTION = "{{ ATLAN_CONNECTION }}"
 DATABASE = "{{ DATABASE }}"
@@ -57,16 +57,19 @@ def render_payload(compiled: CompiledConfig) -> dict:
     owner = compiled.owner["email"]
     entities: list[dict] = []
 
-    for label in spec.logical_records():
+    for record in spec.records:
+        if record.type != "detail":
+            continue
+        label = record.label
         table = record_table(compiled, label)
-        entities.append(_table("BRONZE", table, f"Source {compiled.id}: logical record {label} of spec {spec.label}, as parsed.", owner))
-        for order, column in enumerate(logical_columns(spec, label), start=1):
-            f = column.field
-            entities.append(_column("BRONZE", table, column.name, order, sql_type(f), f.description or f"{f.name} of the {column.record} record"))
+        entities.append(_table("BRONZE", table, f"Source {compiled.id}: record {label} of spec {spec.label}, parsed by a dynamic table.", owner))
+        for order, f in enumerate([f for f in record.fields if f.name != "filler"], start=1):
+            entities.append(_column("BRONZE", table, f.name.upper(), order, sql_type(f), f.description or f"{f.name} of the {label} record"))
     entities.append(_table("BRONZE", raw_lines_table(compiled), f"Source {compiled.id}: raw lines as delivered, loaded by Snowpipe from {custodian_folder(compiled)}.", owner))
     entities.append(_column("BRONZE", raw_lines_table(compiled), "LINE", 3, "STRING", "The line as delivered, untouched.", "raw_record"))
     entities.append(_table("BRONZE", files_table(compiled), f"Source {compiled.id}: landed files and their pipeline status.", owner))
-    entities.append(_table("BRONZE", problems_table(compiled), f"Source {compiled.id}: parse problems with their rejection codes.", owner))
+    entities.append(_table("BRONZE", parse_problems_table(compiled), f"Source {compiled.id}: parse problems with their rejection codes.", owner))
+    entities.append(_table("BRONZE", file_metadata_table(compiled), f"Source {compiled.id}: per-file counts, excluded rows and header and trailer values.", owner))
 
     # Lineage: each Bronze logical record feeds the Silver entities its mappings land in.
     targets = {m.entity.table: m.entity for m in compiled.mappings}

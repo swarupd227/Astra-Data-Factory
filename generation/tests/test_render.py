@@ -54,11 +54,13 @@ def test_the_bundle_has_every_artifact_kind(compiled):
         "ddl/bronze_pershing_position.sql",
         "pipeline/pershing_position_pipe.sql",
         "pipeline/pershing_position_lines.sql",
+        "pipeline/pershing_position_parse.sql",
         "pipeline/pershing_position_intake.sql",
         "pipeline/pershing_position_process.sql",
         "pipeline/pershing_position_tasks.sql",
         "dq/dmf_pershing_position.sql",
         "tests/pershing_position_files_not_stuck.sql",
+        "tests/pershing_position_files_parse_complete.sql",
         "tests/pershing_position_files_registered_once.sql",
         "tests/pershing_position_problem_codes_known.sql",
         "tests/pershing_position_detail_keys_unique_per_file.sql",
@@ -68,7 +70,7 @@ def test_the_bundle_has_every_artifact_kind(compiled):
     }
     manifest = files["manifest.yaml"]
     assert "bundle: pershing-position" in manifest and "source: pershing_position" in manifest and re.search(r'version: "[0-9a-f]{12}"', manifest)
-    assert manifest.index("ddl/bronze_pershing_position.sql") < manifest.index("pipeline/pershing_position_pipe.sql") < manifest.index("pipeline/pershing_position_lines.sql") < manifest.index("pipeline/pershing_position_intake.sql") < manifest.index("pipeline/pershing_position_process.sql") < manifest.index("pipeline/pershing_position_tasks.sql") < manifest.index("dq/dmf_pershing_position.sql")
+    assert manifest.index("ddl/bronze_pershing_position.sql") < manifest.index("pipeline/pershing_position_pipe.sql") < manifest.index("pipeline/pershing_position_lines.sql") < manifest.index("pipeline/pershing_position_parse.sql") < manifest.index("pipeline/pershing_position_intake.sql") < manifest.index("pipeline/pershing_position_process.sql") < manifest.index("pipeline/pershing_position_tasks.sql") < manifest.index("dq/dmf_pershing_position.sql")
     for name, text in files.items():
         if name.endswith(".sql"):
             assert set(re.findall(r"\{\{\s*([A-Z_]+)\s*\}\}", text)) <= {"DATABASE", "WAREHOUSE_SIMPLE", "WAREHOUSE_MEDIUM", "WAREHOUSE_COMPLEX"}, name
@@ -89,16 +91,11 @@ def test_rendering_an_unchanged_config_is_byte_identical(compiled, tmp_path):
 def test_bronze_ddl_types_every_field_from_the_spec(compiled):
     ddl = render_bundle(compiled)["ddl/bronze_pershing_position.sql"]
     tables = re.findall(r'CREATE ICEBERG TABLE IF NOT EXISTS \{\{ DATABASE \}\}\."BRONZE"\."([A-Z_]+)"', ddl)
-    assert tables == ["PERSHING_POSITION_RAW_LINES", "PERSHING_POSITION_DETAIL", "PERSHING_POSITION_FILES", "PERSHING_POSITION_PROBLEMS"]
+    assert tables == ["PERSHING_POSITION_RAW_LINES", "PERSHING_POSITION_FILES"]
     assert 'ALTER ICEBERG TABLE {{ DATABASE }}."BRONZE"."PERSHING_POSITION_RAW_LINES" MODIFY COLUMN "LINE" SET TAG {{ DATABASE }}."CONTROL"."PII" = \'raw_record\';' in ddl
     assert re.search(r'"FILE_CONTENT_KEY"\s+STRING', ddl) and re.search(r'"INGESTED_AT"\s+TIMESTAMP_NTZ\(6\) NOT NULL', ddl)
-    assert re.search(r'"ACCOUNT_NUMBER"\s+STRING NOT NULL COMMENT', ddl)
-    assert re.search(r'"QUANTITY"\s+NUMBER\(18,5\)', ddl) and "Picture 9(13)V9(5)" in ddl
-    assert re.search(r'"AS_OF_DATE"\s+DATE', ddl) and re.search(r'"QUANTITY_SIGN"\s+STRING', ddl) and "Codes: ''+'' = long; ''-'' = short; '' '' = sign unknown" in ddl  # quotes doubled inside the SQL literal
-    assert '"FILLER"' not in ddl
-    assert re.search(r'"HEADER_FILE_DATE"\s+DATE', ddl) and re.search(r'"HEADER_REFRESH_FLAG"\s+STRING', ddl) and re.search(r'"TRAILER_DETAIL_COUNT"\s+NUMBER\(9,0\)', ddl)
-    assert '"STATUS"' in ddl and "'pending, parsed, merged or rejected'" in ddl
-    assert "Rejection code; see CONTROL.REJECTION_CODES" in ddl
+    assert '"STATUS"' in ddl and "'pending, merged or rejected'" in ddl
+    assert "PERSHING_POSITION_DETAIL" in ddl and "pipeline/pershing_position_parse.sql" in ddl
     for table in tables:
         assert f"BASE_LOCATION = 'bronze/{table.lower()}/'" in ddl
 
@@ -128,7 +125,7 @@ def test_pipeline_scopes_lines_registers_files_and_runs_stages(compiled):
 
     tasks = files["pipeline/pershing_position_tasks.sql"]
     assert 'CREATE OR REPLACE TASK {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"' in tasks
-    assert "WAREHOUSE = {{ WAREHOUSE_MEDIUM }}" in tasks and "SCHEDULE = 'USING CRON */15 * * * * America/New_York'" in tasks
+    assert "WAREHOUSE = {{ WAREHOUSE_MEDIUM }}" in tasks and "SCHEDULE = '10 MINUTE'" in tasks  # processing.target_lag_minutes
     assert 'CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"();' in tasks and 'ALTER TASK {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS" RESUME;' in tasks
 
 
@@ -143,9 +140,9 @@ def test_task_name_carries_the_custodian_prefix_once(compiled, tmp_path):
 def test_dmfs_measure_rows_required_fields_and_merge_keys(compiled):
     dmf = render_bundle(compiled)["dq/dmf_pershing_position.sql"]
     table = '{{ DATABASE }}."BRONZE"."PERSHING_POSITION_DETAIL"'
-    assert f"ALTER ICEBERG TABLE {table} SET DATA_METRIC_SCHEDULE = 'TRIGGER_ON_CHANGES';" in dmf
-    assert f"ALTER ICEBERG TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.ROW_COUNT ON ();" in dmf
-    assert f'ALTER ICEBERG TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.NULL_COUNT ON ("ACCOUNT_NUMBER");' in dmf
+    assert f"ALTER DYNAMIC TABLE {table} SET DATA_METRIC_SCHEDULE = 'TRIGGER_ON_CHANGES';" in dmf
+    assert f"ALTER DYNAMIC TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.ROW_COUNT ON ();" in dmf
+    assert f'ALTER DYNAMIC TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.NULL_COUNT ON ("ACCOUNT_NUMBER");' in dmf
     assert "DUPLICATE_COUNT" not in dmf  # the merge key is composite
     assert "trailer_control_total (file, error): trailer record count equals the number of detail records" in dmf
 
@@ -154,6 +151,8 @@ def test_tests_check_files_problem_codes_and_keys(compiled):
     files = render_bundle(compiled)
     assert "WHERE \"STATUS\" = 'pending' AND \"FIRST_SEEN_AT\" < DATEADD('hour', -24, SYSDATE());" in files["tests/pershing_position_files_not_stuck.sql"]
     assert 'LEFT JOIN {{ DATABASE }}."CONTROL"."REJECTION_CODES" r ON r."CODE" = p."CODE"' in files["tests/pershing_position_problem_codes_known.sql"]
+    assert 'FROM {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PARSE_PROBLEMS" p' in files["tests/pershing_position_problem_codes_known.sql"]
+    assert 'WHERE "FILE_PROBLEMS" > 0 OR "EXCLUDED_ROWS" > 0;' in files["tests/pershing_position_files_parse_complete.sql"]
     keys = files["tests/pershing_position_detail_keys_unique_per_file.sql"]
     assert 'GROUP BY "FILE_NAME", "ACCOUNT_NUMBER", "CUSIP"' in keys and "HAVING COUNT(*) > 1;" in keys
 
@@ -162,7 +161,7 @@ def test_docs_describe_layout_mappings_rules_and_delivery(compiled):
     doc = render_bundle(compiled)["docs/pershing_position.md"]
     assert doc.startswith("# pershing_position\n")
     assert "| Source Spec | `pershing_gcus` version `2017-07-25`, in force from 2017-07-25 |" in doc
-    assert "### detail → `BRONZE.PERSHING_POSITION_DETAIL`" in doc
+    assert "### detail → `BRONZE.PERSHING_POSITION_DETAIL` (dynamic table, target lag 10 minutes)" in doc
     assert "| `QUANTITY` | detail.quantity | 23-40 | 9(13)V9(5) | NUMBER(18,5) |  | page 13, line 2 |" in doc
     assert "| `POSITION.QUANTITY` (NUMBER(28,8)) | detail.quantity (decimal) | signed_implied_decimal(13, 5) | pershing_gcus.quantity_sign |" in doc
     assert "| `pershing_gcus.quantity_sign` | normalisation | confirmed | spec pershing_gcus 2017-07-25 page 13 line 6 |" in doc
@@ -211,6 +210,7 @@ def test_the_written_bundle_passes_the_bundle_contract_and_deploys(compiled, tmp
         "ddl/bronze_pershing_position.sql",
         "pipeline/pershing_position_pipe.sql",
         "pipeline/pershing_position_lines.sql",
+        "pipeline/pershing_position_parse.sql",
         "pipeline/pershing_position_intake.sql",
         "pipeline/pershing_position_process.sql",
         "pipeline/pershing_position_tasks.sql",
@@ -218,10 +218,10 @@ def test_the_written_bundle_passes_the_bundle_contract_and_deploys(compiled, tmp
     ]
     executor = FakeExecutor()
     result = deploy(bundle, Target("dev"), executor)
-    assert len(result.steps) == 7 and "{{" not in "".join(executor.scripts) and 'ASTRA_DEV."BRONZE"' in executor.scripts[0] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[5]
+    assert len(result.steps) == 8 and "{{" not in "".join(executor.scripts) and 'ASTRA_DEV."BRONZE"' in executor.scripts[0] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[3] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[6]
     assert "FROM @ASTRA_DEV.\"BRONZE\".\"LANDING\"/pershing/" in executor.scripts[1] and "FORMAT_NAME = 'ASTRA_DEV.BRONZE.RAW_LINES'" in executor.scripts[1]
     results = run_tests(bundle, Target("dev"), executor)
-    assert len(results) == 5 and all(r.passed for r in results)
+    assert len(results) == 6 and all(r.passed for r in results)
 
 
 def test_write_removes_stale_files_and_check_reports_drift(compiled, tmp_path):
@@ -274,7 +274,7 @@ def test_cli_render_writes_and_checks(tmp_path, capsys):
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 1
     assert "not rendered for pershing_position" in capsys.readouterr().out
     assert main([*_args(root, out), str(root / "configs")]) == 0
-    assert "rendered pershing-position: 16 files -> releases/pershing-position" in capsys.readouterr().out
+    assert "rendered pershing-position: 18 files -> releases/pershing-position" in capsys.readouterr().out
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 0
     assert "release bundles are current for 1 config" in capsys.readouterr().out
     assert main(["--root", str(root), "bundles", "check", str(out)]) == 0

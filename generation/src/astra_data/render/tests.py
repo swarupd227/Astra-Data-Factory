@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import BRONZE, CONTROL, files_table, logical_columns, problems_table, q, record_table
+from astra_data.render.names import BRONZE, CONTROL, file_metadata_table, files_table, parse_problems_table, q, record_table
 
 PENDING_HOURS = 24
 
@@ -12,7 +12,7 @@ def render(compiled: CompiledConfig) -> dict[str, str]:
     spec = compiled.spec
     source = compiled.id
     files = f"{BRONZE}.{q(files_table(compiled))}"
-    problems = f"{BRONZE}.{q(problems_table(compiled))}"
+    problems = f"{BRONZE}.{q(parse_problems_table(compiled))}"
     tests: dict[str, str] = {}
 
     tests[f"tests/{source}_files_not_stuck.sql"] = "\n".join(
@@ -45,10 +45,22 @@ def render(compiled: CompiledConfig) -> dict[str, str]:
             "",
         ]
     )
+    tests[f"tests/{source}_files_parse_complete.sql"] = "\n".join(
+        [
+            f"-- {source}: every parsed file has its header and trailer and no excluded rows. Returns files with file-level problems or excluded rows.",
+            'SELECT "FILE_NAME", "FILE_PROBLEMS", "EXCLUDED_ROWS"',
+            f"FROM {BRONZE}.{q(file_metadata_table(compiled))}",
+            'WHERE "FILE_PROBLEMS" > 0 OR "EXCLUDED_ROWS" > 0;',
+            "",
+        ]
+    )
     merge_keys = tuple(k.upper() for k in spec.merge.keys) if spec.merge else ()
-    for label in spec.logical_records():
+    for record in spec.records:
+        if record.type != "detail":
+            continue
+        label = record.label
         table = f"{BRONZE}.{q(record_table(compiled, label))}"
-        columns = {c.name for c in logical_columns(spec, label)}
+        columns = {f.name.upper() for f in record.fields}
         keys = merge_keys if merge_keys and all(k in columns for k in merge_keys) else ()
         if keys:
             key_list = ", ".join(q(k) for k in keys)

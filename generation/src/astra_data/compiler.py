@@ -92,10 +92,18 @@ class CompiledConfig:
     delivery: dict[str, Any] | None
     alerts: dict[str, Any] | None
     provenance: dict[str, Any] = field(default_factory=dict)
+    processing: dict[str, Any] = field(default_factory=dict)
+
+    DEFAULT_TARGET_LAG_MINUTES = 15
 
     @property
     def id(self) -> str:
         return self.source["id"]
+
+    @property
+    def target_lag_minutes(self) -> int:
+        """How stale the parsed tables may be, and how often the source is processed."""
+        return int(self.processing.get("target_lag_minutes", self.DEFAULT_TARGET_LAG_MINUTES))
 
     def to_dict(self) -> dict:
         return {
@@ -112,6 +120,7 @@ class CompiledConfig:
             "resolution": dict(self.resolution),
             "delivery": dict(self.delivery) if self.delivery else None,
             "alerts": dict(self.alerts) if self.alerts else None,
+            "processing": {"target_lag_minutes": self.target_lag_minutes},
             "provenance": dict(self.provenance),
         }
 
@@ -185,6 +194,7 @@ def compile_config(path: Path, *, registry: Registry, catalog: Catalog, packs: I
         resolution=dict(data.get("resolution") or {}),
         delivery=dict(data["delivery"]) if data.get("delivery") else None,
         alerts=dict(data["alerts"]) if data.get("alerts") else None,
+        processing=dict(data.get("processing") or {}),
         provenance={
             "config": {"path": display, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()},
             "spec": {"id": spec.id, "version": spec.version, "path": display_path(spec.path, root), "sha256": _sha(spec.path)},

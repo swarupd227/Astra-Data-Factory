@@ -6,10 +6,7 @@ from astra_data.compiler import CompiledConfig
 from astra_data.render.names import BRONZE, WAREHOUSE_BY_TIER, procedure, q, task_name
 
 # Order of pipeline steps within the manifest, by the suffix of the file name.
-STEP_ORDER = {"pipe.sql": 0, "lines.sql": 1, "intake.sql": 2, "process.sql": 3, "tasks.sql": 4}
-
-# How often a source is processed. Files that land between runs wait at most this long.
-INTERVAL_MINUTES = 15
+STEP_ORDER = {"pipe.sql": 0, "lines.sql": 1, "parse.sql": 2, "intake.sql": 3, "process.sql": 4, "tasks.sql": 5}
 
 
 def render_tasks(compiled: CompiledConfig) -> str:
@@ -17,16 +14,17 @@ def render_tasks(compiled: CompiledConfig) -> str:
     tier = compiled.source["tier"]
     timezone = compiled.delivery["timezone"] if compiled.delivery else "UTC"
     task = task_name(compiled)
+    interval = compiled.target_lag_minutes
     return "\n".join(
         [
-            f"-- Task for {source}: runs the process procedure every {INTERVAL_MINUTES} minutes on the {tier} tier warehouse.",
+            f"-- Task for {source}: runs the process procedure every {interval} minutes (processing.target_lag_minutes) on the {tier} tier warehouse.",
             f"-- Named {task} so a failure is attributed to custodian {compiled.source['custodian']} by CONTROL.DETECT_TASK_FAILURES.",
             "-- Rendered by astra-data render.",
             f"CREATE OR REPLACE TASK {BRONZE}.{q(task)}",
             f"  WAREHOUSE = {WAREHOUSE_BY_TIER[tier]}",
-            f"  SCHEDULE = 'USING CRON */{INTERVAL_MINUTES} * * * * {timezone}'",
+            f"  SCHEDULE = '{interval} MINUTE'",
             "  SUSPEND_TASK_AFTER_NUM_FAILURES = 10",
-            f"  COMMENT = 'Processes source {source} ({compiled.spec.label}) every {INTERVAL_MINUTES} minutes.'",
+            f"  COMMENT = 'Processes source {source} ({compiled.spec.label}) every {interval} minutes; timezone {timezone} for the delivery cutoff.'",
             "AS",
             f"  CALL {BRONZE}.{q(procedure(compiled, 'PROCESS'))}();",
             f"ALTER TASK {BRONZE}.{q(task)} RESUME;",

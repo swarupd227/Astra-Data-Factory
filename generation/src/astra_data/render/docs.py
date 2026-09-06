@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import custodian_folder, files_table, logical_columns, pipe_name, problems_table, raw_lines_table, record_table, sql_type, task_name
+from astra_data.render.names import custodian_folder, file_metadata_table, files_table, parse_problems_table, pipe_name, raw_lines_table, record_table, sql_type, task_name
 
 
-def _position(column) -> str:
-    field = column.field
+def _position(field) -> str:
     if field.position:
         start, length = field.position
         return f"{start}-{start + length - 1}"
@@ -45,22 +44,28 @@ def render_doc(compiled: CompiledConfig) -> str:
     else:
         out.append(f"Delimited by `{fmt.get('delimiter')}`, {fmt.get('header_rows', 0)} header row(s), encoding {fmt.get('encoding', 'UTF-8')}.")
     out.append("")
-    for label in spec.logical_records():
-        out.append(f"### {label} → `BRONZE.{record_table(compiled, label)}`")
+    for record in spec.records:
+        if record.type != "detail":
+            continue
+        label = record.label
+        out.append(f"### {label} → `BRONZE.{record_table(compiled, label)}` (dynamic table, target lag {compiled.target_lag_minutes} minutes)")
         out.append("")
         out.append("| Column | Source field | Position | Picture | Type | Required | Cited |")
         out.append("|---|---|---|---|---|---|---|")
-        for column in logical_columns(spec, label):
-            f = column.field
+        for f in record.fields:
+            if f.name == "filler":
+                continue
             cited = f"page {f.citation.page}" + (f", line {f.citation.line}" if getattr(f.citation, 'line', None) else "") if f.citation else ""
-            out.append(f"| `{column.name}` | {column.record}.{f.name} | {_position(column)} | {f.picture.text if f.picture else ''} | {sql_type(f)} | {'yes' if f.required or column.key else ''} | {cited} |")
+            out.append(f"| `{f.name.upper()}` | {label}.{f.name} | {_position(f)} | {f.picture.text if f.picture else ''} | {sql_type(f)} | {'yes' if f.required else ''} | {cited} |")
         out.append("")
     for kind in ("header", "trailer"):
         record = next((r for r in spec.records if r.type == kind), None)
         if record:
-            fields = ", ".join(f"`{f.name}`" for f in record.fields if f.name not in ("filler", "record_type"))
-            out.append(f"{kind.capitalize()} fields kept on `BRONZE.{files_table(compiled)}`: {fields or 'none'}.")
+            fields = ", ".join(f"`{kind.upper()}_{f.name.upper()}`" for f in record.fields if f.name not in ("filler", "record_type"))
+            out.append(f"{kind.capitalize()} values are kept per file on `BRONZE.{file_metadata_table(compiled)}`: {fields or 'none'}.")
             out.append("")
+    out.append(f"Lines with a record-level problem (an unknown record type, a line longer than the record length) are excluded from the record tables and counted per file as `EXCLUDED_ROWS` on `BRONZE.{file_metadata_table(compiled)}`; every problem is a row of `BRONZE.{parse_problems_table(compiled)}` with its rejection code. A field-level problem leaves the value NULL and keeps the row.")
+    out.append("")
     if spec.merge:
         out.append(f"Merge: `{spec.merge.mode_field}` in the header says refresh or update ({', '.join(f'{k} = {v}' for k, v in spec.merge.modes.items())}); scope {', '.join(spec.merge.scope)}; keys {', '.join(spec.merge.keys)}.")
         out.append("")
@@ -92,7 +97,7 @@ def render_doc(compiled: CompiledConfig) -> str:
         for d in compiled.dq_rules:
             out.append(f"| `{d['id']}` | {d['level']} | {d.get('severity', 'error')} | {d['check']} |")
         out.append("")
-    out.append(f"Data metric functions measure row counts, nulls in required fields and duplicate merge keys on the Bronze tables. Parse problems land in `BRONZE.{problems_table(compiled)}` with their rejection code.")
+    out.append(f"Data metric functions measure row counts, nulls in required fields and duplicate merge keys on the Bronze record tables. Parse problems are rows of `BRONZE.{parse_problems_table(compiled)}` with their rejection code.")
     out.append("")
 
     if compiled.delivery:
@@ -110,7 +115,7 @@ def render_doc(compiled: CompiledConfig) -> str:
 
     out.append("## Pipeline")
     out.append("")
-    out.append(f"Pipe `BRONZE.{pipe_name(compiled)}` loads every file under `{custodian_folder(compiled)}` of the landing prefix that matches the delivery patterns into `BRONZE.{raw_lines_table(compiled)}` on arrival, one row per line. Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` every 15 minutes on the {src['tier']} tier warehouse. Stages: intake (register landed files as pending). Parse, merge and resolution stages are added by their releases.")
+    out.append(f"Pipe `BRONZE.{pipe_name(compiled)}` loads every file under `{custodian_folder(compiled)}` of the landing prefix that matches the delivery patterns into `BRONZE.{raw_lines_table(compiled)}` on arrival, one row per line. Dynamic tables parse the lines with a target lag of {compiled.target_lag_minutes} minutes. Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` every {compiled.target_lag_minutes} minutes on the {src['tier']} tier warehouse. Stages: intake (register landed files as pending). Merge and resolution stages are added by their releases.")
     out.append("")
     return "\n".join(out)
 

@@ -1,17 +1,16 @@
-"""Bronze for one source: typed tables, the file registry, problems, the lines view and intake.
+"""Bronze for one source: the raw-lines table and pipe, the file registry, the lines view and intake.
 
-The parse stage (S3.2.2) fills the typed tables from the lines view and
-records every problem with its rejection code; the merge stage (S3.2.3)
-moves rows on to Silver. This module renders what those stages write to
-and the first stage, intake, which registers files the landing zone has
-loaded for this source so the next stages have a queue to work from.
+Parsing is a set of dynamic tables (render/parse.py) over the lines view;
+the merge stage (S3.2.3) moves rows on to Silver. This module renders what
+lands and the first stage, intake, which registers files the landing zone
+has loaded for this source so the next stages have a queue to work from.
 """
 
 from __future__ import annotations
 
 from astra_core.problems import Problem
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import BRONZE, CONTROL, LINEAGE, LogicalColumn, custodian_folder, delivery_patterns, files_table, like_to_regex, lines_view, lit, logical_columns, metadata_columns, pipe_name, problems_table, procedure, q, raw_lines_table, record_table, sql_type
+from astra_data.render.names import BRONZE, CONTROL, LINEAGE, custodian_folder, delivery_patterns, files_table, like_to_regex, lines_view, lit, pipe_name, procedure, q, raw_lines_table, record_table
 
 RAW_LINES_COLUMNS = ("FILE_NAME", "ROW_NUMBER", "LINE", "FILE_CONTENT_KEY", "FILE_LAST_MODIFIED", "INGESTED_AT")
 
@@ -37,28 +36,12 @@ def _file_filter(compiled: CompiledConfig, column: str = "FILE_NAME") -> str:
     return "(" + " OR ".join(f"{column} LIKE {lit(p)}" for p in _patterns(compiled)) + ")"
 
 
-def _column_line(column: LogicalColumn, width: int) -> str:
-    field = column.field
-    parts = [f"  {q(column.name).ljust(width)} {sql_type(field)}"]
-    if field.required or column.key:
-        parts.append("NOT NULL")
-    comment = (field.description or f"{field.name} of the {column.record} record.").rstrip()
-    if not comment.endswith("."):
-        comment += "."
-    if field.picture:
-        comment += f" Picture {field.picture.text}."
-    if field.codes:
-        comment += " Codes: " + "; ".join(f"'{v}' = {m}" for v, m in field.codes) + "."
-    parts.append(f"COMMENT {lit(comment)}")
-    return " ".join(parts)
-
-
 def render_ddl(compiled: CompiledConfig) -> str:
     spec = compiled.spec
     source = compiled.id
     lines = [
-        f"-- Bronze for source {source}: the raw lines Snowpipe lands, {spec.label} parsed into typed tables, one per",
-        "-- logical record, plus the file registry and the problems raised while parsing. Rendered by astra-data render.",
+        f"-- Bronze for source {source}: the raw lines Snowpipe lands and the file registry. Rendered by astra-data render.",
+        f"-- {spec.label} is parsed into typed dynamic tables in pipeline/{source}_parse.sql.",
         f"-- {BRONZE} is filled at deploy time; tables inherit the database's external volume and catalog.",
         "",
         f"-- Raw lines of {source} as delivered, one row per line, written only by the pipe {pipe_name(compiled)}.",
@@ -76,67 +59,27 @@ def render_ddl(compiled: CompiledConfig) -> str:
         f"ALTER ICEBERG TABLE {BRONZE}.{q(raw_lines_table(compiled))} MODIFY COLUMN \"LINE\" SET TAG {CONTROL}.\"PII\" = 'raw_record';",
         "",
     ]
-    for label in spec.logical_records():
-        columns = logical_columns(spec, label)
-        width = max(len(q(c.name)) for c in columns + [LogicalColumn("PARSED_AT", columns[0].field, "")]) + 1
-        table = record_table(compiled, label)
-        lines.append(f"-- Logical record '{label}' of {spec.label}: one row per parsed record.")
-        lines.append(f"CREATE ICEBERG TABLE IF NOT EXISTS {BRONZE}.{q(table)} (")
-        body = [_column_line(c, width) for c in columns]
-        body += [
-            f"  {q('FILE_NAME').ljust(width)} STRING NOT NULL COMMENT 'Landed file the record came from.'",
-            f"  {q('LINE_NUMBER').ljust(width)} NUMBER(18,0) NOT NULL COMMENT 'Line of the file, from 1.'",
-            f"  {q('RUN_ID').ljust(width)} STRING NOT NULL COMMENT 'Pipeline run that parsed the record.'",
-            f"  {q('PARSED_AT').ljust(width)} TIMESTAMP_NTZ(6) NOT NULL",
-        ]
-        lines.append(",\n".join(body))
-        lines.append(")")
-        lines.append(f"BASE_LOCATION = 'bronze/{table.lower()}/'")
-        lines.append(f"COMMENT = {lit(f'Source {source}: logical record {label} of spec {spec.label}, as parsed. Rendered by astra-data render.')};")
-        lines.append("")
-
-    meta = metadata_columns(spec, "header") + metadata_columns(spec, "trailer")
-    width = max([len(q(c.name)) for c in meta] + [len('"FILE_LAST_MODIFIED"')]) + 1
-    lines.append(f"-- Every landed file of {source} and where it is in the pipeline; header and trailer values once parsed.")
-    lines.append(f"CREATE ICEBERG TABLE IF NOT EXISTS {BRONZE}.{q(files_table(compiled))} (")
-    body = [
-        f"  {q('FILE_NAME').ljust(width)} STRING NOT NULL",
-        f"  {q('FILE_HASH').ljust(width)} STRING COMMENT 'Content hash from CONTROL.FILE_LOAD_LOG'",
-        f"  {q('FILE_LAST_MODIFIED').ljust(width)} TIMESTAMP_NTZ(6)",
-        f"  {q('FIRST_SEEN_AT').ljust(width)} TIMESTAMP_NTZ(6) NOT NULL COMMENT 'When intake registered the file'",
-        f"  {q('STATUS').ljust(width)} STRING NOT NULL COMMENT 'pending, parsed, merged or rejected'",
-        f"  {q('RUN_ID').ljust(width)} STRING COMMENT 'Pipeline run that last changed the status'",
-        f"  {q('STATUS_AT').ljust(width)} TIMESTAMP_NTZ(6) NOT NULL",
-        f"  {q('LINE_COUNT').ljust(width)} NUMBER(18,0) COMMENT 'Lines in the file, once parsed'",
-        f"  {q('PROBLEM_COUNT').ljust(width)} NUMBER(18,0) COMMENT 'Problems raised while parsing'",
-    ]
-    body += [_column_line(c, width).replace(" NOT NULL", "") for c in meta]
-    lines.append(",\n".join(body))
-    lines.append(")")
-    lines.append(f"BASE_LOCATION = 'bronze/{files_table(compiled).lower()}/'")
-    lines.append(f"COMMENT = {lit(f'Source {source}: landed files and their pipeline status. Rendered by astra-data render.')};")
+    lines.append(f"-- The typed record tables of {source} ({', '.join(record_table(compiled, r.label) for r in spec.records if r.type == 'detail')}),")
+    lines.append(f"-- the parse problems and the per-file metadata are dynamic tables in pipeline/{source}_parse.sql.")
     lines.append("")
-
-    lines.append(f"-- Every problem raised while parsing {source}, with the rejection code from the domain pack's taxonomy.")
-    lines.append(f"CREATE ICEBERG TABLE IF NOT EXISTS {BRONZE}.{q(problems_table(compiled))} (")
+    lines.append(f"-- Every landed file of {source} and where it is in the pipeline.")
+    lines.append(f"CREATE ICEBERG TABLE IF NOT EXISTS {BRONZE}.{q(files_table(compiled))} (")
     lines.append(
         ",\n".join(
             [
-                '  "FILE_NAME"   STRING NOT NULL',
-                '  "LINE_NUMBER" NUMBER(18,0) NOT NULL COMMENT \'0 for a file-level problem\'',
-                '  "RECORD"      STRING COMMENT \'Record type the line was read as\'',
-                '  "FIELD"       STRING COMMENT \'Field at fault, for field-level problems\'',
-                '  "LEVEL"       STRING NOT NULL COMMENT \'file, record or field\'',
-                '  "CODE"        STRING NOT NULL COMMENT \'Rejection code; see CONTROL.REJECTION_CODES\'',
-                '  "MESSAGE"     STRING NOT NULL',
-                '  "RUN_ID"      STRING NOT NULL',
-                '  "RAISED_AT"   TIMESTAMP_NTZ(6) NOT NULL',
+                '  "FILE_NAME"          STRING NOT NULL',
+                '  "FILE_HASH"          STRING COMMENT \'Content hash from CONTROL.FILE_LOAD_LOG\'',
+                '  "FILE_LAST_MODIFIED" TIMESTAMP_NTZ(6)',
+                '  "FIRST_SEEN_AT"      TIMESTAMP_NTZ(6) NOT NULL COMMENT \'When intake registered the file\'',
+                '  "STATUS"             STRING NOT NULL COMMENT \'pending, merged or rejected\'',
+                '  "RUN_ID"             STRING COMMENT \'Pipeline run that last changed the status\'',
+                '  "STATUS_AT"          TIMESTAMP_NTZ(6) NOT NULL',
             ]
         )
     )
     lines.append(")")
-    lines.append(f"BASE_LOCATION = 'bronze/{problems_table(compiled).lower()}/'")
-    lines.append(f"COMMENT = {lit(f'Source {source}: parse problems by file, line and field, each with its rejection code. Rendered by astra-data render.')};")
+    lines.append(f"BASE_LOCATION = 'bronze/{files_table(compiled).lower()}/'")
+    lines.append(f"COMMENT = {lit(f'Source {source}: landed files and their pipeline status. Rendered by astra-data render.')};")
     lines.append("")
     return "\n".join(lines)
 

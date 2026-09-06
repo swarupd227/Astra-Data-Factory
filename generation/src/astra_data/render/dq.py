@@ -9,7 +9,7 @@ become rendered checks in F3.3, where the DQ Generator gives them shape.
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import BRONZE, logical_columns, q, record_table
+from astra_data.render.names import BRONZE, q, record_table
 
 
 def render_dmfs(compiled: CompiledConfig) -> str:
@@ -20,17 +20,19 @@ def render_dmfs(compiled: CompiledConfig) -> str:
         "",
     ]
     merge_keys = tuple(spec.merge.keys) if spec.merge else ()
-    for label in spec.logical_records():
-        table = f"{BRONZE}.{q(record_table(compiled, label))}"
-        columns = logical_columns(spec, label)
-        lines.append(f"-- {label}")
-        lines.append(f"ALTER ICEBERG TABLE {table} SET DATA_METRIC_SCHEDULE = 'TRIGGER_ON_CHANGES';")
-        lines.append(f"ALTER ICEBERG TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.ROW_COUNT ON ();")
-        for column in columns:
-            if column.field.required or column.key:
-                lines.append(f"ALTER ICEBERG TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.NULL_COUNT ON ({q(column.name)});")
-        if len(merge_keys) == 1 and any(c.name == merge_keys[0].upper() for c in columns):
-            lines.append(f"ALTER ICEBERG TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.DUPLICATE_COUNT ON ({q(merge_keys[0].upper())});")
+    for record in spec.records:
+        if record.type != "detail":
+            continue
+        table = f"{BRONZE}.{q(record_table(compiled, record.label))}"
+        names = [f.name.upper() for f in record.fields if f.name != "filler"]
+        lines.append(f"-- {record.label}")
+        lines.append(f"ALTER DYNAMIC TABLE {table} SET DATA_METRIC_SCHEDULE = 'TRIGGER_ON_CHANGES';")
+        lines.append(f"ALTER DYNAMIC TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.ROW_COUNT ON ();")
+        for f in record.fields:
+            if f.required and f.name != "filler":
+                lines.append(f"ALTER DYNAMIC TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.NULL_COUNT ON ({q(f.name.upper())});")
+        if len(merge_keys) == 1 and merge_keys[0].upper() in names:
+            lines.append(f"ALTER DYNAMIC TABLE {table} ADD DATA METRIC FUNCTION SNOWFLAKE.CORE.DUPLICATE_COUNT ON ({q(merge_keys[0].upper())});")
         lines.append("")
     if compiled.dq_rules:
         lines.append("-- DQ rules stated by the config, rendered as checks by the DQ Generator (F3.3):")
