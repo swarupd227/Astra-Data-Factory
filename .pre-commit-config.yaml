@@ -1,0 +1,8 @@
+# Optional local hooks. Install once with `pip install pre-commit && pre-commit install`.
+# CI runs the same secret scan on every pull request, so this only shortens the loop.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks
+        args: ["--config", ".gitleaks.toml", "--redact"]

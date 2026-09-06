@@ -1,0 +1,33 @@
+# Secret scanning rules for this repository (S1.2.5). Runs in CI on every
+# pull request and push, and locally through pre-commit.
+#
+# The default gitleaks rules apply. The allow-list below names the places
+# where a value that looks like a secret is a documented placeholder or a
+# test fixture, so a real leak elsewhere is never hidden by a broad exclusion.
+
+title = "Astra Data Factory"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholders and test fixtures"
+
+paths = [
+  # Unit tests use fixed fake credentials against in-memory fakes.
+  '''tools/opencatalog/tests/.*''',
+  '''generation/tests/.*''',
+  '''verification/tests/.*''',
+  '''infra/terraform/foundation/tests/.*\.tftest\.hcl''',
+  # Provider lock files carry hashes, not secrets.
+  '''.*\.terraform\.lock\.hcl''',
+]
+
+regexes = [
+  # Snowflake webhook placeholders that stand in for the real secret at runtime.
+  '''SNOWFLAKE_WEBHOOK_SECRET''',
+  '''SNOWFLAKE_WEBHOOK_MESSAGE''',
+  # Documented example values in READMEs and tfvars comments.
+  '''T000/B000/secret''',
+  '''<aws account id>''',
+]

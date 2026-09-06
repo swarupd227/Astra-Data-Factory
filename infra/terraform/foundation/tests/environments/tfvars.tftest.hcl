@@ -103,4 +103,16 @@ run "environment_file_plans_the_standard_inventory" {
     )
     error_message = "The environment must have alert detection and dispatch."
   }
+
+  # Governance (S1.2.5)
+  assert {
+    condition = (
+      snowflake_tag.pii.name == "PII" &&
+      length(snowflake_tag.pii.masking_policies) == 3 &&
+      snowflake_view.pii_access.name == "PII_ACCESS" &&
+      snowflake_task.retain_pii_access.started &&
+      length(aws_secretsmanager_secret.managed) == 4
+    )
+    error_message = "The environment must have PII masking, access history retention and managed secrets."
+  }
 }

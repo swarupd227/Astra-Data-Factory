@@ -18,6 +18,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # No secret value in Git (S1.2.5). Scans the whole history on push and the
+  # pull request's commits on pull_request, with the allow-list in .gitleaks.toml.
+  secrets-scan:
+    name: no secrets in git
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.24.3"
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan history
+        run: gitleaks git --config .gitleaks.toml --redact --verbose --exit-code 1 .
+
   configs:
     name: configs and release bundles
     runs-on: ubuntu-latest
@@ -147,8 +168,6 @@ jobs:
       SNOWFLAKE_ACCOUNT_NAME: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
       SNOWFLAKE_USER: ${{ vars.SNOWFLAKE_USER }}
       SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
-      SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
-      TF_VAR_open_catalog_client_secret: ${{ secrets.OPEN_CATALOG_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
@@ -160,6 +179,34 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      # Same rule as the deploy: secrets from the client's secret manager,
+      # masked as they are read; GitHub secrets only as the fallback.
+      - name: Resolve secrets
+        env:
+          PREFIX: ${{ vars.SECRETS_PREFIX }}
+          FALLBACK_SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          FALLBACK_OPEN_CATALOG_CLIENT_SECRET: ${{ secrets.OPEN_CATALOG_CLIENT_SECRET }}
+          FALLBACK_SLACK_WEBHOOK_SECRET: ${{ secrets.SLACK_WEBHOOK_SECRET }}
+          FALLBACK_JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          export_secret() {
+            local value=""
+            if [ -n "$PREFIX" ]; then
+              value=$(aws secretsmanager get-secret-value --secret-id "$PREFIX/$2" --query SecretString --output text 2>/dev/null || true)
+            else
+              value="$3"
+            fi
+            if [ -n "$value" ]; then
+              while IFS= read -r line; do [ -n "$line" ] && echo "::add-mask::$line"; done <<< "$value"
+              { echo "$1<<ASTRA_SECRET_EOF"; echo "$value"; echo "ASTRA_SECRET_EOF"; } >> "$GITHUB_ENV"
+            fi
+          }
+          export_secret SNOWFLAKE_PRIVATE_KEY             snowflake/private-key      "$FALLBACK_SNOWFLAKE_PRIVATE_KEY"
+          export_secret TF_VAR_open_catalog_client_secret open-catalog/client-secret "$FALLBACK_OPEN_CATALOG_CLIENT_SECRET"
+          export_secret TF_VAR_slack_webhook_secret       alerts/slack-webhook       "$FALLBACK_SLACK_WEBHOOK_SECRET"
+          export_secret TF_VAR_jira_api_token             alerts/jira-token          "$FALLBACK_JIRA_API_TOKEN"
 
       - name: Init
         run: terraform init -input=false -backend-config=environments/backend-dev.hcl -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"

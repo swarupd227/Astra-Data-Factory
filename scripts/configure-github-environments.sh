@@ -61,8 +61,14 @@ action reads. Values differ per environment; names do not.
   gh variable set SNOWFLAKE_USER               --env dev --repo $repo --body TERRAFORM_SVC
   gh variable set SNOWFLAKE_DEPLOY_ROLE        --env dev --repo $repo --body ASTRA_DEV_ENGINEER
   gh variable set SNOWFLAKE_DEPLOY_WAREHOUSE   --env dev --repo $repo --body ASTRA_DEV_WH_SIMPLE
-  gh secret   set SNOWFLAKE_PRIVATE_KEY        --env dev --repo $repo < /path/outside/repo/terraform_svc.p8
-  gh secret   set OPEN_CATALOG_CLIENT_SECRET   --env dev --repo $repo    # only when Open Catalog is configured
+  gh variable set SECRETS_PREFIX               --env dev --repo $repo --body astra/dev   # Terraform output secrets_prefix
+
+Secret values belong in the client's secret manager, read by the deploy role
+(see docs/runbooks/ci-cd-setup.md). Only a repository without Secrets Manager
+access sets them as GitHub secrets instead:
+
+  gh secret set SNOWFLAKE_PRIVATE_KEY --env dev --repo $repo < /path/outside/repo/terraform_svc.p8
+  gh secret set OPEN_CATALOG_CLIENT_SECRET / SLACK_WEBHOOK_SECRET / JIRA_API_TOKEN --env dev --repo $repo
 
 Repeat with --env qa. To post a dev plan on every pull request:
 

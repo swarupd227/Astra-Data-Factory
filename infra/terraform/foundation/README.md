@@ -75,6 +75,11 @@ Object names are `<PREFIX>_<ENV>_...`; the default prefix is `ASTRA`. For `dev`:
 | Procedures | `ASTRA_DEV.CONTROL.DETECT_TASK_FAILURES`, `DETECT_LATE_CUSTODIANS`, `DISPATCH_ALERTS`, `RUN_ALERTING` | Detection and dispatch. |
 | Task | `ASTRA_DEV.CONTROL.RAISE_ALERTS` | Serverless, every minute by default. Calls `RUN_ALERTING`. |
 | Integrations | `ASTRA_DEV_ALERT_EMAIL`, `ASTRA_DEV_ALERT_SLACK`, `ASTRA_DEV_ALERT_JIRA` | Each only when its channel is configured. Webhook secrets are Snowflake secrets in CONTROL. |
+| Tag | `ASTRA_DEV.CONTROL.PII` | Marks a column as PII; the value is the category. Three masking policies are bound to it. |
+| Masking policies | `ASTRA_DEV.CONTROL.PII_STRING`, `PII_NUMBER`, `PII_DATE` | Privileged roles see values; everyone else sees a category-shaped mask. `BRONZE.RAW_LINES.LINE` is tagged from the start. |
+| View | `ASTRA_DEV.CONTROL.PII_ACCESS` | Who read which PII column and when, from ACCESS_HISTORY joined to the tag. |
+| Iceberg table | `ASTRA_DEV.CONTROL.PII_ACCESS_LOG` | Retained copy of PII column reads, appended hourly by task `RETAIN_PII_ACCESS`. |
+| Secrets Manager | `astra/dev/snowflake/private-key`, `open-catalog/client-secret`, `alerts/slack-webhook`, `alerts/jira-token` | Created without values; the deploy role reads them through policy `ASTRA_DEV_READ_SECRETS`. |
 
 The database is configured so that every table created in it is a Snowflake-managed Iceberg table on the external volume (`EXTERNAL_VOLUME`, `CATALOG = 'SNOWFLAKE'`) with `STORAGE_SERIALIZATION_POLICY = 'COMPATIBLE'`, which keeps the Parquet files readable by external engines.
 
@@ -136,6 +141,9 @@ ENGINEER and PIPELINE also hold the account-level `EXECUTE TASK` and `EXECUTE MA
 | `alert_interval_minutes` | `1` | Detection and dispatch cadence, at most 5 |
 | `alert_lookback_hours` | `2` | How far back task history is scanned each run |
 | `alert_delivery_attempts` | `5` | Maximum attempts per alert and channel |
+| `pii_unmasked_roles` | `["ADMIN", "ENGINEER", "PIPELINE", "STEWARD"]` | Functional roles that see PII in clear. AUDITOR and CONSUMER cannot be listed. |
+| `pii_access_retention_interval_minutes` | `60` | Cadence of the access history retention task |
+| `pii_access_catchup_days` | `7` | Look-back window for late-arriving access history rows |
 
 Every variable is validated. A wrong environment name, an unknown warehouse size, a missing tier or an unknown role in an access list fails before any plan is made.
 
@@ -153,6 +161,7 @@ GRANT ROLE SECURITYADMIN TO ROLE SYSADMIN;
 GRANT CREATE INTEGRATION ON ACCOUNT TO ROLE SYSADMIN;      -- storage and catalog integrations
 GRANT EXECUTE TASK ON ACCOUNT TO ROLE SYSADMIN;            -- owner of the reconciliation task
 GRANT EXECUTE MANAGED TASK ON ACCOUNT TO ROLE SYSADMIN;    -- the task is serverless
+GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE TO ROLE SYSADMIN;  -- ACCESS_HISTORY for the PII access view
 ```
 
 `SECURITYADMIN` under `SYSADMIN` lets one role create both objects and roles. If your account policy forbids that, run with `terraform_role = "ACCOUNTADMIN"` for the bootstrap and switch back afterwards. The optional resource monitor always needs `ACCOUNTADMIN`.
@@ -260,6 +269,16 @@ For S1.2.4 (alerts):
 | Alert severity is configurable per custodian | `alerts.late` and `alerts.task_failure` in the source config, synced by `astra-data custodians sync` (unit-tested), read by the detection procedures. |
 
 Alerts are raised into `CONTROL.ALERTS` even when no channel is configured, so the audit trail exists before the channels do. To raise a test alert by hand: insert a row into `ALERTS` with a severity that has routes and call `CONTROL.DISPATCH_ALERTS()`.
+
+For S1.2.5 (secrets, access history, masking):
+
+| Criterion | Verified by |
+|---|---|
+| No secret value appears in Git, logs or config | Gitleaks scans the full history on every pull request and push (`.gitleaks.toml`); every secret is a sensitive Terraform variable or a Secrets Manager reference resolved in CI and masked as it is read; unit test `secrets_exist_in_the_client_secret_manager_without_values`. |
+| Access history queries return who read which PII column and when | `CONTROL.PII_ACCESS` and the retained `PII_ACCESS_LOG`; unit test `pii_access_view_answers_who_read_which_column_when`; live: `astra-verify pii check` queries the view. |
+| A non-privileged role sees masked values on tagged columns | Unit tests check the policies, the tag binding, the unmasked role list and the tagged raw-lines column; live: `astra-verify pii check` reads one raw line as ENGINEER and as AUDITOR and expects the mask on the second. |
+
+To tag a column in generated DDL: `ALTER TABLE ... ALTER COLUMN <col> SET TAG "<DB>"."CONTROL"."PII" = '<category>'`. Categories: `raw_record`, `name`, `account_number`, `tax_id`, `email`, `phone`, `address`, `date_of_birth`, `financial`.
 
 Unit tests in `tests/*.tftest.hcl` run against mocked providers and cover object names, sizes, the access matrix, cost control, the volume, the Open Catalog wiring, the landing pipeline and every validation rule. The bucket hardening is tested in `modules/private-bucket/tests`. All of it runs in CI on every change and needs no credentials.
 

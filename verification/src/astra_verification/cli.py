@@ -14,9 +14,10 @@ import sys
 import uuid
 from pathlib import Path
 
-from astra_data.bundle import BundleError, DeployError
+from astra_data.bundle import BundleError, DeployError, Target
 from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExecutor, connect
 
+from astra_verification.pii import run_checks as run_pii_checks
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
     WAREHOUSE_SIZES,
@@ -168,6 +169,25 @@ def _lit(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def cmd_pii_check(args: argparse.Namespace) -> int:
+    """Live acceptance for S1.2.5."""
+    target = Target(args.environment, args.prefix)
+    privileged = args.privileged_role or f"{target.environment_database}_ENGINEER"
+    restricted = args.restricted_role or f"{target.environment_database}_AUDITOR"
+    executor = _executor()
+    try:
+        results = run_pii_checks(executor, target, privileged, restricted)
+    finally:
+        executor.close()
+    if args.json:
+        print(json.dumps([r.__dict__ for r in results], indent=2))
+    else:
+        width = max(len(r.name) for r in results)
+        for r in results:
+            print(f"{'PASS' if r.passed else 'FAIL'}  {r.name.ljust(width)}  {r.detail}")
+    return 0 if all(r.passed for r in results) else 1
+
+
 # -- parser ------------------------------------------------------------------
 
 
@@ -209,6 +229,13 @@ def build_parser() -> argparse.ArgumentParser:
     ch.add_argument("--ttl-minutes", type=int, default=30)
     ch.add_argument("--warehouse-size", default="XSMALL", choices=WAREHOUSE_SIZES)
     ch.set_defaults(func=cmd_check)
+
+    pii_parser = sub.add_parser("pii", help="PII masking and access history")
+    psub = pii_parser.add_subparsers(dest="pii_command", required=True)
+    pc = psub.add_parser("check", parents=[common], help="live acceptance check for S1.2.5: policies bound, mask seen by the restricted role, access history answers")
+    pc.add_argument("--privileged-role", help="role that sees PII in clear (default <PREFIX>_<ENV>_ENGINEER)")
+    pc.add_argument("--restricted-role", help="role that must see the mask (default <PREFIX>_<ENV>_AUDITOR)")
+    pc.set_defaults(func=cmd_pii_check)
 
     return parser
 

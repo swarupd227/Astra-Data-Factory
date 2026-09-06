@@ -22,17 +22,27 @@ What has to exist in GitHub and in the accounts for `.github/workflows/ci.yml` a
    scripts/configure-github-environments.sh --repo <owner>/<repo> --qa-reviewers <login1>,<login2>
    ```
 
-5. **Set the environment variables and secrets** the script prints, for `dev` and for `qa`:
+5. **Set the environment variables** the script prints, for `dev` and for `qa`:
 
    | Name | Kind | Value |
    |---|---|---|
    | `AWS_ROLE_ARN` | variable | role from step 2 |
    | `AWS_REGION` | variable | region of the environment |
    | `TF_STATE_BUCKET` | variable | output of step 1 |
+   | `SECRETS_PREFIX` | variable | Terraform output `secrets_prefix`, for example `astra/dev` |
    | `SNOWFLAKE_ORGANIZATION_NAME`, `SNOWFLAKE_ACCOUNT_NAME`, `SNOWFLAKE_USER` | variables | Snowflake account and service user |
    | `SNOWFLAKE_DEPLOY_ROLE`, `SNOWFLAKE_DEPLOY_WAREHOUSE` | variables | `ASTRA_<ENV>_ENGINEER`, `ASTRA_<ENV>_WH_SIMPLE` |
-   | `SNOWFLAKE_PRIVATE_KEY` | secret | PEM private key of the service user |
-   | `OPEN_CATALOG_CLIENT_SECRET` | secret | only once Open Catalog is configured for the environment |
+
+   **Secret values go in the client's secret manager, not in GitHub** (S1.2.5). The foundation creates the four secrets without values and a read policy; attach the policy (`read_secrets_policy_arn`) to the deploy role and put the values in:
+
+   ```bash
+   aws secretsmanager put-secret-value --secret-id astra/dev/snowflake/private-key      --secret-string file:///path/outside/repo/terraform_svc.p8
+   aws secretsmanager put-secret-value --secret-id astra/dev/open-catalog/client-secret --secret-string '<from opencatalog provision>'
+   aws secretsmanager put-secret-value --secret-id astra/dev/alerts/slack-webhook       --secret-string '<part after hooks.slack.com/services/>'
+   aws secretsmanager put-secret-value --secret-id astra/dev/alerts/jira-token          --secret-string '<Jira API token>'
+   ```
+
+   The first apply of a brand-new environment runs before its secrets exist; run it from a workstation with the private key exported, as the foundation README describes, then switch the pipeline on. A repository that cannot reach Secrets Manager may instead set GitHub environment secrets `SNOWFLAKE_PRIVATE_KEY`, `OPEN_CATALOG_CLIENT_SECRET`, `SLACK_WEBHOOK_SECRET` and `JIRA_API_TOKEN` and leave `SECRETS_PREFIX` unset; the pipeline falls back to them.
 
 6. **Protect main**: require the `ci` workflow checks and at least one review before merge, so nothing reaches `deploy` unchecked.
 7. Optional: `gh variable set DEV_PLAN_ENABLED --body true` to post a Terraform plan for dev on every pull request.

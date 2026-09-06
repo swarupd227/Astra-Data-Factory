@@ -51,10 +51,16 @@ jobs:
           snowflake-organization: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
           snowflake-account: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
           snowflake-user: ${{ vars.SNOWFLAKE_USER }}
-          snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
           snowflake-role: ${{ vars.SNOWFLAKE_DEPLOY_ROLE }}
           snowflake-warehouse: ${{ vars.SNOWFLAKE_DEPLOY_WAREHOUSE }}
+          # Secrets are read from the client's secret manager under this prefix
+          # (Terraform output secrets_prefix). The GitHub secrets below are the
+          # fallback for a repository without Secrets Manager access.
+          secrets-prefix: ${{ vars.SECRETS_PREFIX }}
+          snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
           open-catalog-client-secret: ${{ secrets.OPEN_CATALOG_CLIENT_SECRET }}
+          slack-webhook-secret: ${{ secrets.SLACK_WEBHOOK_SECRET }}
+          jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
 
   qa:
     name: deploy qa
@@ -80,10 +86,16 @@ jobs:
           snowflake-organization: ${{ vars.SNOWFLAKE_ORGANIZATION_NAME }}
           snowflake-account: ${{ vars.SNOWFLAKE_ACCOUNT_NAME }}
           snowflake-user: ${{ vars.SNOWFLAKE_USER }}
-          snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
           snowflake-role: ${{ vars.SNOWFLAKE_DEPLOY_ROLE }}
           snowflake-warehouse: ${{ vars.SNOWFLAKE_DEPLOY_WAREHOUSE }}
+          # Secrets are read from the client's secret manager under this prefix
+          # (Terraform output secrets_prefix). The GitHub secrets below are the
+          # fallback for a repository without Secrets Manager access.
+          secrets-prefix: ${{ vars.SECRETS_PREFIX }}
+          snowflake-private-key: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
           open-catalog-client-secret: ${{ secrets.OPEN_CATALOG_CLIENT_SECRET }}
+          slack-webhook-secret: ${{ secrets.SLACK_WEBHOOK_SECRET }}
+          jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
 
       - name: Merge to qa elapsed
         if: always()

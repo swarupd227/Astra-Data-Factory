@@ -23,6 +23,7 @@ Further planes (agents, workbench) are added as their epics start.
 ## Working in this repository
 
 - Git is the system of record. Every generated artifact and every approval lands here; the factory database never holds the only copy of anything.
-- Nothing secret is committed. Credentials come from the environment or the client's secret manager.
+- Nothing secret is committed. Secret values live in the client's secret manager and are read by the pipeline at run time; a secret scan runs on every pull request and fails the build if one slips in.
+- PII columns are tagged, masked for non-privileged roles, and their reads are recorded. See [ADR 0008](docs/adr/0008-secrets-access-history-masking.md).
 - `make check` at the root runs everything CI runs on a pull request, without accounts. Each component has its own `make check` too.
 - A merge to main deploys to dev; qa follows once a reviewer approves. See [docs/runbooks/ci-cd-setup.md](docs/runbooks/ci-cd-setup.md).

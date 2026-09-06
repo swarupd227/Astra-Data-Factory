@@ -379,6 +379,48 @@ variable "alert_delivery_attempts" {
 }
 
 # ---------------------------------------------------------------------------
+# PII masking and access history (S1.2.5)
+# ---------------------------------------------------------------------------
+
+variable "pii_unmasked_roles" {
+  description = "Functional roles that see PII-tagged columns in clear. Every other role sees the mask. ADMIN inherits every role, so it is always unmasked when listed roles are."
+  type        = list(string)
+  default     = ["ADMIN", "ENGINEER", "PIPELINE", "STEWARD"]
+
+  validation {
+    condition     = length(var.pii_unmasked_roles) > 0 && alltrue([for r in var.pii_unmasked_roles : contains(["ADMIN", "ENGINEER", "PIPELINE", "STEWARD", "CONSUMER", "AUDITOR", "SANDBOX"], r)])
+    error_message = "pii_unmasked_roles must name at least one functional role: ADMIN, ENGINEER, PIPELINE, STEWARD, CONSUMER, AUDITOR, SANDBOX."
+  }
+
+  validation {
+    condition     = !contains(var.pii_unmasked_roles, "AUDITOR") && !contains(var.pii_unmasked_roles, "CONSUMER")
+    error_message = "AUDITOR and CONSUMER are read-only consumers and must stay masked."
+  }
+}
+
+variable "pii_access_retention_interval_minutes" {
+  description = "How often PII column reads are copied from ACCESS_HISTORY into the retained log."
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.pii_access_retention_interval_minutes >= 15 && var.pii_access_retention_interval_minutes <= 1440 && floor(var.pii_access_retention_interval_minutes) == var.pii_access_retention_interval_minutes
+    error_message = "pii_access_retention_interval_minutes must be a whole number between 15 and 1440."
+  }
+}
+
+variable "pii_access_catchup_days" {
+  description = "How many days back each retention run looks, to pick up late-arriving ACCESS_HISTORY rows."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.pii_access_catchup_days >= 1 && var.pii_access_catchup_days <= 90
+    error_message = "pii_access_catchup_days must be between 1 and 90."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Snowflake Open Catalog (S1.1.2)
 # ---------------------------------------------------------------------------
 

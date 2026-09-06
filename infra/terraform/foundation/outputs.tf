@@ -93,6 +93,21 @@ output "open_catalog_role_created" {
   value       = local.open_catalog_role_wanted
 }
 
+output "secrets_prefix" {
+  description = "Secrets Manager name prefix of this environment's secrets. Set as the SECRETS_PREFIX variable of the GitHub environment."
+  value       = local.secrets_prefix
+}
+
+output "secret_arns" {
+  description = "ARNs of the managed secrets, keyed by name. Values are set by an operator, never by Terraform."
+  value       = { for k, s in aws_secretsmanager_secret.managed : k => s.arn }
+}
+
+output "read_secrets_policy_arn" {
+  description = "IAM policy granting read on the managed secrets. Attach to the deploy role."
+  value       = aws_iam_policy.read_secrets.arn
+}
+
 output "open_catalog_integration_name" {
   description = "Catalog integration syncing this database to Open Catalog, or null when Open Catalog is not configured."
   value       = one(snowflake_catalog_integration_open_catalog.sync[*].name)

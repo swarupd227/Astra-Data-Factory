@@ -1,39 +1,57 @@
 # Deploys one environment: the foundation (Terraform apply), then every
-# release bundle (astra-data deploy), then the generated tests
-# (astra-data test). Used by deploy.yml for dev and qa with the same steps,
-# which is the point: promotion changes the target, never the procedure.
+# release bundle (astra-data deploy), the custodian sync, and the generated
+# tests (astra-data test). Used by deploy.yml for dev and qa with the same
+# steps, which is the point: promotion changes the target, never the procedure.
+#
+# Secrets come from the client's secret manager (AWS Secrets Manager) through
+# the OIDC deploy role when `secrets-prefix` is set (S1.2.5). Each value is
+# masked in the log the moment it is read. The `*-secret`/`*-key` inputs are
+# a fallback for repositories that keep secrets in GitHub instead.
 
 name: Deploy environment
-description: Apply the foundation, deploy release bundles and run generated tests against one environment.
+description: Apply the foundation, deploy release bundles, sync custodians and run generated tests against one environment.
 
 inputs:
   environment:
     description: Environment name (dev, qa, uat, prod)
     required: true
   aws-role-arn:
-    description: IAM role assumed through OIDC
+    description: IAM role assumed through OIDC. Needs the environment's READ_SECRETS policy when secrets-prefix is set.
     required: true
   aws-region:
     required: true
   state-bucket:
     description: S3 bucket holding Terraform state (from infra/terraform/bootstrap)
     required: true
+  secrets-prefix:
+    description: Secrets Manager prefix, for example astra/dev (Terraform output secrets_prefix). Empty means use the fallback inputs.
+    required: false
+    default: ""
   snowflake-organization:
     required: true
   snowflake-account:
     required: true
   snowflake-user:
     required: true
-  snowflake-private-key:
-    description: PEM private key of the service user
-    required: true
   snowflake-role:
     description: Role for astra-data deploy and test
     required: true
   snowflake-warehouse:
     required: true
+  snowflake-private-key:
+    description: Fallback when secrets-prefix is empty. PEM private key of the service user.
+    required: false
+    default: ""
   open-catalog-client-secret:
-    description: Only when the environment has Open Catalog configured
+    description: Fallback when secrets-prefix is empty.
+    required: false
+    default: ""
+  slack-webhook-secret:
+    description: Fallback when secrets-prefix is empty.
+    required: false
+    default: ""
+  jira-api-token:
+    description: Fallback when secrets-prefix is empty.
     required: false
     default: ""
 
@@ -58,6 +76,39 @@ runs:
         role-to-assume: ${{ inputs.aws-role-arn }}
         aws-region: ${{ inputs.aws-region }}
 
+    # Reads each secret once, masks every line of it, and exports it for the
+    # later steps. A missing optional secret is an empty value, not a failure.
+    - name: Resolve secrets
+      shell: bash
+      env:
+        PREFIX: ${{ inputs.secrets-prefix }}
+        FALLBACK_SNOWFLAKE_PRIVATE_KEY: ${{ inputs.snowflake-private-key }}
+        FALLBACK_OPEN_CATALOG_CLIENT_SECRET: ${{ inputs.open-catalog-client-secret }}
+        FALLBACK_SLACK_WEBHOOK_SECRET: ${{ inputs.slack-webhook-secret }}
+        FALLBACK_JIRA_API_TOKEN: ${{ inputs.jira-api-token }}
+      run: |
+        set -euo pipefail
+        export_secret() {            # $1 env name, $2 secret name, $3 required (yes/no), $4 fallback value
+          local value=""
+          if [ -n "$PREFIX" ]; then
+            value=$(aws secretsmanager get-secret-value --secret-id "$PREFIX/$2" --query SecretString --output text 2>/dev/null || true)
+            if [ -z "$value" ] && [ "$3" = "yes" ]; then
+              echo "::error title=Missing secret::$PREFIX/$2 has no value in Secrets Manager"; exit 1
+            fi
+          else
+            value="$4"
+          fi
+          if [ -n "$value" ]; then
+            while IFS= read -r line; do [ -n "$line" ] && echo "::add-mask::$line"; done <<< "$value"
+            { echo "$1<<ASTRA_SECRET_EOF"; echo "$value"; echo "ASTRA_SECRET_EOF"; } >> "$GITHUB_ENV"
+          fi
+        }
+        export_secret SNOWFLAKE_PRIVATE_KEY               snowflake/private-key      yes "$FALLBACK_SNOWFLAKE_PRIVATE_KEY"
+        export_secret TF_VAR_open_catalog_client_secret   open-catalog/client-secret no  "$FALLBACK_OPEN_CATALOG_CLIENT_SECRET"
+        export_secret TF_VAR_slack_webhook_secret         alerts/slack-webhook       no  "$FALLBACK_SLACK_WEBHOOK_SECRET"
+        export_secret TF_VAR_jira_api_token               alerts/jira-token          no  "$FALLBACK_JIRA_API_TOKEN"
+        echo "secrets resolved from ${PREFIX:-fallback inputs}"
+
     - name: Apply foundation
       shell: bash
       working-directory: infra/terraform/foundation
@@ -66,8 +117,6 @@ runs:
         SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
         SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
         SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
-        SNOWFLAKE_PRIVATE_KEY: ${{ inputs.snowflake-private-key }}
-        TF_VAR_open_catalog_client_secret: ${{ inputs.open-catalog-client-secret }}
       run: |
         terraform init -input=false \
           -backend-config="environments/backend-${{ inputs.environment }}.hcl" \
@@ -85,7 +134,6 @@ runs:
         SNOWFLAKE_ORGANIZATION_NAME: ${{ inputs.snowflake-organization }}
         SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
         SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
-        SNOWFLAKE_PRIVATE_KEY: ${{ inputs.snowflake-private-key }}
         SNOWFLAKE_ROLE: ${{ inputs.snowflake-role }}
         SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
       run: astra-data --format github deploy --environment "${{ inputs.environment }}" releases
@@ -96,7 +144,6 @@ runs:
         SNOWFLAKE_ORGANIZATION_NAME: ${{ inputs.snowflake-organization }}
         SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
         SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
-        SNOWFLAKE_PRIVATE_KEY: ${{ inputs.snowflake-private-key }}
         SNOWFLAKE_ROLE: ${{ inputs.snowflake-role }}
         SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
       run: astra-data --format github custodians sync --environment "${{ inputs.environment }}" configs
@@ -107,7 +154,6 @@ runs:
         SNOWFLAKE_ORGANIZATION_NAME: ${{ inputs.snowflake-organization }}
         SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
         SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
-        SNOWFLAKE_PRIVATE_KEY: ${{ inputs.snowflake-private-key }}
         SNOWFLAKE_ROLE: ${{ inputs.snowflake-role }}
         SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
       run: astra-data --format github test --environment "${{ inputs.environment }}" releases
