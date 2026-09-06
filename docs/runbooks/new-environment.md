@@ -22,3 +22,13 @@ Budget: 100 minutes of work, 20 minutes of slack.
 - Step 6 and 7 are skipped when the environment does not need Open Catalog (for example a short-lived performance environment). Set nothing under `open_catalog` and the objects are simply not created.
 - Steps 4 and 7 are where time varies: Snowflake and AWS object creation is usually under five minutes each; the budget allows for retries.
 - Tearing an environment down is `terraform destroy` with the same tfvars file. The landing and Iceberg buckets must be emptied first; Terraform will not delete a bucket with objects.
+
+## Turning off the catch-all pipe
+
+A fresh environment loads every landed file into `BRONZE.RAW_LINES` through the foundation's catch-all pipe, which is how the landing zone is proved before any source exists. Once the environment's sources are rendered (`astra-data render`) each source has its own pipe, `BRONZE.<SOURCE>_PIPE`, watching its custodian's folder, and a file that matches both pipes is loaded twice. The order is:
+
+1. Deploy the release bundles (the deploy pipeline does this on merge), so every source's pipe exists.
+2. Set `landing_catch_all_pipe = false` in the environment's tfvars and apply the foundation. The catch-all pipe object stays, pointed at a folder nothing is delivered to, because the bucket notification targets its queue.
+3. Watch `CONTROL.FILE_LOAD_LOG`: a file that arrives and is logged `UNCLAIMED` after `landing_unclaimed_minutes` matches no source's delivery patterns and needs a config.
+
+Changing a source's folder or delivery patterns does not change its pipe (a pipe's COPY cannot be altered and recreating it loses in-flight events and load history): drop `BRONZE.<SOURCE>_PIPE` in a quiet window and redeploy the bundle.

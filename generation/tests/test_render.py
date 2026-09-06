@@ -52,6 +52,7 @@ def test_the_bundle_has_every_artifact_kind(compiled):
         "manifest.yaml",
         "PROVENANCE.json",
         "ddl/bronze_pershing_position.sql",
+        "pipeline/pershing_position_pipe.sql",
         "pipeline/pershing_position_lines.sql",
         "pipeline/pershing_position_intake.sql",
         "pipeline/pershing_position_process.sql",
@@ -67,7 +68,7 @@ def test_the_bundle_has_every_artifact_kind(compiled):
     }
     manifest = files["manifest.yaml"]
     assert "bundle: pershing-position" in manifest and "source: pershing_position" in manifest and re.search(r'version: "[0-9a-f]{12}"', manifest)
-    assert manifest.index("ddl/bronze_pershing_position.sql") < manifest.index("pipeline/pershing_position_lines.sql") < manifest.index("pipeline/pershing_position_intake.sql") < manifest.index("pipeline/pershing_position_process.sql") < manifest.index("pipeline/pershing_position_tasks.sql") < manifest.index("dq/dmf_pershing_position.sql")
+    assert manifest.index("ddl/bronze_pershing_position.sql") < manifest.index("pipeline/pershing_position_pipe.sql") < manifest.index("pipeline/pershing_position_lines.sql") < manifest.index("pipeline/pershing_position_intake.sql") < manifest.index("pipeline/pershing_position_process.sql") < manifest.index("pipeline/pershing_position_tasks.sql") < manifest.index("dq/dmf_pershing_position.sql")
     for name, text in files.items():
         if name.endswith(".sql"):
             assert set(re.findall(r"\{\{\s*([A-Z_]+)\s*\}\}", text)) <= {"DATABASE", "WAREHOUSE_SIMPLE", "WAREHOUSE_MEDIUM", "WAREHOUSE_COMPLEX"}, name
@@ -88,7 +89,9 @@ def test_rendering_an_unchanged_config_is_byte_identical(compiled, tmp_path):
 def test_bronze_ddl_types_every_field_from_the_spec(compiled):
     ddl = render_bundle(compiled)["ddl/bronze_pershing_position.sql"]
     tables = re.findall(r'CREATE ICEBERG TABLE IF NOT EXISTS \{\{ DATABASE \}\}\."BRONZE"\."([A-Z_]+)"', ddl)
-    assert tables == ["PERSHING_POSITION_DETAIL", "PERSHING_POSITION_FILES", "PERSHING_POSITION_PROBLEMS"]
+    assert tables == ["PERSHING_POSITION_RAW_LINES", "PERSHING_POSITION_DETAIL", "PERSHING_POSITION_FILES", "PERSHING_POSITION_PROBLEMS"]
+    assert 'ALTER ICEBERG TABLE {{ DATABASE }}."BRONZE"."PERSHING_POSITION_RAW_LINES" MODIFY COLUMN "LINE" SET TAG {{ DATABASE }}."CONTROL"."PII" = \'raw_record\';' in ddl
+    assert re.search(r'"FILE_CONTENT_KEY"\s+STRING', ddl) and re.search(r'"INGESTED_AT"\s+TIMESTAMP_NTZ\(6\) NOT NULL', ddl)
     assert re.search(r'"ACCOUNT_NUMBER"\s+STRING NOT NULL COMMENT', ddl)
     assert re.search(r'"QUANTITY"\s+NUMBER\(18,5\)', ddl) and "Picture 9(13)V9(5)" in ddl
     assert re.search(r'"AS_OF_DATE"\s+DATE', ddl) and re.search(r'"QUANTITY_SIGN"\s+STRING', ddl) and "Codes: ''+'' = long; ''-'' = short; '' '' = sign unknown" in ddl  # quotes doubled inside the SQL literal
@@ -102,9 +105,17 @@ def test_bronze_ddl_types_every_field_from_the_spec(compiled):
 
 def test_pipeline_scopes_lines_registers_files_and_runs_stages(compiled):
     files = render_bundle(compiled)
+    pipe = files["pipeline/pershing_position_pipe.sql"]
+    assert 'CREATE PIPE IF NOT EXISTS {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PIPE"' in pipe and "AUTO_INGEST = TRUE" in pipe
+    assert 'COPY INTO {{ DATABASE }}."BRONZE"."PERSHING_POSITION_RAW_LINES" ("FILE_NAME", "ROW_NUMBER", "LINE", "FILE_CONTENT_KEY", "FILE_LAST_MODIFIED", "INGESTED_AT")' in pipe
+    assert "SELECT METADATA$FILENAME, METADATA$FILE_ROW_NUMBER, $1, METADATA$FILE_CONTENT_KEY," in pipe and "METADATA$FILE_LAST_MODIFIED, METADATA$START_SCAN_TIME" in pipe
+    assert 'FROM @{{ DATABASE }}."BRONZE"."LANDING"/pershing/' in pipe  # the custodian's landing prefix
+    assert "FILE_FORMAT = (FORMAT_NAME = '{{ DATABASE }}.BRONZE.RAW_LINES')" in pipe
+    assert "PATTERN = '.*(pershing/GCUS..*.POS..*\\.dat|pershing/GCUS..*.TRN..*\\.dat)';" in pipe  # LIKE: % is .*, _ is .
+
     lines = files["pipeline/pershing_position_lines.sql"]
     assert 'CREATE OR REPLACE VIEW {{ DATABASE }}."BRONZE"."PERSHING_POSITION_LINES"' in lines
-    assert "WHERE (\"FILE_NAME\" LIKE 'pershing/GCUS_%_POS_%.dat' OR \"FILE_NAME\" LIKE 'pershing/GCUS_%_TRN_%.dat');" in lines
+    assert 'FROM {{ DATABASE }}."BRONZE"."PERSHING_POSITION_RAW_LINES";' in lines and "RAW_LINES\"\nWHERE" not in lines
 
     intake = files["pipeline/pershing_position_intake.sql"]
     assert 'CREATE OR REPLACE PROCEDURE {{ DATABASE }}."BRONZE"."PERSHING_POSITION_INTAKE"(RUN_ID STRING)' in intake
@@ -169,6 +180,7 @@ def test_atlan_payload_carries_assets_lineage_and_glossary_terms(compiled):
         by_type.setdefault(e["typeName"], []).append(e)
     tables = {e["attributes"]["qualifiedName"] for e in by_type["Table"]}
     assert "{{ ATLAN_CONNECTION }}/{{ DATABASE }}/BRONZE/PERSHING_POSITION_DETAIL" in tables and "{{ ATLAN_CONNECTION }}/{{ DATABASE }}/SILVER/POSITION" in tables
+    assert "{{ ATLAN_CONNECTION }}/{{ DATABASE }}/BRONZE/PERSHING_POSITION_RAW_LINES" in tables
     silver = next(e for e in by_type["Table"] if e["attributes"]["name"] == "POSITION")
     assert silver["attributes"]["meanings"][0]["termName"] == "Position" and silver["attributes"]["certificateStatus"] == "VERIFIED"
     pii = [c for c in by_type["Column"] if c.get("classifications")]
@@ -197,6 +209,7 @@ def test_the_written_bundle_passes_the_bundle_contract_and_deploys(compiled, tmp
     bundle = load_bundle(root, tmp_path)
     assert [bundle.relative(s) for s in bundle.steps] == [
         "ddl/bronze_pershing_position.sql",
+        "pipeline/pershing_position_pipe.sql",
         "pipeline/pershing_position_lines.sql",
         "pipeline/pershing_position_intake.sql",
         "pipeline/pershing_position_process.sql",
@@ -205,7 +218,8 @@ def test_the_written_bundle_passes_the_bundle_contract_and_deploys(compiled, tmp
     ]
     executor = FakeExecutor()
     result = deploy(bundle, Target("dev"), executor)
-    assert len(result.steps) == 6 and "{{" not in "".join(executor.scripts) and 'ASTRA_DEV."BRONZE"' in executor.scripts[0] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[4]
+    assert len(result.steps) == 7 and "{{" not in "".join(executor.scripts) and 'ASTRA_DEV."BRONZE"' in executor.scripts[0] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[5]
+    assert "FROM @ASTRA_DEV.\"BRONZE\".\"LANDING\"/pershing/" in executor.scripts[1] and "FORMAT_NAME = 'ASTRA_DEV.BRONZE.RAW_LINES'" in executor.scripts[1]
     results = run_tests(bundle, Target("dev"), executor)
     assert len(results) == 5 and all(r.passed for r in results)
 
@@ -232,6 +246,21 @@ def test_a_source_without_delivery_files_cannot_be_rendered(compiled):
         render_bundle(without)
     assert [p.message for p in excinfo.value.problems] == ["delivery.files is needed to render the source: it says which landed files belong to this source"]
 
+    scattered = compiled.__class__(**{**compiled.__dict__, "delivery": {**compiled.delivery, "files": [{"pattern": "pershing/GCUS_%.dat"}, {"pattern": "schwab/POS_%.dat"}]}})
+    with pytest.raises(RenderError) as excinfo:
+        render_bundle(scattered)
+    assert excinfo.value.problems[0].message.startswith("delivery.files patterns must all sit under one custodian folder of the landing prefix")
+    rootless = compiled.__class__(**{**compiled.__dict__, "delivery": {**compiled.delivery, "files": [{"pattern": "GCUS_%.dat"}]}})
+    with pytest.raises(RenderError):
+        render_bundle(rootless)
+
+
+def test_like_patterns_become_snowflake_regular_expressions():
+    from astra_data.render.names import like_to_regex
+
+    assert like_to_regex("pershing/GCUS_%_POS_%.dat") == "pershing/GCUS..*.POS..*\\.dat"
+    assert like_to_regex("a+b(c).txt") == "a\\+b\\(c\\)\\.txt"
+
 
 def _args(root: Path, out: Path) -> list[str]:
     return ["--root", str(root), "render", "--specs", str(root / "specs"), "--rules", str(root / "rules"), "--domains", str(root / "domains"), "--out", str(out)]
@@ -245,7 +274,7 @@ def test_cli_render_writes_and_checks(tmp_path, capsys):
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 1
     assert "not rendered for pershing_position" in capsys.readouterr().out
     assert main([*_args(root, out), str(root / "configs")]) == 0
-    assert "rendered pershing-position: 15 files -> releases/pershing-position" in capsys.readouterr().out
+    assert "rendered pershing-position: 16 files -> releases/pershing-position" in capsys.readouterr().out
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 0
     assert "release bundles are current for 1 config" in capsys.readouterr().out
     assert main(["--root", str(root), "bundles", "check", str(out)]) == 0

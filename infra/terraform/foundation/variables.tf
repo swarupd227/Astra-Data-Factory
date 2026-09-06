@@ -242,6 +242,23 @@ variable "landing_noncurrent_version_days" {
   default     = 30
 }
 
+variable "landing_catch_all_pipe" {
+  description = "Keep the foundation's catch-all pipe loading every landed file into BRONZE.RAW_LINES. On for a fresh environment; off once the generation plane renders per-source pipes, so each file is loaded once by the pipe of the source that claims it. The pipe object remains either way, because the bucket notification targets its queue."
+  type        = bool
+  default     = true
+}
+
+variable "landing_unclaimed_minutes" {
+  description = "A landed file no pipe has loaded after this many minutes is logged as UNCLAIMED: no source config claims its path."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.landing_unclaimed_minutes >= 1 && var.landing_unclaimed_minutes <= 1440 && floor(var.landing_unclaimed_minutes) == var.landing_unclaimed_minutes
+    error_message = "landing_unclaimed_minutes must be a whole number between 1 and 1440."
+  }
+}
+
 variable "landing_reconcile_interval_minutes" {
   description = "How often the file load log is reconciled against the landing zone and Snowpipe history. Duplicates are reported within this interval of arriving."
   type        = number

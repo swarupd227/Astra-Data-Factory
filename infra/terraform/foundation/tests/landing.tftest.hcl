@@ -223,6 +223,19 @@ run "pipe_auto_ingests_lines_with_metadata" {
   }
 }
 
+run "catch_all_pipe_can_be_turned_off_once_sources_have_their_own" {
+  command = plan
+
+  variables {
+    landing_catch_all_pipe = false
+  }
+
+  assert {
+    condition     = strcontains(snowflake_pipe.raw_lines.copy_statement, "FROM @\"ASTRA_DEV\".\"BRONZE\".\"LANDING\"/_none/") && snowflake_pipe.raw_lines.auto_ingest && snowflake_iceberg_table.raw_lines.name == "RAW_LINES"
+    error_message = "With the catch-all off the pipe watches a folder nothing is delivered to, so its notification channel still serves the bucket notification; RAW_LINES and the reconciliation remain."
+  }
+}
+
 run "file_load_log_is_reconciled_every_minute_serverlessly" {
   command = plan
 
@@ -247,18 +260,27 @@ run "file_load_log_is_reconciled_every_minute_serverlessly" {
   }
 
   assert {
+    condition     = snowflake_task.reconcile_file_loads.sql_statement == "CALL \"ASTRA_DEV\".\"CONTROL\".\"RECONCILE_FILE_LOADS\"()"
+    error_message = "The task calls the reconciliation procedure."
+  }
+
+  assert {
     condition = alltrue([
       for needle in [
         "INSERT INTO \"ASTRA_DEV\".\"CONTROL\".\"FILE_LOAD_LOG\"",
         "DIRECTORY(@\"ASTRA_DEV\".\"BRONZE\".\"LANDING\")",
         "INFORMATION_SCHEMA.COPY_HISTORY",
+        "TABLE_NAME = 'RAW_LINES' OR ENDSWITH(TABLE_NAME, '_RAW_LINES')",
+        "EXECUTE IMMEDIATE :stmt",
         "'DUPLICATE'",
         "'CONFLICT'",
         "'LOADED'",
         "'FAILED'",
-      ] : strcontains(snowflake_task.reconcile_file_loads.sql_statement, needle)
+        "'UNCLAIMED'",
+        "DATEADD('minute', -10, SYSDATE())",
+      ] : strcontains(snowflake_procedure_sql.reconcile_file_loads.procedure_definition, needle)
     ])
-    error_message = "Reconciliation must compare the stage directory with Snowpipe history and classify every arrival."
+    error_message = "Reconciliation must gather copy history from every raw-lines table, compare it with the stage directory and classify every arrival, including files no pipe claimed."
   }
 }
 

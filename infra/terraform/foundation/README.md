@@ -63,7 +63,7 @@ Object names are `<PREFIX>_<ENV>_...`; the default prefix is `ASTRA`. For `dev`:
 | File format | `ASTRA_DEV.BRONZE.RAW_LINES` | One column per line; no delimiter, quoting, escaping or NULL substitution. |
 | Stage | `ASTRA_DEV.BRONZE.LANDING` | External stage over the landing prefix with an auto-refreshing directory table. |
 | Iceberg table | `ASTRA_DEV.BRONZE.RAW_LINES` | `FILE_NAME`, `ROW_NUMBER`, `LINE`, `FILE_CONTENT_KEY`, `FILE_LAST_MODIFIED`, `INGESTED_AT`. Written only by Snowpipe. |
-| Pipe | `ASTRA_DEV.BRONZE.RAW_LINES` | Auto-ingest. Its SQS queue is the target of the landing bucket's event notification. |
+| Pipe | `ASTRA_DEV.BRONZE.RAW_LINES` | Catch-all auto-ingest pipe (`landing_catch_all_pipe`, on by default). Its SQS queue is the target of the landing bucket's event notification; per-source pipes rendered by `astra-data render` share it. |
 | Iceberg table | `ASTRA_DEV.CONTROL.FILE_LOAD_LOG` | One entry per file arrival: `LOADED`, `FAILED`, `DUPLICATE` or `CONFLICT`, with the reason. |
 | Task | `ASTRA_DEV.CONTROL.RECONCILE_FILE_LOADS` | Serverless, every minute by default. Writes the file load log. |
 | Role | `ASTRA_DEV_SANDBOX` | Sandbox runner: creates and drops `ASTRA_DEV_SBX_<TASK>` databases and warehouses; reads Control; nothing else. |
@@ -131,6 +131,8 @@ ENGINEER and PIPELINE also hold the account-level `EXECUTE TASK` and `EXECUTE MA
 | `open_catalog_client_secret` | `null` | Its secret, sensitive. Supply via `TF_VAR_open_catalog_client_secret`. |
 | `landing_bucket_name` | derived | `<prefix>-<env>-landing-<aws account id>` unless set |
 | `landing_prefix` | `landing` | Key prefix Snowpipe watches. Custodian folders sit beneath it. |
+| `landing_catch_all_pipe` | `true` | Keep the catch-all pipe loading into `RAW_LINES`. Set to `false` once per-source pipes are rendered, so each file is loaded once; the pipe object then watches an empty folder and keeps serving the bucket notification. |
+| `landing_unclaimed_minutes` | `10` | A landed file no pipe loaded after this long is logged as `UNCLAIMED` |
 | `landing_noncurrent_version_days` | `30` | How long a superseded version of a re-delivered file is kept. Null keeps all. |
 | `landing_reconcile_interval_minutes` | `1` | Cadence of the file load log reconciliation task |
 | `sandbox_prefix` | `sandbox` | Landing-bucket prefix where sandbox runs stage sample files; must not be inside `landing_prefix` |
@@ -196,13 +198,14 @@ From then on every Iceberg table in the database appears in the Open Catalog cat
 
 Custodians deliver files to `s3://<landing bucket>/landing/<custodian>/...`. Each object-created event goes to the SQS queue Snowflake owns for the account; the `RAW_LINES` pipe loads the file into `BRONZE.RAW_LINES` as one row per line with the file name, the row number and the time Snowpipe started scanning the file. Nothing in the line is interpreted: no delimiters, quoting, escaping, trimming or NULL substitution. Parsing is the generation plane's job (S3.2.2).
 
-Per-custodian pipes rendered later (S3.2.1) reuse the same storage integration, stage and event notification; Snowflake routes each event to every pipe whose stage location matches the object key.
+Per-source pipes rendered by the generation plane (S3.2.1) reuse the same storage integration, stage, file format and event notification: `astra-data render` writes `BRONZE.<SOURCE>_PIPE`, which watches the custodian's folder under the landing prefix, matches the source's delivery patterns and loads into `BRONZE.<SOURCE>_RAW_LINES`. Snowflake routes each event to every pipe whose stage location matches the object key, so once sources have their own pipes an environment sets `landing_catch_all_pipe = false` and each file is loaded once, by the pipe of the source that claims it. A file no pipe claims is logged as `UNCLAIMED` after `landing_unclaimed_minutes`.
 
-**Duplicates.** Snowpipe never loads a file name it has already loaded within 14 days, whether or not the content changed, and it does so silently. The stage's directory table makes re-deliveries visible: a re-delivered object shows a newer last-modified time. Every minute the `RECONCILE_FILE_LOADS` task compares the directory table with Snowpipe's copy history and writes `CONTROL.FILE_LOAD_LOG`:
+**Duplicates.** Snowpipe never loads a file name it has already loaded within 14 days, whether or not the content changed, and it does so silently. The stage's directory table makes re-deliveries visible: a re-delivered object shows a newer last-modified time. Every minute the `RECONCILE_FILE_LOADS` task calls the procedure of the same name, which gathers the copy history of every raw-lines table (`RAW_LINES` and each `<SOURCE>_RAW_LINES`), compares it with the directory table and writes `CONTROL.FILE_LOAD_LOG`:
 
 | Status | Meaning | What to do |
 |---|---|---|
-| `LOADED` | Snowpipe loaded the file; `ROW_COUNT` rows | Nothing |
+| `LOADED` | A pipe loaded the file; `ROW_COUNT` rows; `DETAIL` names the pipe and table | Nothing |
+| `UNCLAIMED` | No pipe loaded the file within `landing_unclaimed_minutes` | Add or fix the source config whose delivery patterns should claim the path |
 | `FAILED` | Snowpipe reported a load failure; `DETAIL` carries the first error | Fix the file, deliver it under a new name |
 | `DUPLICATE` | Same name, same content delivered again; not loaded | Nothing; the delivery is recorded |
 | `CONFLICT` | Same name, different content, or re-delivery after a failed load; not loaded | Deliver the corrected file under a new name |

@@ -20,13 +20,19 @@ locals {
   raw_lines_table_fqn  = "\"${local.database_name}\".\"${local.bronze_schema}\".\"RAW_LINES\""
   file_load_log_fqn    = "\"${local.database_name}\".\"${local.control_schema}\".\"FILE_LOAD_LOG\""
 
+  # The catch-all pipe watches the whole landing prefix, or, once per-source
+  # pipes are rendered and the catch-all is turned off, a folder nothing is
+  # ever delivered to. The pipe object stays because its notification channel
+  # is the SQS queue the bucket notification targets, shared by every pipe.
+  raw_lines_copy_from = var.landing_catch_all_pipe ? "@${local.landing_stage_fqn}" : "@${local.landing_stage_fqn}/_none/"
+
   # Snowpipe COPY: one row per line with the file metadata the story requires.
   raw_lines_copy = <<-SQL
     COPY INTO ${local.raw_lines_table_fqn} (FILE_NAME, ROW_NUMBER, LINE, FILE_CONTENT_KEY, FILE_LAST_MODIFIED, INGESTED_AT)
     FROM (
       SELECT METADATA$FILENAME, METADATA$FILE_ROW_NUMBER, $1, METADATA$FILE_CONTENT_KEY,
              METADATA$FILE_LAST_MODIFIED, METADATA$START_SCAN_TIME
-      FROM @${local.landing_stage_fqn}
+      FROM ${local.raw_lines_copy_from}
     )
     FILE_FORMAT = (FORMAT_NAME = '${local.raw_lines_format_fqn}')
   SQL
@@ -38,22 +44,46 @@ locals {
   #   DUPLICATE  the same name arrived again with the same content; not loaded
   #   CONFLICT   the same name arrived again with different content, or after
   #              a failed load; not loaded, needs a rename
-  reconcile_file_loads = <<-SQL
-    INSERT INTO ${local.file_load_log_fqn} (FILE_NAME, FILE_LAST_MODIFIED, STATUS, FILE_HASH, FILE_SIZE, ROW_COUNT, DETAIL, OBSERVED_AT)
-    WITH files AS (
-      SELECT RELATIVE_PATH AS FILE_NAME,
-             CONVERT_TIMEZONE('UTC', LAST_MODIFIED)::TIMESTAMP_NTZ(6) AS FILE_LAST_MODIFIED,
-             MD5 AS FILE_HASH,
-             SIZE AS FILE_SIZE
-      FROM DIRECTORY(@${local.landing_stage_fqn})
-    ),
-    loads AS (
-      SELECT FILE_NAME, STATUS, ROW_COUNT, FILE_SIZE, FIRST_ERROR_MESSAGE,
-             CONVERT_TIMEZONE('UTC', LAST_LOAD_TIME)::TIMESTAMP_NTZ(6) AS LAST_LOAD_TIME
-      FROM TABLE("${local.database_name}".INFORMATION_SCHEMA.COPY_HISTORY(
-             TABLE_NAME => '${local.raw_lines_table_fqn}',
-             START_TIME => DATEADD('hour', -24, CURRENT_TIMESTAMP())))
-    ),
+  # Every raw-lines table Snowpipe loads: the foundation's RAW_LINES (the
+  # catch-all, when enabled) and each rendered source's <SOURCE>_RAW_LINES
+  # (S3.2.1). COPY_HISTORY is per table, so the procedure gathers it for each
+  # before classifying every arrival.
+  reconcile_file_loads_definition = <<-SQL
+    DECLARE
+      raw_tables CURSOR FOR
+        SELECT TABLE_NAME
+        FROM "${local.database_name}".INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = '${local.bronze_schema}'
+          AND (TABLE_NAME = 'RAW_LINES' OR ENDSWITH(TABLE_NAME, '_RAW_LINES'))
+        ORDER BY TABLE_NAME;
+      logged INTEGER DEFAULT 0;
+    BEGIN
+      CREATE OR REPLACE TEMPORARY TABLE RAW_LOADS (
+        FILE_NAME STRING, STATUS STRING, ROW_COUNT NUMBER, FILE_SIZE NUMBER, FIRST_ERROR_MESSAGE STRING,
+        LAST_LOAD_TIME TIMESTAMP_NTZ(6), PIPE_NAME STRING, TABLE_NAME STRING);
+      FOR r IN raw_tables DO
+        LET t STRING := r.TABLE_NAME;
+        LET stmt STRING := 'INSERT INTO RAW_LOADS '
+          || 'SELECT FILE_NAME, STATUS, ROW_COUNT, FILE_SIZE, FIRST_ERROR_MESSAGE, '
+          || 'CONVERT_TIMEZONE(''UTC'', LAST_LOAD_TIME)::TIMESTAMP_NTZ(6), PIPE_NAME, ''' || t || ''' '
+          || 'FROM TABLE("${local.database_name}".INFORMATION_SCHEMA.COPY_HISTORY('
+          || 'TABLE_NAME => ''"${local.database_name}"."${local.bronze_schema}"."' || t || '"'', '
+          || 'START_TIME => DATEADD(''hour'', -24, CURRENT_TIMESTAMP())))';
+        EXECUTE IMMEDIATE :stmt;
+      END FOR;
+
+      INSERT INTO ${local.file_load_log_fqn} (FILE_NAME, FILE_LAST_MODIFIED, STATUS, FILE_HASH, FILE_SIZE, ROW_COUNT, DETAIL, OBSERVED_AT)
+      WITH files AS (
+        SELECT RELATIVE_PATH AS FILE_NAME,
+               CONVERT_TIMEZONE('UTC', LAST_MODIFIED)::TIMESTAMP_NTZ(6) AS FILE_LAST_MODIFIED,
+               MD5 AS FILE_HASH,
+               SIZE AS FILE_SIZE
+        FROM DIRECTORY(@${local.landing_stage_fqn})
+      ),
+      loads AS (
+        SELECT FILE_NAME, STATUS, ROW_COUNT, FILE_SIZE, FIRST_ERROR_MESSAGE, LAST_LOAD_TIME, PIPE_NAME, TABLE_NAME
+        FROM RAW_LOADS
+      ),
     logged AS (
       SELECT FILE_NAME, FILE_LAST_MODIFIED, STATUS, FILE_HASH FROM ${local.file_load_log_fqn}
     ),
@@ -65,8 +95,8 @@ locals {
              COALESCE(l.FILE_SIZE, f.FILE_SIZE) AS FILE_SIZE,
              l.ROW_COUNT,
              IFF(l.STATUS = 'Loaded',
-                 'Loaded by Snowpipe.',
-                 'Snowpipe reported ' || l.STATUS || ': ' || COALESCE(l.FIRST_ERROR_MESSAGE, 'no error message')) AS DETAIL
+                 'Loaded by pipe ' || COALESCE(l.PIPE_NAME, 'unknown') || ' into ${local.bronze_schema}.' || l.TABLE_NAME || '.',
+                 'Pipe ' || COALESCE(l.PIPE_NAME, 'unknown') || ' reported ' || l.STATUS || ': ' || COALESCE(l.FIRST_ERROR_MESSAGE, 'no error message')) AS DETAIL
       FROM loads l
       LEFT JOIN files f ON f.FILE_NAME = l.FILE_NAME
       WHERE NOT EXISTS (
@@ -105,11 +135,31 @@ locals {
       LEFT JOIN loaded d ON d.FILE_NAME = f.FILE_NAME
       WHERE NOT EXISTS (SELECT 1 FROM new_loads n WHERE n.FILE_NAME = f.FILE_NAME)
     )
+    unclaimed AS (
+      SELECT f.FILE_NAME,
+             f.FILE_LAST_MODIFIED,
+             'UNCLAIMED' AS STATUS,
+             f.FILE_HASH,
+             f.FILE_SIZE,
+             NULL AS ROW_COUNT,
+             'No pipe loaded this file within ${var.landing_unclaimed_minutes} minutes of arrival: no source config claims its path. Landed, not processed.' AS DETAIL
+      FROM files f
+      WHERE f.FILE_LAST_MODIFIED < DATEADD('minute', -${var.landing_unclaimed_minutes}, SYSDATE())
+        AND NOT EXISTS (SELECT 1 FROM logged g WHERE g.FILE_NAME = f.FILE_NAME AND g.FILE_LAST_MODIFIED = f.FILE_LAST_MODIFIED)
+        AND NOT EXISTS (SELECT 1 FROM new_loads n WHERE n.FILE_NAME = f.FILE_NAME)
+        AND NOT EXISTS (SELECT 1 FROM redrops r WHERE r.FILE_NAME = f.FILE_NAME)
+    )
     SELECT FILE_NAME, FILE_LAST_MODIFIED, STATUS, FILE_HASH, FILE_SIZE, ROW_COUNT, DETAIL, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ(6)
     FROM new_loads
     UNION ALL
     SELECT FILE_NAME, FILE_LAST_MODIFIED, STATUS, FILE_HASH, FILE_SIZE, ROW_COUNT, DETAIL, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ(6)
     FROM redrops
+    UNION ALL
+    SELECT FILE_NAME, FILE_LAST_MODIFIED, STATUS, FILE_HASH, FILE_SIZE, ROW_COUNT, DETAIL, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ(6)
+    FROM unclaimed;
+      logged := SQLROWCOUNT;
+      RETURN logged;
+    END;
   SQL
 }
 
@@ -235,11 +285,17 @@ resource "snowflake_iceberg_table" "raw_lines" {
   depends_on = [snowflake_grant_privileges_to_account_role.future_objects]
 }
 
+# The catch-all pipe loads every file under the landing prefix into RAW_LINES.
+# It is what a fresh environment uses before any source is rendered; once the
+# generation plane renders per-source pipes (S3.2.1), an environment turns it
+# off (landing_catch_all_pipe = false) so a file is loaded once, by the pipe
+# of the source that claims it. The pipe object remains, pointed at a folder
+# nothing is delivered to, because the bucket notification needs its queue.
 resource "snowflake_pipe" "raw_lines" {
   name     = "RAW_LINES"
   database = snowflake_database.this.name
   schema   = snowflake_schema.this[local.bronze_schema].name
-  comment  = "Loads every file under ${local.landing_base_url} into RAW_LINES on arrival. Managed by Terraform."
+  comment  = var.landing_catch_all_pipe ? "Loads every file under ${local.landing_base_url} into RAW_LINES on arrival. Catch-all; turn off once per-source pipes are rendered. Managed by Terraform." : "Catch-all pipe turned off (landing_catch_all_pipe = false): watches ${local.landing_base_url}_none/, which receives nothing. Kept for its notification channel. Managed by Terraform."
 
   auto_ingest    = true
   copy_statement = local.raw_lines_copy
@@ -308,16 +364,32 @@ resource "snowflake_iceberg_table" "file_load_log" {
   depends_on = [snowflake_grant_privileges_to_account_role.future_objects]
 }
 
+resource "snowflake_procedure_sql" "reconcile_file_loads" {
+  name     = "RECONCILE_FILE_LOADS"
+  database = snowflake_database.this.name
+  schema   = snowflake_schema.this[local.control_schema].name
+  comment  = "Compares the landing directory with the copy history of every raw-lines table and logs each arrival as LOADED, FAILED, DUPLICATE, CONFLICT or UNCLAIMED. Managed by Terraform."
+
+  return_type          = "INTEGER"
+  execute_as           = "OWNER"
+  procedure_definition = local.reconcile_file_loads_definition
+
+  depends_on = [
+    snowflake_procedure_sql.reconcile_file_loads,
+    snowflake_grant_privileges_to_account_role.future_objects,
+  ]
+}
+
 resource "snowflake_task" "reconcile_file_loads" {
   name     = "RECONCILE_FILE_LOADS"
   database = snowflake_database.this.name
   schema   = snowflake_schema.this[local.control_schema].name
-  comment  = "Logs every landing-zone arrival as LOADED, FAILED, DUPLICATE or CONFLICT. Serverless. Managed by Terraform."
+  comment  = "Logs every landing-zone arrival as LOADED, FAILED, DUPLICATE, CONFLICT or UNCLAIMED. Serverless. Managed by Terraform."
 
   started                                  = true
   user_task_managed_initial_warehouse_size = "XSMALL"
   suspend_task_after_num_failures          = 10
-  sql_statement                            = local.reconcile_file_loads
+  sql_statement                            = "CALL ${local.control_fqn}.\"RECONCILE_FILE_LOADS\"()"
 
   schedule {
     minutes = var.landing_reconcile_interval_minutes

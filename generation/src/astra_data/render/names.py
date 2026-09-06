@@ -60,6 +60,44 @@ def lines_view(compiled: CompiledConfig) -> str:
     return f"{source_name(compiled)}_LINES"
 
 
+def raw_lines_table(compiled: CompiledConfig) -> str:
+    return f"{source_name(compiled)}_RAW_LINES"
+
+
+def pipe_name(compiled: CompiledConfig) -> str:
+    return f"{source_name(compiled)}_PIPE"
+
+
+def delivery_patterns(compiled: CompiledConfig) -> list[str]:
+    return [f["pattern"] for f in (compiled.delivery or {}).get("files") or []]
+
+
+def custodian_folder(compiled: CompiledConfig) -> str | None:
+    """The folder under the landing prefix every delivery pattern sits in, or None when they disagree or have none."""
+    folders: set[str] = set()
+    for pattern in delivery_patterns(compiled):
+        literal = pattern.split("%", 1)[0]
+        if "/" not in literal:
+            return None
+        folders.add(literal.rsplit("/", 1)[0] + "/")
+    return folders.pop() if len(folders) == 1 else None
+
+
+def like_to_regex(pattern: str) -> str:
+    """A SQL LIKE pattern as the regular expression Snowflake's PATTERN clause takes."""
+    out: list[str] = []
+    for char in pattern:
+        if char == "%":
+            out.append(".*")
+        elif char == "_":
+            out.append(".")
+        elif char in ".^$*+?()[]{}|\\":
+            out.append("\\" + char)
+        else:
+            out.append(char)
+    return "".join(out)
+
+
 def procedure(compiled: CompiledConfig, stage: str) -> str:
     return f"{source_name(compiled)}_{stage}"
 

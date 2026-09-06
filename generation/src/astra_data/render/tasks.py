@@ -6,7 +6,7 @@ from astra_data.compiler import CompiledConfig
 from astra_data.render.names import BRONZE, WAREHOUSE_BY_TIER, procedure, q, task_name
 
 # Order of pipeline steps within the manifest, by the suffix of the file name.
-STEP_ORDER = {"lines.sql": 0, "intake.sql": 1, "process.sql": 2, "tasks.sql": 3}
+STEP_ORDER = {"pipe.sql": 0, "lines.sql": 1, "intake.sql": 2, "process.sql": 3, "tasks.sql": 4}
 
 # How often a source is processed. Files that land between runs wait at most this long.
 INTERVAL_MINUTES = 15

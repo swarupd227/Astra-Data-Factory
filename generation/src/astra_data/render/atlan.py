@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import files_table, logical_columns, problems_table, record_table, sql_type
+from astra_data.render.names import custodian_folder, files_table, logical_columns, problems_table, raw_lines_table, record_table, sql_type
 
 CONNECTION = "{{ ATLAN_CONNECTION }}"
 DATABASE = "{{ DATABASE }}"
@@ -63,6 +63,8 @@ def render_payload(compiled: CompiledConfig) -> dict:
         for order, column in enumerate(logical_columns(spec, label), start=1):
             f = column.field
             entities.append(_column("BRONZE", table, column.name, order, sql_type(f), f.description or f"{f.name} of the {column.record} record"))
+    entities.append(_table("BRONZE", raw_lines_table(compiled), f"Source {compiled.id}: raw lines as delivered, loaded by Snowpipe from {custodian_folder(compiled)}.", owner))
+    entities.append(_column("BRONZE", raw_lines_table(compiled), "LINE", 3, "STRING", "The line as delivered, untouched.", "raw_record"))
     entities.append(_table("BRONZE", files_table(compiled), f"Source {compiled.id}: landed files and their pipeline status.", owner))
     entities.append(_table("BRONZE", problems_table(compiled), f"Source {compiled.id}: parse problems with their rejection codes.", owner))
 

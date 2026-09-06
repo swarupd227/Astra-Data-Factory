@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import files_table, logical_columns, problems_table, record_table, sql_type, task_name
+from astra_data.render.names import custodian_folder, files_table, logical_columns, pipe_name, problems_table, raw_lines_table, record_table, sql_type, task_name
 
 
 def _position(column) -> str:
@@ -110,7 +110,7 @@ def render_doc(compiled: CompiledConfig) -> str:
 
     out.append("## Pipeline")
     out.append("")
-    out.append(f"Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` every 15 minutes on the {src['tier']} tier warehouse. Stages: intake (register landed files as pending). Parse, merge and resolution stages are added by their releases.")
+    out.append(f"Pipe `BRONZE.{pipe_name(compiled)}` loads every file under `{custodian_folder(compiled)}` of the landing prefix that matches the delivery patterns into `BRONZE.{raw_lines_table(compiled)}` on arrival, one row per line. Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` every 15 minutes on the {src['tier']} tier warehouse. Stages: intake (register landed files as pending). Parse, merge and resolution stages are added by their releases.")
     out.append("")
     return "\n".join(out)
 
