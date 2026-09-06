@@ -18,8 +18,9 @@ from typing import Protocol
 
 from jsonschema import Draft202012Validator
 
-from astra_data.validate import Problem, _describe, _error_line
-from astra_data.yamlsource import SourceError, load
+from astra_core.problems import Problem
+from astra_core.schema import describe_error, error_line
+from astra_core.yamlsource import SourceError, load
 
 MANIFEST_NAME = "manifest.yaml"
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Z][A-Z0-9_]*)\s*\}\}")
@@ -157,7 +158,7 @@ def load_bundle(root: Path, repo_root: Path | None = None) -> Bundle:
 
     schema_errors = sorted(_validator().iter_errors(manifest), key=lambda e: (list(map(str, e.absolute_path)), e.message))
     if schema_errors:
-        raise BundleError([Problem(display, _error_line(manifest, e), _describe(e)) for e in schema_errors])
+        raise BundleError([Problem(display, error_line(manifest, e), describe_error(e)) for e in schema_errors])
 
     if manifest["bundle"] != root.name:
         problems.append(Problem(display, None, f"manifest bundle '{manifest['bundle']}' must match the directory name '{root.name}'"))

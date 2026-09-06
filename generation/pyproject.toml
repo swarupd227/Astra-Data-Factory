@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Astra Data: validates source configs and deploys and tests release bundles. The generation plane grows here."
 requires-python = ">=3.11"
 dependencies = [
+  "astra-core",
+  "astra-knowledge",
   "pyyaml>=6.0",
   "jsonschema>=4.20",
   "tzdata>=2024.1",
@@ -30,4 +32,4 @@ packages = ["src/astra_data"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "../core/src", "../knowledge/src"]

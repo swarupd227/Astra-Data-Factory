@@ -28,4 +28,4 @@ packages = ["src/astra_verification"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "../generation/src"]
+pythonpath = ["src", "../generation/src", "../knowledge/src", "../core/src"]

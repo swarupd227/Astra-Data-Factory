@@ -121,8 +121,8 @@ def test_validate_paths_walks_directories_and_reports_missing_paths(tmp_path):
 
 def test_github_format_is_a_workflow_annotation():
     p = Problem("configs/x.yaml", 12, "rules[0].status: 'maybe' is not one of a, b")
-    assert p.format("github") == "::error file=configs/x.yaml,line=12,title=Config validation::rules[0].status: 'maybe' is not one of a, b"
-    assert Problem("configs/x.yaml", None, "gone").format("github") == "::error file=configs/x.yaml,title=Config validation::gone"
+    assert p.format("github", title="Config validation") == "::error file=configs/x.yaml,line=12,title=Config validation::rules[0].status: 'maybe' is not one of a, b"
+    assert Problem("configs/x.yaml", None, "gone").format("github", title="Config validation") == "::error file=configs/x.yaml,title=Config validation::gone"
     assert p.format("text") == "configs/x.yaml:12: rules[0].status: 'maybe' is not one of a, b"
 
 

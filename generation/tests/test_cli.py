@@ -32,6 +32,28 @@ def test_validate_passes_cleanly_and_json_is_empty_list(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out) == []
 
 
+def test_validate_checks_spec_references_against_the_registry(tmp_path, capsys):
+    specs = Path(__file__).resolve().parents[2] / "specs"
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    (configs / "pershing_position.yaml").write_text(VALID, encoding="utf-8")
+    assert main(["--root", str(tmp_path), "validate", "--specs", str(specs), str(configs)]) == 0
+    assert "checked 1 config file: no problems" in capsys.readouterr().out
+
+    (configs / "pershing_position.yaml").write_text(VALID.replace('version: "2017-07-25"', 'version: "2015-01-01"'), encoding="utf-8")
+    assert main(["--root", str(tmp_path), "validate", "--specs", str(specs), str(configs)]) == 1
+    out = capsys.readouterr().out
+    assert "spec.version '2015-01-01' of spec 'pershing_gcus' is not in the spec registry; known versions: 2017-07-25, 2026-01-01" in out
+
+    (configs / "pershing_position.yaml").write_text(VALID.replace("custodian: pershing", "custodian: schwab"), encoding="utf-8")
+    assert main(["--root", str(tmp_path), "validate", "--specs", str(specs), str(configs)]) == 1
+    assert "custodian 'schwab' is not listed as delivering spec pershing_gcus 2017-07-25; it delivers to pershing" in capsys.readouterr().out
+
+    (configs / "pershing_position.yaml").write_text(VALID.replace("effective_from: 2026-09-01", "effective_from: 2016-01-01"), encoding="utf-8")
+    assert main(["--root", str(tmp_path), "validate", "--specs", str(specs), str(configs)]) == 1
+    assert "effective_from 2016-01-01 is before spec pershing_gcus 2017-07-25 comes into force on 2017-07-25" in capsys.readouterr().out
+
+
 def test_validate_with_no_configs_is_not_an_error(tmp_path, capsys):
     (tmp_path / "configs").mkdir()
     assert main(["--root", str(tmp_path), "validate", str(tmp_path / "configs")]) == 0

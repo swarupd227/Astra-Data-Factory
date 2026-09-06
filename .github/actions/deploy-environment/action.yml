@@ -126,7 +126,7 @@ runs:
 
     - name: Install astra-data
       shell: bash
-      run: python -m pip install --quiet -e "generation[deploy]"
+      run: python -m pip install --quiet -e "core[snowflake]" -e knowledge -e "generation[deploy]"
 
     - name: Deploy release bundles
       shell: bash

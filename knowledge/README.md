@@ -1,0 +1,49 @@
+# astra-knowledge
+
+The knowledge plane of Astra Data Factory (product spec Section 5): what the factory knows. Today it holds the spec registry (S2.1.1); the pattern library, domain packs and the rule catalog (E2) join it here. It depends on `astra-core` and on nothing above it; `astra-data` (generation) depends on it.
+
+```bash
+cd knowledge
+python -m venv .venv && . .venv/bin/activate
+pip install -e ../core -e ".[dev]"
+pytest
+```
+
+## Spec registry
+
+Source Specs live in [specs/](../specs/README.md), one directory per layout, one file per version. The registry loads them, validates each file and the set as a whole, and resolves which version is in force:
+
+```python
+from datetime import date
+from astra_knowledge import Registry
+
+registry, problems = Registry.load("specs")
+spec = registry.resolve("pershing", "position", date(2026, 9, 6))   # the version in force
+spec.record("detail").field("quantity").picture.scale                 # 5 implied decimals
+```
+
+| Command | What it does |
+|---|---|
+| `astra-spec validate` | Every spec file against the schema and its own consistency, plus registry-wide checks |
+| `astra-spec list` | Every version with its effective date, file type and custodians |
+| `astra-spec resolve --custodian <id> --file-type <type> --date <YYYY-MM-DD>` | The version in force on a business date; exit 1 when none |
+| `astra-spec show --id <spec> --version <version>` | Every field with position, picture, type and citation |
+
+`--format github` prints workflow annotations so a failing pull request shows each problem on its file and line. `--format json` is for tools.
+
+## What is checked
+
+Per file: schema shape; version equals the file name and id the directory; a valid effective date; a fixed-width file has a record length and every field a position within it; no two fields overlap; the picture's width equals the position length; the declared type fits the picture; dates and times have a format; codes are unique; a sign field names a field of the same record; several detail record types have names and match rules; every citation has a page or a line.
+
+Across the registry: no two versions come into force for the same custodian and file type on the same date.
+
+## Layout
+
+```
+src/astra_knowledge/
+  schemas/source-spec-v0.schema.json   the Source Spec schema, versioned by spec_version
+  picture.py                           COBOL-style pictures: width, digits, scale, sign
+  registry.py                          loading, checks, resolution
+  cli.py
+tests/                                 run against the shipped registry and temporary variants of it
+```

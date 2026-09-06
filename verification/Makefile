@@ -10,10 +10,10 @@ PY ?= python
 .PHONY: install install-deploy check test
 
 install:
-	$(PY) -m pip install -e ../generation -e ".[dev]"
+	$(PY) -m pip install -e ../core -e ../knowledge -e ../generation -e ".[dev]"
 
 install-deploy:
-	$(PY) -m pip install -e "../generation[deploy]" -e ".[dev,deploy]"
+	$(PY) -m pip install -e "../core[snowflake]" -e ../knowledge -e "../generation[deploy]" -e ".[dev,deploy]"
 
 check:
 	$(PY) -m pytest -q

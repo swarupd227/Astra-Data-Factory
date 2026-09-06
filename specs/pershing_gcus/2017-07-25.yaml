@@ -1,0 +1,144 @@
+# Source Spec: Pershing GCUS position file, layout version 2017-07-25.
+# Illustrative subset of the layout for the design partner; positions,
+# pictures and citations follow the layout document named below. Real
+# custodian data never appears in a spec.
+spec_version: 0
+
+spec:
+  id: pershing_gcus
+  version: "2017-07-25"
+  effective_from: 2017-07-25
+  file_type: position
+  custodians: [pershing]
+  family: pershing_gcus
+  provider: Pershing LLC
+  description: Daily positions, one detail record per account and security, with header and trailer control records.
+
+document:
+  title: GCUS Position File Layout
+  reference: GCUS_20170725.pdf
+  pages: 42
+  issued: 2017-07-25
+
+file:
+  format: fixed_width
+  record_length: 120
+  encoding: ASCII
+  line_ending: any
+
+records:
+  - type: header
+    match: { position: { start: 1, length: 3 }, value: HDR }
+    description: One per file; carries the business date and whether the file is a full refresh or a delta.
+    fields:
+      - name: record_type
+        position: { start: 1, length: 3 }
+        picture: X(3)
+        type: code
+        citation: { page: 4, line: 3 }
+        codes:
+          - { value: HDR, meaning: header record }
+      - name: file_date
+        position: { start: 4, length: 8 }
+        picture: 9(8)
+        type: date
+        format: YYYYMMDD
+        citation: { page: 4, line: 5 }
+        description: Business date the positions are as of.
+      - name: remote_id
+        position: { start: 12, length: 10 }
+        picture: X(10)
+        citation: { page: 4, line: 7 }
+        description: Pershing's identifier for the receiving firm.
+      - name: refresh_flag
+        position: { start: 22, length: 1 }
+        picture: X(1)
+        type: code
+        citation: { page: 4, line: 9 }
+        codes:
+          - { value: R, meaning: full refresh; replaces all positions for the remote id }
+          - { value: U, meaning: update; merge on keys }
+      - name: filler
+        position: { start: 23, length: 98 }
+        picture: X(98)
+        citation: { page: 4, line: 11 }
+
+  - type: detail
+    match: { position: { start: 1, length: 3 }, value: DTL }
+    fields:
+      - name: record_type
+        position: { start: 1, length: 3 }
+        picture: X(3)
+        type: code
+        citation: { page: 12, line: 3 }
+        codes:
+          - { value: DTL, meaning: position detail }
+      - name: account_number
+        position: { start: 4, length: 10 }
+        picture: X(10)
+        required: true
+        citation: { page: 12, line: 5 }
+      - name: cusip
+        position: { start: 14, length: 9 }
+        picture: X(9)
+        required: true
+        citation: { page: 12, line: 8 }
+      - name: quantity
+        position: { start: 23, length: 18 }
+        picture: 9(13)V9(5)
+        sign_field: quantity_sign
+        citation: { page: 13, line: 2 }
+        description: Unsigned digits with five implied decimals; the sign is the next field.
+      - name: quantity_sign
+        position: { start: 41, length: 1 }
+        picture: X(1)
+        type: code
+        citation: { page: 13, line: 6 }
+        codes:
+          - { value: "+", meaning: long }
+          - { value: "-", meaning: short }
+          - { value: " ", meaning: sign unknown; quantity is not zero }
+      - name: price
+        position: { start: 42, length: 15 }
+        picture: 9(9)V9(6)
+        citation: { page: 13, line: 9 }
+      - name: as_of_date
+        position: { start: 57, length: 8 }
+        picture: 9(8)
+        type: date
+        format: YYYYMMDD
+        citation: { page: 13, line: 12 }
+      - name: security_type
+        position: { start: 65, length: 2 }
+        picture: X(2)
+        type: code
+        citation: { page: 14, line: 1 }
+        codes:
+          - { value: EQ, meaning: equity }
+          - { value: FI, meaning: fixed income }
+          - { value: MF, meaning: mutual fund }
+          - { value: OP, meaning: option }
+      - name: filler
+        position: { start: 67, length: 54 }
+        picture: X(54)
+        citation: { page: 14, line: 8 }
+
+  - type: trailer
+    match: { position: { start: 1, length: 3 }, value: TRL }
+    fields:
+      - name: record_type
+        position: { start: 1, length: 3 }
+        picture: X(3)
+        type: code
+        citation: { page: 40, line: 3 }
+        codes:
+          - { value: TRL, meaning: trailer record }
+      - name: detail_count
+        position: { start: 4, length: 9 }
+        picture: 9(9)
+        citation: { page: 40, line: 5 }
+        description: Number of detail records; the file-level control total.
+      - name: filler
+        position: { start: 13, length: 108 }
+        picture: X(108)
+        citation: { page: 40, line: 7 }

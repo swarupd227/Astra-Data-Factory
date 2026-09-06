@@ -27,7 +27,7 @@ def _print_problems(problems: list[Problem], style: str) -> None:
         print(json.dumps([asdict(p) for p in problems], indent=2))
         return
     for p in problems:
-        print(p.format(style))
+        print(p.format(style, title="Config validation"))
 
 
 def _summary(message: str, style: str) -> None:
@@ -49,7 +49,16 @@ def environment_name(value: str) -> str:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
-    count, problems = validate_paths(args.paths, root=Path(args.root))
+    registry = None
+    if args.specs:
+        from astra_knowledge.registry import Registry
+
+        registry, registry_problems = Registry.load(Path(args.specs), repo_root=Path(args.root))
+        if registry_problems:
+            _print_problems(registry_problems, args.format)
+            _summary(f"{len(registry_problems)} problem{'s' if len(registry_problems) != 1 else ''} in the spec registry; fix them before configs can be checked against it", args.format)
+            return 1
+    count, problems = validate_paths(args.paths, root=Path(args.root), registry=registry)
     if problems:
         _print_problems(problems, args.format)
         _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in {count} config file{'s' if count != 1 else ''}", args.format)
@@ -192,6 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     v = sub.add_parser("validate", help="validate config files against the config schema and their references")
     v.add_argument("paths", nargs="*", default=["configs"], help="files or directories (default: configs)")
+    v.add_argument("--specs", help="spec registry directory; when given, each config's spec reference is checked against it")
     v.set_defaults(func=cmd_validate)
 
     b = sub.add_parser("bundles", help="release bundle commands")

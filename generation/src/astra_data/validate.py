@@ -4,59 +4,25 @@ Every problem is reported with file and line and in plain words so that it
 can be shown on the pull request that introduced it. A config that passes
 here is the input the compiler (S3.1.1) accepts; the compiler adds meaning,
 this adds nothing but checks.
+
+When a spec registry is given, each config's `spec` reference is checked
+against it: the version must exist, the custodian must be one that delivers
+the layout, the file type must match, and the config must not be in force
+before the spec version is.
 """
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
 from datetime import date
-from importlib import resources
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
-
-from astra_data.yamlsource import LineDict, SourceError, line_of, load
+from astra_core.problems import Problem, dedupe, display_path
+from astra_core.schema import describe_error, error_line, load_validator, sorted_errors
+from astra_core.yamlsource import LineDict, SourceError, line_of, load
 
 SCHEMA_FILES = {0: "config-v0.schema.json"}
 CONFIG_SUFFIXES = (".yaml", ".yml")
-
-IDENTIFIER_PATTERN = "^[a-z][a-z0-9_]{0,62}$"
-DATE_PATTERN = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
-
-
-@dataclass(frozen=True)
-class Problem:
-    """One thing wrong with one file."""
-
-    path: str
-    line: int | None
-    message: str
-
-    def format(self, style: str = "text") -> str:
-        if style == "github":
-            location = f"file={self.path}" + (f",line={self.line}" if self.line else "")
-            return f"::error {location},title=Config validation::{self.message}"
-        where = f"{self.path}:{self.line}" if self.line else self.path
-        return f"{where}: {self.message}"
-
-
-def load_schema(version: int = 0) -> dict:
-    name = SCHEMA_FILES[version]
-    return json.loads(resources.files("astra_data.schemas").joinpath(name).read_text(encoding="utf-8"))
-
-
-_validators: dict[int, Draft202012Validator] = {}
-
-
-def _validator(version: int) -> Draft202012Validator:
-    if version not in _validators:
-        schema = load_schema(version)
-        Draft202012Validator.check_schema(schema)
-        _validators[version] = Draft202012Validator(schema)
-    return _validators[version]
 
 
 def discover(paths: Iterable[Path | str]) -> tuple[list[Path], list[Problem]]:
@@ -74,16 +40,16 @@ def discover(paths: Iterable[Path | str]) -> tuple[list[Path], list[Problem]]:
     return files, problems
 
 
-def validate_paths(paths: Iterable[Path | str], root: Path | None = None) -> tuple[int, list[Problem]]:
+def validate_paths(paths: Iterable[Path | str], root: Path | None = None, registry=None) -> tuple[int, list[Problem]]:
     """Validate every config under the paths. Returns (files checked, problems)."""
     files, problems = discover(paths)
     for file in files:
-        problems.extend(validate_config_file(file, root))
+        problems.extend(validate_config_file(file, root, registry))
     return len(files), problems
 
 
-def validate_config_file(path: Path, root: Path | None = None) -> list[Problem]:
-    display = _display_path(path, root)
+def validate_config_file(path: Path, root: Path | None = None, registry=None) -> list[Problem]:
+    display = display_path(path, root)
     try:
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
@@ -103,72 +69,15 @@ def validate_config_file(path: Path, root: Path | None = None) -> list[Problem]:
         line = line_of(data, ["config_version"]) if "config_version" in data else 1
         return [Problem(display, line, f"config_version must be one of {known}; found {version!r}")]
 
-    problems = [
-        Problem(display, _error_line(data, error), _describe(error))
-        for error in sorted(_validator(version).iter_errors(data), key=lambda e: (list(map(str, e.absolute_path)), e.message))
-    ]
+    validator = load_validator("astra_data.schemas", SCHEMA_FILES[version])
+    problems = [Problem(display, error_line(data, e), describe_error(e)) for e in sorted_errors(validator, data)]
     if problems:
-        return _dedupe(problems)
-    return _dedupe(_reference_problems(data, path, display))
+        return dedupe(problems)
 
-
-# -- describing schema errors ----------------------------------------------
-
-
-def _path_text(path: Iterable[Any]) -> str:
-    text = ""
-    for step in path:
-        text += f"[{step}]" if isinstance(step, int) else (f".{step}" if text else str(step))
-    return text or "top level"
-
-
-def _error_line(data: Any, error: ValidationError) -> int | None:
-    path = list(error.absolute_path)
-    if error.validator == "additionalProperties" and isinstance(error.instance, dict):
-        extras = _extra_keys(error)
-        if extras:
-            return line_of(data, path + [extras[0]])
-    return line_of(data, path)
-
-
-def _extra_keys(error: ValidationError) -> list[str]:
-    allowed = set(error.schema.get("properties", {}))
-    return sorted(k for k in error.instance if k not in allowed)
-
-
-def _type_name(value: Any) -> str:
-    return {dict: "mapping", list: "list", str: "string", bool: "boolean", int: "integer", float: "number", type(None): "null"}.get(type(value), type(value).__name__)
-
-
-def _describe(error: ValidationError) -> str:
-    where = _path_text(error.absolute_path)
-    kind = error.validator
-    if kind == "required":
-        missing = [name for name in error.validator_value if name not in error.instance]
-        return f"{where}: missing required field{'s' if len(missing) > 1 else ''} {', '.join(missing)}"
-    if kind == "additionalProperties":
-        extras = _extra_keys(error)
-        allowed = ", ".join(sorted(error.schema.get("properties", {})))
-        return f"{where}: unknown field{'s' if len(extras) > 1 else ''} {', '.join(extras)}; allowed fields are {allowed}"
-    if kind == "enum":
-        return f"{where}: {error.instance!r} is not one of {', '.join(map(str, error.validator_value))}"
-    if kind == "const":
-        return f"{where}: must be {error.validator_value!r}"
-    if kind == "pattern":
-        if error.validator_value == IDENTIFIER_PATTERN:
-            return f"{where}: {error.instance!r} must be lower-case letters, digits and underscores, starting with a letter"
-        if error.validator_value == DATE_PATTERN:
-            return f"{where}: {error.instance!r} must be a date written as YYYY-MM-DD"
-        return f"{where}: {error.instance!r} does not match the required pattern {error.validator_value}"
-    if kind == "type":
-        expected = error.validator_value if isinstance(error.validator_value, str) else " or ".join(error.validator_value)
-        expected = {"object": "mapping", "array": "list"}.get(expected, expected)
-        return f"{where}: expected {expected}, found {_type_name(error.instance)}"
-    if kind == "minLength":
-        return f"{where}: must not be empty"
-    if kind == "minItems":
-        return f"{where}: must have at least {error.validator_value} item{'s' if error.validator_value != 1 else ''}"
-    return f"{where}: {error.message}"
+    problems = _reference_problems(data, path, display)
+    if registry is not None:
+        problems.extend(_registry_problems(data, display, registry))
+    return dedupe(problems)
 
 
 # -- references the schema cannot check ------------------------------------
@@ -227,6 +136,33 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
     return problems
 
 
+def _registry_problems(data: LineDict, display: str, registry) -> list[Problem]:
+    """The config's spec reference against the spec registry (astra_knowledge.registry.Registry)."""
+    spec_id, version = data["spec"]["id"], data["spec"]["version"]
+    spec = registry.get(spec_id, version)
+    if spec is None:
+        known = [s.version for s in registry.versions(spec_id)]
+        if known:
+            message = f"spec.version '{version}' of spec '{spec_id}' is not in the spec registry; known versions: {', '.join(known)}"
+        else:
+            message = f"spec.id '{spec_id}' is not in the spec registry (specs/<id>/<version>.yaml)"
+        return [Problem(display, line_of(data, ["spec", "version" if known else "id"]), message)]
+
+    problems: list[Problem] = []
+    custodian, file_type = data["source"]["custodian"], data["source"]["file_type"]
+    if custodian not in spec.custodians:
+        problems.append(Problem(display, line_of(data, ["source", "custodian"]), f"custodian '{custodian}' is not listed as delivering spec {spec_id} {version}; it delivers to {', '.join(spec.custodians)}"))
+    if file_type != spec.file_type:
+        problems.append(Problem(display, line_of(data, ["source", "file_type"]), f"source.file_type '{file_type}' does not match spec {spec_id} {version}, which describes '{spec.file_type}' files"))
+    try:
+        effective = date.fromisoformat(data["effective_from"])
+    except ValueError:
+        effective = None
+    if effective is not None and effective < spec.effective_from:
+        problems.append(Problem(display, line_of(data, ["effective_from"]), f"effective_from {effective} is before spec {spec_id} {version} comes into force on {spec.effective_from}"))
+    return problems
+
+
 def _timezone_exists(name: str) -> bool:
     """True unless the timezone database is present and does not know the name."""
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
@@ -242,22 +178,4 @@ def _timezone_exists(name: str) -> bool:
     return True
 
 
-def _dedupe(problems: list[Problem]) -> list[Problem]:
-    seen: set[tuple[str, int | None, str]] = set()
-    unique: list[Problem] = []
-    for p in problems:
-        key = (p.path, p.line, p.message)
-        if key not in seen:
-            seen.add(key)
-            unique.append(p)
-    return unique
-
-
-def _display_path(path: Path, root: Path | None) -> str:
-    try:
-        return path.resolve().relative_to((root or Path.cwd()).resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
-
-
-__all__ = ["Problem", "discover", "load_schema", "validate_config_file", "validate_paths"]
+__all__ = ["Problem", "discover", "validate_config_file", "validate_paths"]

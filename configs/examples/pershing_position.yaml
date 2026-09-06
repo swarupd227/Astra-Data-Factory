@@ -12,8 +12,8 @@ source:
   description: Pershing GCUS position file, one record per account and security.
 
 spec:
-  id: GCUS_20170725
-  version: "2017-07-25"
+  id: pershing_gcus            # specs/pershing_gcus/
+  version: "2017-07-25"        # specs/pershing_gcus/2017-07-25.yaml
 
 target_profile: snowflake_iceberg
 domain_pack: custodial_wealth
