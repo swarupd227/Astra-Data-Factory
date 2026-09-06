@@ -64,12 +64,15 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["value"],
+            "anyOf": [{ "required": ["position"] }, { "required": ["start", "end_marker"] }, { "required": ["column"] }],
             "properties": {
-              "position": { "$ref": "#/$defs/position" },
-              "column": { "type": "integer", "minimum": 1 },
+              "position": { "$ref": "#/$defs/position", "description": "Fixed-length record type token in a fixed-width file." },
+              "start": { "type": "integer", "minimum": 1, "description": "With end_marker: the token starts here and runs up to the marker." },
+              "end_marker": { "type": "string", "minLength": 1, "maxLength": 1, "description": "Character that ends the record type token." },
+              "column": { "type": "integer", "minimum": 1, "description": "Delimited files: the column holding the record type." },
               "value": { "type": "string", "minLength": 1 }
             },
-            "description": "How a line is recognised as this record type."
+            "description": "How a line is recognised as this record type: a fixed-length token at a position, a token from a start position up to an end marker, or a column."
           },
           "fields": {
             "type": "array",

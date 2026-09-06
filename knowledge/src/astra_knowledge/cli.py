@@ -9,7 +9,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 from astra_core.problems import Problem
@@ -190,7 +192,7 @@ def cmd_show(args: argparse.Namespace) -> int:
             {
                 "type": r.type,
                 "name": r.name,
-                "match": r.match,
+                "match": asdict(r.match) if r.match else None,
                 "fields": [
                     {
                         "name": f.name,
@@ -213,12 +215,74 @@ def cmd_show(args: argparse.Namespace) -> int:
     print(f"{spec.label}: {spec.file_type} files from {', '.join(spec.custodians)}, in force from {spec.effective_from}")
     print(f"document: {spec.document['title']} ({spec.document['reference']}); file: {spec.format}" + (f", record length {spec.record_length}" if spec.record_length else ""))
     for r in spec.records:
-        print(f"\n{r.label}" + (f"  match {r.match}" if r.match else ""))
+        print(f"\n{r.label}" + (f"  match {r.match.text()}" if r.match else ""))
         for f in r.fields:
             where = f"{f.start}-{f.end}" if f.position else f"column {f.column}"
             picture = f.picture.text if f.picture else "-"
             print(f"  {f.name.ljust(24)} {where.ljust(10)} {picture.ljust(14)} {f.type.ljust(8)} {f.citation.text()}")
     return 0
+
+
+def _plain(value):
+    """Typed values as JSON-safe text."""
+    if isinstance(value, Decimal):
+        return str(value)
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def cmd_parse(args: argparse.Namespace) -> int:
+    from astra_knowledge.patterns import parse, patterns_for
+
+    registry = _load(args)
+    if registry is None:
+        return 1
+    spec = registry.get(args.id, args.version)
+    if spec is None:
+        print(f"error: no spec {args.id} version {args.version}", file=sys.stderr)
+        return 1
+    applicable = patterns_for(spec)
+    if not applicable:
+        print(f"error: no pattern handles {spec.label} ({spec.format})", file=sys.stderr)
+        return 1
+    with open(args.file, encoding=args.encoding, newline="") as handle:
+        parsed = parse(spec, handle)
+
+    shown = parsed.rows[: args.limit] if args.limit else parsed.rows
+    if args.format == "json":
+        print(
+            json.dumps(
+                {
+                    "spec": spec.label,
+                    "pattern": applicable[0].id,
+                    "lines": parsed.lines,
+                    "counts": parsed.counts,
+                    "metadata": {k: {n: _plain(v) for n, v in fields.items()} for k, fields in parsed.metadata.items()},
+                    "rows": [{"record": r.record, "line": r.line_number, "values": {n: _plain(v) for n, v in r.values.items()}} for r in shown],
+                    "problems": [asdict(p) for p in parsed.problems],
+                },
+                indent=2,
+            )
+        )
+        return 0 if parsed.ok else 1
+
+    print(f"{spec.label} parsed with {applicable[0].id}: {parsed.lines} line(s), " + ", ".join(f"{n} {label}" for label, n in parsed.counts.items()))
+    for label, fields in parsed.metadata.items():
+        print(f"\n{label}:")
+        for name, value in fields.items():
+            if name != "filler":
+                print(f"  {name.ljust(20)} {_plain(value)}")
+    if shown:
+        print(f"\nrows (showing {len(shown)} of {len(parsed.rows)}):")
+        for row in shown:
+            values = ", ".join(f"{n}={_plain(v)}" for n, v in row.values.items() if n not in ("filler", "record_type"))
+            print(f"  line {row.line_number} {row.record}: {values}")
+    if parsed.problems:
+        print(f"\nproblems ({len(parsed.problems)}):")
+        for p in parsed.problems:
+            print(f"  {p.text()}")
+    return 0 if parsed.ok else 1
 
 
 # -- parser ------------------------------------------------------------------
@@ -254,6 +318,14 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(func=cmd_search)
 
     sub.add_parser("unclassified", help="specs with no family, waiting for classification").set_defaults(func=cmd_unclassified)
+
+    p = sub.add_parser("parse", help="parse a sample file with the pattern that handles its spec; typed rows, file metadata and problems")
+    p.add_argument("--id", required=True)
+    p.add_argument("--version", required=True)
+    p.add_argument("file", help="sample file")
+    p.add_argument("--encoding", default="utf-8")
+    p.add_argument("--limit", type=int, default=20, help="rows to print (0 for all)")
+    p.set_defaults(func=cmd_parse)
     return parser
 
 

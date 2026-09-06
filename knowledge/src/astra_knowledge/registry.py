@@ -66,11 +66,38 @@ class Field:
 
 
 @dataclass(frozen=True)
+class MatchRule:
+    """How a line is recognised as a record type."""
+
+    kind: str  # position, end_marker or column
+    value: str
+    start: int | None = None
+    length: int | None = None
+    end_marker: str | None = None
+    column: int | None = None
+
+    @classmethod
+    def from_mapping(cls, data: dict) -> "MatchRule":
+        if "position" in data:
+            return cls("position", str(data["value"]), start=data["position"]["start"], length=data["position"]["length"])
+        if "end_marker" in data:
+            return cls("end_marker", str(data["value"]), start=data["start"], end_marker=data["end_marker"])
+        return cls("column", str(data["value"]), column=data["column"])
+
+    def text(self) -> str:
+        if self.kind == "position":
+            return f"'{self.value}' at {self.start}-{self.start + self.length - 1}"
+        if self.kind == "end_marker":
+            return f"'{self.value}' from {self.start} up to '{self.end_marker}'"
+        return f"'{self.value}' in column {self.column}"
+
+
+@dataclass(frozen=True)
 class Record:
     type: str
     fields: tuple[Field, ...]
     name: str | None = None
-    match: dict | None = None
+    match: MatchRule | None = None
     description: str = ""
 
     @property
@@ -191,6 +218,25 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
         if labels.index(label) != i:
             problems.append(Problem(display, line_of(data, ["records", i]), f"records[{i}] label '{label}' is already used by another record"))
 
+    for i, r in enumerate(records):
+        match = r.get("match")
+        if match is None:
+            if len(records) > 1:
+                problems.append(Problem(display, line_of(data, ["records", i, "type"]), f"records[{i}] needs a match rule so that its lines can be told apart from the other record types"))
+            continue
+        where = ["records", i, "match"]
+        if fixed and "column" in match:
+            problems.append(Problem(display, line_of(data, where), f"records[{i}].match uses a column, but this is a fixed_width file; use position or start with end_marker"))
+        if not fixed and "column" not in match:
+            problems.append(Problem(display, line_of(data, where), f"records[{i}].match must use a column in a delimited file"))
+        if fixed and record_length is not None:
+            if "position" in match and match["position"]["start"] + match["position"]["length"] - 1 > record_length:
+                problems.append(Problem(display, line_of(data, where + ["position"]), f"records[{i}].match position ends beyond the record length {record_length}"))
+            if "start" in match and match["start"] > record_length:
+                problems.append(Problem(display, line_of(data, where + ["start"]), f"records[{i}].match start {match['start']} is beyond the record length {record_length}"))
+        if "position" in match and len(match["value"]) != match["position"]["length"]:
+            problems.append(Problem(display, line_of(data, where + ["value"]), f"records[{i}].match value '{match['value']}' has {len(match['value'])} characters but the position is {match['position']['length']} long"))
+
     for ri, record in enumerate(records):
         names: dict[str, int] = {}
         spans: list[tuple[int, int, str]] = []
@@ -272,7 +318,7 @@ def _build(data: dict, path: Path) -> SourceSpec:
                     codes=tuple((str(c["value"]), c["meaning"]) for c in f.get("codes") or []),
                 )
             )
-        records.append(Record(type=r["type"], fields=tuple(fields), name=r.get("name"), match=dict(r["match"]) if r.get("match") else None, description=r.get("description", "")))
+        records.append(Record(type=r["type"], fields=tuple(fields), name=r.get("name"), match=MatchRule.from_mapping(r["match"]) if r.get("match") else None, description=r.get("description", "")))
     return SourceSpec(
         id=spec["id"],
         version=spec["version"],
