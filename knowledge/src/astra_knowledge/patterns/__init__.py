@@ -12,7 +12,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
-from astra_knowledge.patterns.fixed_width import ParsedFile, ParsedRow, RowProblem, parse_fixed_width
+from astra_knowledge.patterns.delimited import parse_delimited
+from astra_knowledge.patterns.fixed_width import parse_fixed_width
+from astra_knowledge.patterns.result import ParsedFile, ParsedRow, RowProblem
 from astra_knowledge.registry import SourceSpec
 
 
@@ -37,7 +39,19 @@ FIXED_WIDTH_MULTI_RECORD = Pattern(
     parse=parse_fixed_width,
 )
 
-PATTERNS: dict[str, Pattern] = {p.id: p for p in (FIXED_WIDTH_MULTI_RECORD,)}
+DELIMITED_FILE = Pattern(
+    id="delimited_file",
+    name="Delimited file",
+    description=(
+        "Comma, pipe or other single-character delimited files with quoted fields, doubled or escaped quotes, "
+        "and optional header rows checked against the spec's labels. A column count other than the spec's "
+        "rejects the file."
+    ),
+    applies_to=lambda spec: spec.format == "delimited",
+    parse=parse_delimited,
+)
+
+PATTERNS: dict[str, Pattern] = {p.id: p for p in (FIXED_WIDTH_MULTI_RECORD, DELIMITED_FILE)}
 
 
 def patterns_for(spec: SourceSpec) -> list[Pattern]:
@@ -53,4 +67,4 @@ def parse(spec: SourceSpec, lines: Iterable[str]) -> ParsedFile:
     return applicable[0].parse(spec, lines)
 
 
-__all__ = ["FIXED_WIDTH_MULTI_RECORD", "PATTERNS", "ParsedFile", "ParsedRow", "Pattern", "RowProblem", "parse", "patterns_for"]
+__all__ = ["DELIMITED_FILE", "FIXED_WIDTH_MULTI_RECORD", "PATTERNS", "ParsedFile", "ParsedRow", "Pattern", "RowProblem", "parse", "patterns_for"]

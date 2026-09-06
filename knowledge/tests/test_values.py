@@ -59,5 +59,14 @@ def test_booleans():
     assert convert("maybe", "boolean").problem == "'maybe' is not a boolean (Y/N, T/F, 1/0)"
 
 
+def test_explicit_numbers_for_delimited_files():
+    assert convert("-123.45", "decimal", explicit=True).value == Decimal("-123.45")
+    assert convert("1,000.5", "decimal", explicit=True).value == Decimal("1000.5")
+    assert convert(" 42 ", "integer", explicit=True).value == 42 and convert("-7", "integer", explicit=True).value == -7
+    assert convert("", "decimal", explicit=True).value is None
+    assert convert("abc", "decimal", explicit=True).problem == "'abc' is not a number"
+    assert convert("1.5", "integer", explicit=True).problem == "'1.5' is not an integer"
+
+
 def test_unsupported_type_is_a_problem_not_an_exception():
     assert convert("x", "geometry").problem == "unsupported type 'geometry'"

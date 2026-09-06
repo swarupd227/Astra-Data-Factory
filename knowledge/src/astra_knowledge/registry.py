@@ -46,6 +46,7 @@ class Field:
     picture: Picture | None = None
     position: tuple[int, int] | None = None
     column: int | None = None
+    label: str | None = None
     format: str | None = None
     sign_field: str | None = None
     required: bool = False
@@ -229,6 +230,8 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
             problems.append(Problem(display, line_of(data, where), f"records[{i}].match uses a column, but this is a fixed_width file; use position or start with end_marker"))
         if not fixed and "column" not in match:
             problems.append(Problem(display, line_of(data, where), f"records[{i}].match must use a column in a delimited file"))
+        if not fixed and "column" in match and file.get("column_count") is not None and match["column"] > file["column_count"]:
+            problems.append(Problem(display, line_of(data, where + ["column"]), f"records[{i}].match column {match['column']} is beyond the column count {file['column_count']}"))
         if fixed and record_length is not None:
             if "position" in match and match["position"]["start"] + match["position"]["length"] - 1 > record_length:
                 problems.append(Problem(display, line_of(data, where + ["position"]), f"records[{i}].match position ends beyond the record length {record_length}"))
@@ -281,6 +284,11 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
                 if field["column"] in columns:
                     problems.append(Problem(display, line_of(data, where + ["column"]), f"records[{ri}].fields[{fi}] '{name}' uses column {field['column']}, already used by '{columns[field['column']]}'"))
                 columns[field["column"]] = name
+                column_count = file.get("column_count")
+                if column_count is not None and field["column"] > column_count:
+                    problems.append(Problem(display, line_of(data, where + ["column"]), f"records[{ri}].fields[{fi}] '{name}' is in column {field['column']}, beyond the column count {column_count}"))
+                if "label" in field and not file.get("header_rows"):
+                    problems.append(Problem(display, line_of(data, where + ["label"]), f"records[{ri}].fields[{fi}] '{name}' has a label but file.header_rows is 0, so there is no header row to check it against"))
 
             values = [c["value"] for c in field.get("codes") or []]
             for ci, value in enumerate(values):
@@ -311,6 +319,7 @@ def _build(data: dict, path: Path) -> SourceSpec:
                     picture=picture,
                     position=(f["position"]["start"], f["position"]["length"]) if "position" in f else None,
                     column=f.get("column"),
+                    label=f.get("label"),
                     format=f.get("format"),
                     sign_field=f.get("sign_field"),
                     required=bool(f.get("required", False)),

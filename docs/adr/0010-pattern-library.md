@@ -22,6 +22,10 @@ The product spec's second principle is "patterns before instances": the first so
 
 6. **Header and trailer are file metadata**, keyed by record label; detail records are rows keyed by their label, so files with several detail types keep them apart. Counts per record type are returned for control-total checks.
 
+## Addendum: the delimited-file pattern (S2.2.2, 2026-09-06)
+
+`delimited_file` handles comma, pipe or any single-character delimiter with quoted fields, doubled or escaped quotes, and optional header rows, through the standard library's CSV reader in strict mode. The spec gains `file.escape`, `file.column_count` and per-field `label`; record types are matched by column. Numbers in delimited files are explicit ("-123.45", thousands separators tolerated) unless a picture declares implied decimals, which is a second mode of the shared value rules rather than a second rule set. A row whose column count differs from the declared count, a header row that does not match the labels, or malformed quoting is a **file-level** problem: the parse result is marked rejected and the file is a DQ failure as a whole, while the rows that could be read are still returned for diagnosis. Problems now carry a level (file, record, field) so every consumer can tell "reject the file" from "reject the row" from "flag the value". The registry ships a second example spec, an illustrative CSV price file, so the pattern is exercised the same way the fixed-width one is.
+
 ## Consequences
 
 - `astra-spec parse` exercises any spec against a sample file, which is the first thing the Profiler (S5.2.1) and a dry-run (S4.1.1) do.

@@ -141,7 +141,8 @@ def test_short_lines_are_padded_and_blank_lines_skipped():
 
 def test_missing_header_or_trailer_is_a_problem():
     parsed = parse_fixed_width(gcus(), [dtl()])
-    assert [p.text() for p in parsed.problems] == ["line 0: the file has no header record", "line 0: the file has no trailer record"]
+    assert [p.text() for p in parsed.problems] == ["file: the file has no header record", "file: the file has no trailer record"]
+    assert parsed.rejected and all(p.level == "file" for p in parsed.problems)
 
 
 def test_the_2026_version_parses_the_lot_id():
@@ -157,7 +158,7 @@ def test_pattern_library_dispatch():
     assert parse(spec, SAMPLE).counts["detail"] == 2
 
 
-def test_delimited_specs_are_not_handled_yet(tmp_path):
+def test_the_fixed_width_pattern_refuses_a_delimited_spec(tmp_path):
     folder = tmp_path / "specs" / "csvish"
     folder.mkdir(parents=True)
     (folder / "v1.yaml").write_text(
@@ -175,9 +176,9 @@ records:
     registry, problems = Registry.load(tmp_path / "specs", tmp_path)
     assert problems == []
     spec = registry.get("csvish", "v1")
-    assert patterns_for(spec) == []
+    assert [p.id for p in patterns_for(spec)] == ["delimited_file"]
     with pytest.raises(ValueError):
-        parse(spec, [])
+        parse_fixed_width(spec, [])
 
 
 def test_match_rules_are_validated_against_the_file_shape(tmp_path):

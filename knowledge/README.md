@@ -42,6 +42,9 @@ A pattern is a reusable way to handle a class of source (product spec Section 4)
 | Pattern | Applies to | What it does |
 |---|---|---|
 | `fixed_width_multi_record` | `file.format: fixed_width` | Reads the record type of each line from the configured position, fixed-length or up to an end marker; parses header and trailer into file metadata and every detail record into one typed row; reports problems per line and field without stopping |
+| `delimited_file` | `file.format: delimited` | Comma, pipe or any single-character delimiter; quoted fields with doubled or escaped quotes; `header_rows` skipped and the first checked against field labels; record types by column. A row whose column count differs from `file.column_count` rejects the file (a file-level problem), though readable rows are still returned. Numbers are explicit ("-123.45") unless a picture declares implied decimals. |
+
+A parse result carries problems at three levels: `file` (the whole file is unusable: column count mismatch, header mismatch, missing trailer, malformed quoting), `record` (a line could not be placed) and `field` (one value). `ParsedFile.rejected` is true when any file-level problem exists.
 
 ```python
 from astra_knowledge.patterns import parse

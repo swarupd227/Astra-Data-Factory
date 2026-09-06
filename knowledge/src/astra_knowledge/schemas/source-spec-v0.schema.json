@@ -43,8 +43,10 @@
         "format": { "enum": ["fixed_width", "delimited"] },
         "record_length": { "type": "integer", "minimum": 1, "description": "Required for fixed_width." },
         "delimiter": { "type": "string", "minLength": 1, "maxLength": 1, "description": "Required for delimited." },
-        "quote": { "type": "string", "minLength": 1, "maxLength": 1 },
-        "header_rows": { "type": "integer", "minimum": 0, "description": "Column-name rows to skip in a delimited file." },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 1, "description": "Field enclosure in a delimited file; default is a double quote." },
+        "escape": { "type": "string", "minLength": 1, "maxLength": 1, "description": "Character that escapes a quote inside a quoted field. When absent, a quote is written twice." },
+        "header_rows": { "type": "integer", "minimum": 0, "description": "Column-name rows to skip in a delimited file. The first is checked against field labels when they are declared." },
+        "column_count": { "type": "integer", "minimum": 1, "description": "Number of columns every data row must have in a delimited file. A row with another count rejects the file." },
         "encoding": { "type": "string", "minLength": 1 },
         "line_ending": { "enum": ["lf", "crlf", "any"] }
       }
@@ -104,6 +106,7 @@
         "name": { "$ref": "#/$defs/identifier" },
         "position": { "$ref": "#/$defs/position", "description": "Fixed-width files." },
         "column": { "type": "integer", "minimum": 1, "description": "Delimited files, 1-based." },
+        "label": { "type": "string", "minLength": 1, "description": "Column heading as written in the header row of a delimited file; checked when header_rows is set." },
         "picture": { "type": "string", "pattern": "^S?[9XA]\\([1-9][0-9]*\\)(V9\\([1-9][0-9]*\\))?$", "description": "COBOL-style picture as written in the layout document." },
         "type": { "enum": ["string", "integer", "decimal", "date", "time", "code", "boolean"], "description": "Derived from the picture when omitted." },
         "format": { "type": "string", "minLength": 1, "description": "For dates and times, for example YYYYMMDD." },

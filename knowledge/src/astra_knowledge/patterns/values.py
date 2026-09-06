@@ -18,6 +18,7 @@ render into SQL, so they live in one place:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -52,8 +53,22 @@ class Converted:
     problem: str | None = None
 
 
-def convert(raw: str, type_: str, *, scale: int = 0, format: str | None = None, codes: tuple[tuple[str, str], ...] = (), sign: str | None = None, has_sign_field: bool = False) -> Converted:
-    """Convert one field. Never raises: a bad value comes back as None with a problem."""
+def convert(
+    raw: str,
+    type_: str,
+    *,
+    scale: int = 0,
+    format: str | None = None,
+    codes: tuple[tuple[str, str], ...] = (),
+    sign: str | None = None,
+    has_sign_field: bool = False,
+    explicit: bool = False,
+) -> Converted:
+    """Convert one field. Never raises: a bad value comes back as None with a problem.
+
+    `explicit` is for delimited files, where numbers are written as people
+    write them ("-123.45") rather than as unsigned digits with implied decimals.
+    """
     try:
         if type_ == "string":
             text = raw.rstrip()
@@ -61,9 +76,9 @@ def convert(raw: str, type_: str, *, scale: int = 0, format: str | None = None, 
         if type_ == "code":
             return _code(raw, codes)
         if type_ == "integer":
-            return _integer(raw)
+            return _explicit_integer(raw) if explicit else _integer(raw)
         if type_ == "decimal":
-            return _decimal(raw, scale, sign, has_sign_field)
+            return _explicit_decimal(raw) if explicit else _decimal(raw, scale, sign, has_sign_field)
         if type_ == "date":
             return _date(raw, format)
         if type_ == "time":
@@ -115,6 +130,27 @@ def _decimal(raw: str, scale: int, sign: str | None, has_sign_field: bool) -> Co
     if sign is None or not sign.strip():
         return Converted(None, "sign is blank; the value is unknown, not zero") if magnitude else Converted(Decimal(0).scaleb(-scale) if scale else Decimal(0))
     raise ValueError_(f"sign '{sign}' is not '+', '-' or blank")
+
+
+EXPLICIT_NUMBER = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)$")
+
+
+def _explicit_integer(raw: str) -> Converted:
+    text = raw.strip().replace(",", "")
+    if not text:
+        return Converted(None)
+    if not re.fullmatch(r"[+-]?\d+", text):
+        raise ValueError_(f"'{raw.strip()}' is not an integer")
+    return Converted(int(text))
+
+
+def _explicit_decimal(raw: str) -> Converted:
+    text = raw.strip().replace(",", "")
+    if not text:
+        return Converted(None)
+    if not EXPLICIT_NUMBER.match(text):
+        raise ValueError_(f"'{raw.strip()}' is not a number")
+    return Converted(Decimal(text))
 
 
 def _date(raw: str, format: str | None) -> Converted:
