@@ -337,8 +337,60 @@ def cmd_cdm_validate(args: argparse.Namespace) -> int:
         return 0
     versions = sum(len(p.models) for p in packs)
     terms = sum(len(p.glossary.terms) for p in packs)
-    _summary(f"checked {_plural(versions, 'model version')} and {_plural(terms, 'glossary term')} across {_plural(len(packs), 'domain pack')}: no problems", args.format, CDM_TITLE)
+    codes = sum(len(p.rejections.codes) for p in packs)
+    parity = "".join(f"; Loader parity checked against {_rel(p.loader_reference.path, Path(args.root))}" for p in packs if p.loader_reference)
+    _summary(f"checked {_plural(versions, 'model version')}, {_plural(terms, 'glossary term')} and {_plural(codes, 'rejection code')} across {_plural(len(packs), 'domain pack')}: no problems{parity}", args.format, CDM_TITLE)
     return 0
+
+
+def cmd_rejections_list(args: argparse.Namespace) -> int:
+    packs = _load_packs(args)
+    if packs is None:
+        return 1
+    codes = [(pack, c) for pack in packs for c in pack.rejections.codes if (args.level is None or c.level == args.level) and (args.owner is None or c.owner == args.owner)]
+    if args.format == "json":
+        print(json.dumps([{"domain": pack.name, **asdict(c)} for pack, c in codes], indent=2))
+        return 0
+    if not codes:
+        print("no rejection codes match")
+        return 1
+    width = max(len(c.code) for _, c in codes)
+    for pack, c in codes:
+        flags = c.severity + ("  auto" if c.auto_resolve else "") + ("  retired" if not c.active else "")
+        loader = f"  [Loader {', '.join(c.loader_codes)}]" if c.loader_codes else ""
+        print(f"{c.code.ljust(width)}  {c.level.ljust(6)}  {flags.ljust(20)}  {c.owner.ljust(13)}  {c.name}{loader}")
+    print(f"{_plural(len(codes), 'code')}")
+    return 0
+
+
+def cmd_rejections_parity(args: argparse.Namespace) -> int:
+    packs = _load_packs(args)
+    if packs is None:
+        return 1
+    pack = packs[0]
+    root = Path(args.root)
+    if args.reference:
+        reference, problems = cdm.load_loader_reference(Path(args.reference), root)
+        if reference is None:
+            _print_problems(problems, args.format, CDM_TITLE)
+            return 1
+    elif pack.loader_reference is not None:
+        reference = pack.loader_reference
+    else:
+        print(f"{pack.name} has no Loader Rejections reference: add {cdm.LOADER_REFERENCE_FILE} to {_rel(pack.root, root)} or pass --reference", file=sys.stderr)
+        return 1
+    report = cdm.parity(pack.rejections, reference)
+    if args.format == "json":
+        print(json.dumps({"reference": _rel(reference.path, root), "mapped": report.mapped, "unmapped": list(report.unmapped), "unknown": list(report.unknown)}, indent=2))
+        return 0 if report.ok else 1
+    print(f"{pack.name}: {_plural(len(reference.codes), 'Loader code')} in {_rel(reference.path, root)}; {len(report.mapped)} reproduced, {len(report.unmapped)} not reproduced, {len(report.unknown)} named but not in the reference")
+    for loader, code in report.mapped.items():
+        print(f"  {loader.ljust(12)}  -> {code}")
+    for loader in report.unmapped:
+        print(f"  {loader.ljust(12)}  NOT REPRODUCED  {reference.codes[loader]}")
+    for loader in report.unknown:
+        print(f"  {loader.ljust(12)}  NOT IN REFERENCE  named by {pack.rejections.by_loader_code()[loader].code}")
+    return 0 if report.ok else 1
 
 
 def _model_for(args: argparse.Namespace, pack: cdm.DomainPack, version: str | None) -> cdm.Model | None:
@@ -512,6 +564,18 @@ def build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--domain", help="one domain pack (default: all)")
     cr.add_argument("--check", action="store_true", help="fail when the rendered files are missing or stale instead of writing them")
     cr.set_defaults(func=cmd_cdm_render)
+
+    x = sub.add_parser("rejections", help="the rejection taxonomy of each domain pack: list codes, check parity with the Loader")
+    xsub = x.add_subparsers(dest="rejections_command", required=True)
+    xl = xsub.add_parser("list", help="every rejection code with its level, severity, owner and Loader codes")
+    xl.add_argument("--domain", help="one domain pack (default: all)")
+    xl.add_argument("--level", choices=("file", "record", "field"))
+    xl.add_argument("--owner", choices=("custodian", "data_engineer", "steward", "platform"))
+    xl.set_defaults(func=cmd_rejections_list)
+    xp = xsub.add_parser("parity", help="which Loader codes the taxonomy reproduces and which it misses")
+    xp.add_argument("--domain", required=True)
+    xp.add_argument("--reference", help="Loader Rejections reference CSV (default: the pack's loader-rejections.csv)")
+    xp.set_defaults(func=cmd_rejections_parity)
     return parser
 
 

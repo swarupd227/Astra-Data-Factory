@@ -111,7 +111,7 @@ def test_parse_can_leave_splitting_to_the_caller(spec):
 def test_a_bad_amount_is_reported_once_and_not_negated(spec):
     lines = [hdr(), dtl("T1", kind="DRIP", amount="00000000ABCDE"), trl(1)]
     parsed = parse(spec, lines)
-    assert [p.text() for p in parsed.problems] == ["line 2 (detail.amount): '00000000ABCDE' is not all digits"]
+    assert [p.text() for p in parsed.problems] == ["line 2 (detail.amount): FIELD_NOT_NUMERIC: '00000000ABCDE' is not all digits"]
     dividend, purchase = parsed.rows
     assert dividend.values["amount"] is None and purchase.values["amount"] is None
 
@@ -122,7 +122,7 @@ def test_negating_a_non_number_is_a_problem(spec):
     row = unsplit.rows[0]
     unsplit.rows[0] = ParsedRow(row.record, row.line_number, {**row.values, "amount": "125.00"})
     parsed = split(unsplit)
-    assert [p.text() for p in parsed.problems] == ["line 2 (detail.amount): split 'drip' part 'purchase' negates 'amount', which is not a number"]
+    assert [p.text() for p in parsed.problems] == ["line 2 (detail.amount): SPLIT_NOT_NUMERIC: split 'drip' part 'purchase' negates 'amount', which is not a number"]
     assert parsed.rows[1].values["amount"] == "125.00"
 
 

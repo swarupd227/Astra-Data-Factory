@@ -1,0 +1,650 @@
+# Rejection taxonomy of the custodial domain pack.
+#
+# Every reason the factory rejects a file, a record or a value has a code
+# here, with the level it reaches, its severity, who resolves it and what
+# they do. The pattern library raises these codes; rendered pipelines route
+# exceptions with them; CONTROL.REJECTION_CODES is synced from this file so
+# every exception row references a code that exists.
+#
+# `loader_codes` names the codes of the legacy Loader Rejections reference
+# that a code reproduces. Parity with the Loader is checked against
+# loader-rejections.csv, the reference exported from the client's document,
+# once that file is added to this pack (see README).
+rejections_version: 0
+domain: custodial
+
+codes:
+  # --- file: nothing from the file is loaded ------------------------------
+  - code: FILE_EMPTY
+    name: Empty file
+    description: The file has no lines, or only blank lines.
+    level: file
+    severity: critical
+    category: file
+    owner: custodian
+    resolution: Ask the custodian to resend the file; a legitimately empty delivery needs a header and trailer.
+
+  - code: FILE_UNREADABLE
+    name: File not readable
+    description: The file is not in the encoding the spec declares, or cannot be read at all.
+    level: file
+    severity: critical
+    category: file
+    owner: data_engineer
+    resolution: Check the transfer and the spec's encoding; resend or correct the spec.
+
+  - code: FILE_SPEC_NOT_FOUND
+    name: No spec in force
+    description: No Source Spec version is in force for the custodian's file type on the file's business date.
+    level: file
+    severity: critical
+    category: file
+    owner: platform
+    resolution: Add or date the spec version in the registry, then replay the file.
+
+  - code: FILE_HEADER_MISSING
+    name: Header missing
+    description: The spec requires a header record and the file has none.
+    level: file
+    severity: critical
+    category: file
+    owner: custodian
+    resolution: Ask the custodian to resend a complete file.
+
+  - code: FILE_TRAILER_MISSING
+    name: Trailer missing
+    description: The spec requires a trailer record and the file has none; the file may be truncated.
+    level: file
+    severity: critical
+    category: file
+    owner: custodian
+    resolution: Ask the custodian to resend; a missing trailer usually means an incomplete transfer.
+
+  - code: FILE_HEADER_MISMATCH
+    name: Header row does not match the spec
+    description: The header row of a delimited file does not carry the column labels the spec declares.
+    level: file
+    severity: critical
+    category: file
+    owner: data_engineer
+    resolution: Compare the header with the spec; a changed layout needs a new spec version.
+
+  - code: FILE_COLUMN_COUNT
+    name: Wrong column count
+    description: Lines of a delimited file do not have the number of columns the spec declares.
+    level: file
+    severity: critical
+    category: file
+    owner: data_engineer
+    resolution: Compare the file with the spec; a changed layout needs a new spec version, a bad extract a resend.
+
+  - code: FILE_MALFORMED_QUOTING
+    name: Malformed quoting
+    description: A delimited file has unbalanced or misplaced quotes and the rest of the file could not be read.
+    level: file
+    severity: critical
+    category: file
+    owner: custodian
+    resolution: Ask the custodian to resend; quote characters inside values must be doubled or escaped as the spec says.
+
+  - code: FILE_RECORD_COUNT
+    name: Record count mismatch
+    description: The trailer's record count differs from the number of detail records in the file.
+    level: file
+    severity: critical
+    category: file
+    owner: custodian
+    resolution: Ask the custodian to resend; the file is incomplete or the trailer is wrong.
+
+  - code: FILE_CONTROL_TOTAL
+    name: Control total mismatch
+    description: A control total in the trailer (quantity, amount, market value) differs from the sum of the detail records beyond tolerance.
+    level: file
+    severity: critical
+    category: file
+    owner: custodian
+    resolution: Ask the custodian to confirm the totals or resend; do not load a file whose totals do not add up.
+
+  - code: FILE_BUSINESS_DATE_INVALID
+    name: Business date invalid
+    description: The header's business date is missing, malformed, in the future or before the previous file's date.
+    level: file
+    severity: critical
+    category: file
+    owner: custodian
+    resolution: Confirm the date with the custodian; a replay of an older date needs a steward's approval.
+
+  - code: FILE_DUPLICATE
+    name: File already loaded
+    description: A file with the same custodian, type and business date and the same content hash has already been loaded.
+    level: file
+    severity: critical
+    category: file
+    owner: data_engineer
+    resolution: No action when the custodian resent an identical file; a different file for the same date is a replay and needs approval.
+
+  - code: FILE_NOT_A_BUSINESS_DAY
+    name: File for a non-business day
+    description: The file's business date is not one of the custodian's business days.
+    level: file
+    severity: critical
+    category: file
+    owner: steward
+    resolution: Confirm whether the custodian processed a holiday; accept the file or ask for the next business day's file.
+
+  - code: MERGE_MODE_UNKNOWN
+    name: Merge mode unknown
+    description: The header field that says whether the file is a full refresh or a delta carries a code the spec does not declare, or the header is missing.
+    level: file
+    severity: critical
+    category: merge
+    owner: data_engineer
+    resolution: Check the header against the spec; a new code needs a spec version before the file is replayed.
+
+  - code: MERGE_OUT_OF_ORDER
+    name: File out of order
+    description: The file's business date is earlier than what Silver already holds for its scope, so applying it would go backwards.
+    level: file
+    severity: critical
+    category: merge
+    owner: steward
+    resolution: Confirm with the custodian whether the file is a correction; a replay of history needs approval and a rebuild of the scope.
+
+  # --- record: the record is not loaded ----------------------------------
+  - code: RECORD_TYPE_UNKNOWN
+    name: Record type unknown
+    description: No record type of the spec matches the line.
+    level: record
+    severity: error
+    category: record
+    owner: data_engineer
+    resolution: Compare the line with the spec; a new record type needs a spec version.
+
+  - code: RECORD_TOO_LONG
+    name: Record too long
+    description: The line is longer than the spec's record length; the layout may have changed.
+    level: record
+    severity: error
+    category: record
+    owner: data_engineer
+    resolution: Compare the line with the spec; a changed layout needs a new spec version.
+
+  - code: RECORD_DUPLICATE_HEADER
+    name: Second header
+    description: The file has more than one header record; the files may have been concatenated.
+    level: record
+    severity: error
+    category: record
+    owner: custodian
+    resolution: Ask the custodian whether two deliveries were joined; load them separately.
+
+  - code: RECORD_DUPLICATE
+    name: Duplicate record
+    description: The record repeats an earlier record of the file exactly.
+    level: record
+    severity: error
+    category: record
+    owner: custodian
+    resolution: Load the first occurrence; report the duplicate to the custodian.
+
+  - code: PAIR_INCOMPLETE
+    name: Pair incomplete
+    description: A record whose partner record (for example the valuation for a holding) never appeared in the file.
+    level: record
+    severity: error
+    category: pairing
+    owner: custodian
+    resolution: Ask the custodian for the missing record; the logical record cannot be built without it.
+
+  - code: PAIR_DUPLICATE
+    name: Pair duplicate
+    description: A second record of the same type for the same keys, so the pair is ambiguous.
+    level: record
+    severity: error
+    category: pairing
+    owner: custodian
+    resolution: Ask the custodian which record is right; load neither until then.
+
+  - code: PAIR_KEY_BLANK
+    name: Pair key blank
+    description: A record to be paired has a blank key field, so it cannot be matched to its partner.
+    level: record
+    severity: error
+    category: pairing
+    owner: custodian
+    resolution: Ask the custodian to resend with the key populated.
+
+  - code: MERGE_DUPLICATE_KEY
+    name: Duplicate key in file
+    description: Two records in the file carry the same key, so the merge cannot tell which is current.
+    level: record
+    severity: error
+    category: merge
+    owner: custodian
+    resolution: Ask the custodian which record is right; both are held back.
+
+  - code: MERGE_KEY_BLANK
+    name: Merge key blank
+    description: A record's key field is blank, so it cannot be merged into Silver.
+    level: record
+    severity: error
+    category: merge
+    owner: custodian
+    resolution: Ask the custodian to resend with the key populated.
+
+  - code: SPLIT_NOT_NUMERIC
+    name: Split part cannot be negated
+    description: A split rule negates a field of the record that did not parse as a number.
+    level: record
+    severity: error
+    category: split
+    owner: data_engineer
+    resolution: The value failed conversion; resolve the value problem on the same line and replay.
+
+  - code: LIFECYCLE_ORIGINAL_MISSING
+    name: Original transaction missing
+    description: A cancel or correction names a transaction that has not been seen, or does not name one at all.
+    level: record
+    severity: error
+    category: lifecycle
+    owner: steward
+    resolution: Check whether the original arrived under another id or in a missed file; otherwise ask the custodian.
+
+  - code: LIFECYCLE_ALREADY_CLOSED
+    name: Original already closed
+    description: A cancel or correction names a transaction that is already cancelled or superseded.
+    level: record
+    severity: error
+    category: lifecycle
+    owner: steward
+    resolution: Confirm with the custodian which record stands; a second cancel is usually a duplicate delivery.
+
+  - code: LIFECYCLE_DUPLICATE
+    name: Duplicate transaction id
+    description: A new transaction carries the id of a transaction already recorded.
+    level: record
+    severity: error
+    category: lifecycle
+    owner: custodian
+    resolution: Ask the custodian whether the record is a resend or a new event with a reused id.
+
+  - code: LIFECYCLE_IDENTITY_BLANK
+    name: Transaction id blank
+    description: A transaction record has no id, so cancels and corrections could never refer to it.
+    level: record
+    severity: error
+    category: lifecycle
+    owner: custodian
+    resolution: Ask the custodian to resend with the id populated.
+
+  # --- value: one field ---------------------------------------------------
+  - code: FIELD_REQUIRED_BLANK
+    name: Required field blank
+    description: A field the spec marks required is blank.
+    level: field
+    severity: error
+    category: value
+    owner: custodian
+    resolution: Ask the custodian to resend with the field populated; the record is held back.
+
+  - code: FIELD_NOT_NUMERIC
+    name: Not a number
+    description: A numeric field contains characters that are not digits, or a delimited number is not written as a number.
+    level: field
+    severity: error
+    category: value
+    owner: custodian
+    resolution: Ask the custodian to correct the value; a systematic case is a layout change and needs a spec version.
+
+  - code: FIELD_SIGN_INVALID
+    name: Sign not recognised
+    description: The sign field carries a character the spec does not declare, so the number's sign is unknown.
+    level: field
+    severity: error
+    category: value
+    owner: data_engineer
+    resolution: Compare the value with the spec's sign codes; a new sign convention needs a spec version.
+
+  - code: FIELD_DATE_INVALID
+    name: Date invalid
+    description: A date field is not a date in the declared format.
+    level: field
+    severity: error
+    category: value
+    owner: custodian
+    resolution: Ask the custodian to correct the value; a systematic case is a format change and needs a spec version.
+
+  - code: FIELD_TIME_INVALID
+    name: Time invalid
+    description: A time field is not a time in the declared format.
+    level: field
+    severity: error
+    category: value
+    owner: custodian
+    resolution: Ask the custodian to correct the value.
+
+  - code: FIELD_BOOLEAN_INVALID
+    name: Flag invalid
+    description: A yes/no field carries a value other than Y/N, T/F or 1/0.
+    level: field
+    severity: error
+    category: value
+    owner: custodian
+    resolution: Ask the custodian to correct the value; a new convention needs a spec version.
+
+  - code: FIELD_CODE_UNKNOWN
+    name: Code not declared
+    description: A code field carries a value the spec does not declare; the record is loaded with the value as received.
+    level: field
+    severity: warning
+    category: value
+    owner: data_engineer
+    resolution: Add the code to the spec with its meaning, or confirm with the custodian that it is an error.
+
+  - code: FIELD_FORMAT_UNSUPPORTED
+    name: Format not supported
+    description: The spec declares a date or time format the pattern library does not support; a spec problem, not a data problem.
+    level: field
+    severity: error
+    category: value
+    owner: platform
+    resolution: Correct the spec's format or add the format to the value rules.
+
+  - code: FIELD_TYPE_UNSUPPORTED
+    name: Type not supported
+    description: The spec declares a field type the pattern library does not convert; a spec problem, not a data problem.
+    level: field
+    severity: error
+    category: value
+    owner: platform
+    resolution: Correct the spec's type or add the type to the value rules.
+
+  - code: FIELD_OUT_OF_RANGE
+    name: Value out of range
+    description: A value is outside the range the domain allows, for example a negative quantity on a long position or a price of zero.
+    level: field
+    severity: warning
+    category: value
+    owner: steward
+    resolution: Confirm the value with the custodian; accept it with a note or ask for a correction.
+
+  - code: FIELD_PRECISION_EXCEEDED
+    name: Precision exceeded
+    description: A number has more digits than the canonical column holds.
+    level: field
+    severity: error
+    category: value
+    owner: platform
+    resolution: Widen the canonical column in a new model version, or confirm the value is an error.
+
+  # --- resolution: custodian identifiers to platform identifiers ----------
+  - code: ACCOUNT_NOT_FOUND
+    name: Account not found
+    description: The custodian's account number is not in the account cross-reference.
+    level: record
+    severity: error
+    category: resolution
+    owner: steward
+    entity: Account
+    resolution: Add the account to the cross-reference (a new account) or confirm it is not managed; records wait until then.
+
+  - code: ACCOUNT_CLOSED
+    name: Account closed
+    description: The custodian sent activity for an account the platform records as closed.
+    level: record
+    severity: error
+    category: resolution
+    owner: steward
+    entity: Account
+    resolution: Reopen the account if it is active at the custodian, or confirm the activity is residual and dismiss.
+
+  - code: ACCOUNT_FIRM_MISMATCH
+    name: Account belongs to another firm
+    description: The account resolves to a firm other than the one the file was delivered for.
+    level: record
+    severity: error
+    category: resolution
+    owner: steward
+    entity: Account
+    resolution: Check the cross-reference and the custodian's firm assignment; correct whichever is wrong.
+
+  - code: ACCOUNT_AMBIGUOUS
+    name: Account ambiguous
+    description: The custodian's account number matches more than one platform account.
+    level: record
+    severity: error
+    category: resolution
+    owner: steward
+    entity: Account
+    resolution: Correct the cross-reference so one custodian account maps to one platform account.
+
+  - code: SECURITY_NOT_FOUND
+    name: Security not found
+    description: None of the identifiers the custodian sent (CUSIP, ISIN, SEDOL, ticker, custodian id) is in the security master.
+    level: record
+    severity: error
+    category: resolution
+    owner: steward
+    entity: Security
+    resolution: Add the security to the security master or map the custodian's identifier; records wait until then.
+
+  - code: SECURITY_AMBIGUOUS
+    name: Security ambiguous
+    description: The identifiers the custodian sent match more than one security in the security master.
+    level: record
+    severity: error
+    category: resolution
+    owner: steward
+    entity: Security
+    resolution: Correct the security master so the identifiers resolve to one security.
+
+  - code: SECURITY_INACTIVE
+    name: Security inactive
+    description: The security resolves to one the security master marks inactive (matured, delisted or retired).
+    level: record
+    severity: warning
+    category: resolution
+    owner: steward
+    entity: Security
+    resolution: Reactivate the security if it still trades; residual activity on a matured security is accepted.
+
+  - code: SECURITY_IDENTIFIER_INVALID
+    name: Security identifier invalid
+    description: A CUSIP, ISIN or SEDOL fails its check digit or length.
+    level: field
+    severity: error
+    category: resolution
+    owner: custodian
+    entity: Security
+    resolution: Ask the custodian to correct the identifier.
+
+  - code: TRANSACTION_CODE_UNMAPPED
+    name: Transaction code unmapped
+    description: The custodian's transaction code has no mapping to a canonical transaction type.
+    level: record
+    severity: error
+    category: resolution
+    owner: steward
+    entity: Transaction
+    resolution: Map the code in the config's transaction code table; records with the code wait until then.
+
+  - code: TRANSACTION_CODE_AMBIGUOUS
+    name: Transaction code ambiguous
+    description: The custodian's transaction code maps to more than one canonical type and the qualifiers do not decide.
+    level: record
+    severity: error
+    category: resolution
+    owner: steward
+    entity: Transaction
+    resolution: Refine the mapping with the qualifier fields the custodian sends.
+
+  - code: PRICE_MISSING
+    name: Price missing
+    description: No price is available for the security on the business date from any configured source.
+    level: record
+    severity: error
+    category: resolution
+    owner: steward
+    entity: Price
+    resolution: Carry the last available price forward when the pricing policy allows it; otherwise obtain a price.
+    auto_resolve: true
+
+  - code: PRICE_STALE
+    name: Price stale
+    description: The most recent price is older than the pricing policy allows.
+    level: record
+    severity: warning
+    category: resolution
+    owner: steward
+    entity: Price
+    resolution: Obtain a current price; the stale price is used and flagged until then.
+    auto_resolve: true
+
+  - code: PRICE_ZERO
+    name: Price zero
+    description: The custodian or the pricing source reported a price of zero for a security that is not worthless.
+    level: field
+    severity: warning
+    category: resolution
+    owner: steward
+    entity: Price
+    resolution: Confirm the price; a zero price is accepted only for a security the security master marks worthless.
+
+  - code: CURRENCY_UNKNOWN
+    name: Currency unknown
+    description: A currency code is not an ISO 4217 code the platform supports.
+    level: field
+    severity: error
+    category: resolution
+    owner: data_engineer
+    resolution: Map the custodian's currency code, or add the currency to the reference data.
+
+  - code: FIRM_NOT_FOUND
+    name: Firm not found
+    description: The firm the file was delivered for is not in the platform's firm list.
+    level: file
+    severity: critical
+    category: resolution
+    owner: platform
+    entity: Firm
+    resolution: Add the firm and its custodian relationship before loading files for it.
+
+  # --- reference data -----------------------------------------------------
+  - code: REFERENCE_DATA_STALE
+    name: Reference data stale
+    description: The security master or account cross-reference replica is older than the resolution window allows.
+    level: file
+    severity: critical
+    category: reference_data
+    owner: data_engineer
+    resolution: Run or repair the replication job, then replay the files that waited.
+
+  - code: REFERENCE_DATA_CONFLICT
+    name: Reference data conflict
+    description: The replicated reference data carries two rows for one identifier.
+    level: record
+    severity: error
+    category: reference_data
+    owner: steward
+    resolution: Correct the source system; the conflicting identifier resolves to nothing until then.
+
+  # --- reconciliation: the record does not agree with itself or Silver ----
+  - code: POSITION_VALUE_MISMATCH
+    name: Market value does not agree
+    description: Quantity times price times the price factor differs from the market value the custodian reported beyond tolerance.
+    level: record
+    severity: warning
+    category: reconciliation
+    owner: steward
+    entity: Position
+    resolution: Confirm the price factor and the custodian's valuation; load the custodian's value with the flag.
+
+  - code: POSITION_NEGATIVE_LONG
+    name: Negative long position
+    description: A long position has a negative quantity, or a short position a positive one.
+    level: record
+    severity: error
+    category: reconciliation
+    owner: steward
+    entity: Position
+    resolution: Confirm with the custodian whether the position type or the sign is wrong.
+
+  - code: POSITION_DUPLICATE_SECURITY
+    name: Two positions resolve to one security
+    description: Two custodian records for the same account and date resolve to the same security, so the position is doubled.
+    level: record
+    severity: error
+    category: reconciliation
+    owner: steward
+    entity: Position
+    resolution: Check the security master mapping; if both are right, the positions are merged with approval.
+
+  - code: LOT_TOTAL_MISMATCH
+    name: Lots do not add up to the position
+    description: The quantity of a position's lots differs from the position's quantity beyond tolerance.
+    level: record
+    severity: warning
+    category: reconciliation
+    owner: steward
+    entity: Lot
+    resolution: Ask the custodian for the missing lots; the position is loaded and the lots flagged.
+
+  - code: CASH_BALANCE_MISMATCH
+    name: Cash balance does not agree
+    description: The reported cash balance differs from the previous balance plus the day's cash transactions beyond tolerance.
+    level: record
+    severity: warning
+    category: reconciliation
+    owner: steward
+    entity: Cash Balance
+    resolution: Look for missing or duplicated transactions; the custodian's balance is loaded with the flag.
+
+  - code: TRANSACTION_AMOUNT_MISMATCH
+    name: Transaction amount does not agree
+    description: Quantity times price plus fees differs from the net amount beyond tolerance.
+    level: record
+    severity: warning
+    category: reconciliation
+    owner: steward
+    entity: Transaction
+    resolution: Confirm the fee and price with the custodian; the transaction is loaded with the flag.
+
+  - code: TRANSACTION_FUTURE_DATE
+    name: Trade date in the future
+    description: The trade date is after the file's business date.
+    level: record
+    severity: error
+    category: reconciliation
+    owner: custodian
+    entity: Transaction
+    resolution: Ask the custodian to correct the date.
+
+  - code: TRANSACTION_SETTLE_BEFORE_TRADE
+    name: Settles before it trades
+    description: The settlement date is before the trade date.
+    level: record
+    severity: error
+    category: reconciliation
+    owner: custodian
+    entity: Transaction
+    resolution: Ask the custodian to correct the dates.
+
+  - code: TRANSACTION_DUPLICATE_EVENT
+    name: Possible duplicate transaction
+    description: Two transactions with different ids have the same account, security, type, date, quantity and amount.
+    level: record
+    severity: warning
+    category: reconciliation
+    owner: steward
+    entity: Transaction
+    resolution: Confirm with the custodian whether both events happened; both are loaded with the flag until then.
+
+  - code: EXCEPTION_CODE_UNKNOWN
+    name: Exception code unknown
+    description: A pipeline raised an exception with a code that is not in this taxonomy; a pipeline problem, not a data problem.
+    level: record
+    severity: error
+    category: record
+    owner: platform
+    entity: Exception
+    resolution: Add the code to the taxonomy or correct the pipeline; the exception keeps this code until then.

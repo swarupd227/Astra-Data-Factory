@@ -80,10 +80,10 @@ def test_field_problems_are_per_row_and_do_not_reject_the_file():
     parsed = parse_delimited(price_spec(), lines)
     assert not parsed.rejected
     texts = [p.text() for p in parsed.problems]
-    assert "line 2 (detail.price_date): '2026-13-40' is not a date in the format YYYY-MM-DD" in texts
-    assert "line 2 (detail.close_price): 'abc' is not a number" in texts
-    assert any(t.startswith("line 2 (detail.currency): 'EUR' is not a declared code") for t in texts)
-    assert "line 3 (detail.price_date): required field is blank" in texts
+    assert "line 2 (detail.price_date): FIELD_DATE_INVALID: '2026-13-40' is not a date in the format YYYY-MM-DD" in texts
+    assert "line 2 (detail.close_price): FIELD_NOT_NUMERIC: 'abc' is not a number" in texts
+    assert any(t.startswith("line 2 (detail.currency): FIELD_CODE_UNKNOWN: 'EUR' is not a declared code") for t in texts)
+    assert "line 3 (detail.price_date): FIELD_REQUIRED_BLANK: required field is blank" in texts
 
 
 def test_record_types_are_matched_by_column(tmp_path):
@@ -120,7 +120,7 @@ records:
     parsed = parse(spec, ["H,20260905", "D,ACC1,10.50", "D,ACC2,-3", "X,?,?", "T,2"])
     assert parsed.metadata["header"]["file_date"] == date(2026, 9, 5) and parsed.metadata["trailer"]["count"] == 2
     assert [r.values["amount"] for r in parsed.rows] == [Decimal("10.50"), Decimal("-3")]
-    assert [p.text() for p in parsed.problems] == ["line 4: no record type matches this line"]
+    assert [p.text() for p in parsed.problems] == ["line 4: RECORD_TYPE_UNKNOWN: no record type matches this line"]
     assert not parsed.rejected
 
 

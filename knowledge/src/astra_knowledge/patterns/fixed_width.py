@@ -64,9 +64,9 @@ def convert_fields(record: Record, raw_of, result: ParsedFile, line_number: int,
         )
         values[f.name] = converted.value
         if converted.problem:
-            result.problems.append(RowProblem(line_number, converted.problem, record.label, f.name))
+            result.problems.append(RowProblem(line_number, converted.problem, record.label, f.name, code=converted.code))
         elif f.required and converted.value is None:
-            result.problems.append(RowProblem(line_number, "required field is blank", record.label, f.name))
+            result.problems.append(RowProblem(line_number, "required field is blank", record.label, f.name, code="FIELD_REQUIRED_BLANK"))
     return values
 
 
@@ -75,7 +75,7 @@ def place(record: Record, values: dict[str, Any], result: ParsedFile, line_numbe
     if record.type == "detail":
         result.rows.append(ParsedRow(record.label, line_number, values))
     elif record.label in result.metadata:
-        result.problems.append(RowProblem(line_number, f"a second {record.label} record; a file has at most one", record.label, level="record"))
+        result.problems.append(RowProblem(line_number, f"a second {record.label} record; a file has at most one", record.label, level="record", code="RECORD_DUPLICATE_HEADER"))
     else:
         result.metadata[record.label] = values
 
@@ -84,7 +84,7 @@ def finish(spec: SourceSpec, result: ParsedFile, counts: dict[str, int]) -> Pars
     result.counts = counts
     for kind in ("header", "trailer"):
         if any(r.type == kind for r in spec.records) and kind not in result.metadata and result.lines:
-            result.problems.append(RowProblem(0, f"the file has no {kind} record", level="file"))
+            result.problems.append(RowProblem(0, f"the file has no {kind} record", level="file", code=f"FILE_{kind.upper()}_MISSING"))
     return result
 
 
@@ -103,12 +103,12 @@ def parse_fixed_width(spec: SourceSpec, lines: Iterable[str]) -> ParsedFile:
         result.lines += 1
 
         if len(line) > record_length:
-            result.problems.append(RowProblem(line_number, f"line is {len(line)} characters, longer than the record length {record_length}", level="record"))
+            result.problems.append(RowProblem(line_number, f"line is {len(line)} characters, longer than the record length {record_length}", level="record", code="RECORD_TOO_LONG"))
         line = line.ljust(record_length)
 
         record = record_type_of(spec, line)
         if record is None:
-            result.problems.append(RowProblem(line_number, "no record type matches this line", level="record"))
+            result.problems.append(RowProblem(line_number, "no record type matches this line", level="record", code="RECORD_TYPE_UNKNOWN"))
             continue
         counts[record.label] += 1
 

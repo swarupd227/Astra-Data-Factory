@@ -9,7 +9,7 @@
 # a fallback for repositories that keep secrets in GitHub instead.
 
 name: Deploy environment
-description: Apply the foundation, deploy release bundles, sync custodians and run generated tests against one environment.
+description: Apply the foundation, deploy release bundles, sync custodians and the rejection taxonomy, and run generated tests against one environment.
 
 inputs:
   environment:
@@ -147,6 +147,16 @@ runs:
         SNOWFLAKE_ROLE: ${{ inputs.snowflake-role }}
         SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
       run: astra-data --format github custodians sync --environment "${{ inputs.environment }}" configs
+
+    - name: Sync the rejection taxonomy
+      shell: bash
+      env:
+        SNOWFLAKE_ORGANIZATION_NAME: ${{ inputs.snowflake-organization }}
+        SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
+        SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
+        SNOWFLAKE_ROLE: ${{ inputs.snowflake-role }}
+        SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
+      run: astra-data --format github rejections sync --environment "${{ inputs.environment }}" --domains domains
 
     - name: Run generated tests
       shell: bash

@@ -284,7 +284,11 @@ entities:
     key: [EXCEPTION_ID]
     columns:
       - { name: EXCEPTION_ID, type: string, required: true, description: "Platform identifier of the exception." }
-      - { name: REJECTION_CODE, type: string, required: true, description: "Code from the rejection taxonomy that classifies the exception." }
+      - name: REJECTION_CODE
+        type: string
+        required: true
+        description: Code from the rejection taxonomy (rejections.yaml) that classifies the exception.
+        lookup: { schema: CONTROL, table: REJECTION_CODES, column: CODE }
       - name: LEVEL
         type: string
         required: true

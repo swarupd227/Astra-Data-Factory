@@ -82,7 +82,7 @@ def signed_implied_decimal(digits: str, sign: str | None, scale: int, convention
     if not text:
         return Converted(None)
     if not text.isdigit():
-        return Converted(None, f"'{digits.strip()}' is not all digits")
+        return Converted(None, f"'{digits.strip()}' is not all digits", "FIELD_NOT_NUMERIC")
     magnitude = implied_decimal(text, scale)
 
     kind = convention.classify(sign)
@@ -94,5 +94,5 @@ def signed_implied_decimal(digits: str, sign: str | None, scale: int, convention
         if magnitude == 0:
             return Converted(magnitude)
         reason = "sign is blank; the value is unknown, not zero" if sign is None or not sign.strip() else f"sign '{sign}' means unknown; the value is unknown, not zero"
-        return Converted(None, reason)
-    return Converted(None, f"sign '{sign}' is not an accepted sign; accepted signs are {convention.accepted()}")
+        return Converted(None, reason, "FIELD_SIGN_INVALID")
+    return Converted(None, f"sign '{sign}' is not an accepted sign; accepted signs are {convention.accepted()}", "FIELD_SIGN_INVALID")

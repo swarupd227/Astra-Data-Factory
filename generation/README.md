@@ -19,6 +19,8 @@ pytest
 | `astra-data test --environment <env> [releases]` | Runs every bundle's tests; a test passes when it returns no rows | Snowflake |
 | `astra-data custodians render --environment <env> [paths]` | Folds the configs' `delivery` and `alerts` blocks into one row per custodian and prints the SQL that syncs `CONTROL.CUSTODIANS` | nothing |
 | `astra-data custodians sync --environment <env> [paths]` | Applies that SQL in one transaction | Snowflake |
+| `astra-data rejections render --environment <env> [--domains domains]` | Prints the SQL that syncs each domain pack's `rejections.yaml` into `CONTROL.REJECTION_CODES` | nothing |
+| `astra-data rejections sync --environment <env> [--domains domains]` | Applies that SQL in one transaction; codes that left the taxonomy are retired, not deleted | Snowflake |
 
 `--format github` prints workflow annotations, which is how a failing pull request shows each problem on its file and line. `--format json` is for other tools. Exit code 0 means nothing wrong, 1 means problems or failing tests, 2 means a usage or connection error.
 
@@ -33,6 +35,8 @@ src/astra_data/
   yamlsource.py                    YAML loading that keeps line numbers and rejects duplicate keys
   validate.py                      schema validation plus reference checks, plain-language messages
   bundle.py                        bundle loading, placeholder rendering, deploy and test
+  custodians.py                    delivery expectations and alert severities, from configs to CONTROL
+  rejections.py                    the rejection taxonomy, from the domain pack to CONTROL
   snowflake_connection.py          connection from the environment
   cli.py
 tests/                             run against an in-memory executor; no account needed

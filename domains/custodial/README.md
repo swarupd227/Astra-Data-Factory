@@ -5,6 +5,8 @@ Canonical model, vocabulary, rule patterns, DQ patterns, rejection taxonomy and 
 ```
 domains/custodial/
   glossary.yaml            the vocabulary: entity terms and concept terms
+  rejections.yaml          the rejection taxonomy: every code with level, severity, owner, resolution
+  loader-rejections.csv    the Loader Rejections reference (client material; not yet added), for parity
   cdm/<major>.<minor>.yaml one file per model version
   cdm/migrations/<v>.md    migration note, required for every new major version
   cdm/rendered/<v>/        DDL and key tests rendered from the model (checked in CI)
@@ -43,8 +45,20 @@ Versions are `MAJOR.MINOR`, one file each, and each version follows from the one
 
 `astra-spec cdm render` writes, for every version, `cdm/rendered/<version>/ddl.sql` (one `CREATE ICEBERG TABLE IF NOT EXISTS` per entity, on the environment database's external volume, with `{{ DATABASE }}` as the placeholder the deploy pipeline fills) and `cdm/rendered/<version>/tests/*.sql` (one uniqueness test per key and one orphan test per reference; a test returns failing rows). The rendered files are committed so a model change is reviewed as a DDL diff; CI runs `astra-spec cdm render --check` and fails when they are stale. S7.1.1 deploys them as a release bundle.
 
+## Rejection taxonomy
+
+[rejections.yaml](rejections.yaml) is every reason the factory rejects a file, a record or a value: the code, a name, a description, the level it reaches (`file`, `record`, `field`), its severity (`critical`: nothing from the file is loaded; `error`: the record is not loaded; `warning`: loaded and flagged), a category, the owner who resolves it (`custodian`, `data_engineer`, `steward`, `platform`), what they do, whether Exception Triage may do it without a person, and the Loader codes it reproduces. Codes are never renamed or deleted; one that no longer applies is marked `retired`.
+
+The pattern library raises these codes on every problem it reports, and a test fails when a problem has no code or a code that is not here. `astra-data rejections sync` brings `CONTROL.REJECTION_CODES` in line with this file on every deploy, and the Exception entity's `REJECTION_CODE` column declares a lookup on that table, so the rendered test `exception_rejection_code_lookup.sql` returns any exception row whose code does not exist.
+
+**Parity with the Loader.** Export the Loader Rejections reference from the client's document to `loader-rejections.csv` (a header row naming `code` and `description`, one legacy code per line) and map each legacy code in a code's `loader_codes`. Once the file is in the pack, validation fails for every Loader code no rejection code reproduces and for every Loader code named here that the reference does not list; `astra-spec rejections parity --domain custodial` prints the same report. The reference is not in the repository yet, so the parity criterion of S2.3.2 is enforced by the tooling but not yet satisfied by data.
+
+| Command | What it does |
+|---|---|
+| `astra-spec rejections list [--domain custodial] [--level file|record|field] [--owner ...]` | The codes with level, severity, owner and Loader codes |
+| `astra-spec rejections parity --domain custodial [--reference file.csv]` | Loader codes reproduced, not reproduced, and named but not in the reference |
+
 ## Still to come in this pack
 
-- Rejection taxonomy as data (S2.3.2).
 - Reference-data replication patterns for the security master and account cross-reference (S2.3.3).
 - Rule and DQ patterns (F2.4, F3.3).

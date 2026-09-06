@@ -78,7 +78,7 @@ def parse_delimited(spec: SourceSpec, lines: Iterable[str]) -> ParsedFile:
                         if f.column > len(row) or row[f.column - 1].strip() != f.label
                     ]
                     if wrong:
-                        result.problems.append(RowProblem(line_number, "header row does not match the spec: " + "; ".join(wrong), level="file"))
+                        result.problems.append(RowProblem(line_number, "header row does not match the spec: " + "; ".join(wrong), level="file", code="FILE_HEADER_MISMATCH"))
                 continue
 
             if declared is not None and len(row) != declared:
@@ -87,7 +87,7 @@ def parse_delimited(spec: SourceSpec, lines: Iterable[str]) -> ParsedFile:
 
             record = record_type_of(spec, row)
             if record is None:
-                result.problems.append(RowProblem(line_number, "no record type matches this line", level="record"))
+                result.problems.append(RowProblem(line_number, "no record type matches this line", level="record", code="RECORD_TYPE_UNKNOWN"))
                 continue
 
             # Without a declared count, each record type needs the columns its own fields use.
@@ -101,7 +101,7 @@ def parse_delimited(spec: SourceSpec, lines: Iterable[str]) -> ParsedFile:
             values = convert_fields(record, lambda f, row=row: row[f.column - 1] if f.column and f.column <= len(row) else "", result, line_number, explicit_numbers=True)
             place(record, values, result, line_number)
     except csv.Error as exc:
-        result.problems.append(RowProblem(reader.line_num, f"malformed quoting: {exc}; the rest of the file was not read", level="file"))
+        result.problems.append(RowProblem(reader.line_num, f"malformed quoting: {exc}; the rest of the file was not read", level="file", code="FILE_MALFORMED_QUOTING"))
 
     if mismatches:
         more = f", and {len(mismatches) - MISMATCHES_SHOWN} more" if len(mismatches) > MISMATCHES_SHOWN else ""
@@ -111,6 +111,6 @@ def parse_delimited(spec: SourceSpec, lines: Iterable[str]) -> ParsedFile:
         else:
             shown = ", ".join(f"line {line} has {count} (needs {need})" for line, count, need in mismatches[:MISMATCHES_SHOWN])
             message = f"{len(mismatches)} line(s) have fewer columns than their record type needs: {shown}{more}"
-        result.problems.append(RowProblem(mismatches[0][0], message, level="file"))
+        result.problems.append(RowProblem(mismatches[0][0], message, level="file", code="FILE_COLUMN_COUNT"))
 
     return finish(spec, result, counts)

@@ -135,6 +135,18 @@ def test_key_and_reference_tests_are_rendered(pack):
     assert 'ON r."CUSTODIAN_ID" = e."CUSTODIAN_ID" AND r."ACCOUNT_NUMBER" = e."ACCOUNT_NUMBER"' in position
 
 
+def test_every_exception_row_must_reference_a_rejection_code(pack):
+    exception = pack.latest.entity("Exception")
+    lookup = exception.column("REJECTION_CODE").lookup
+    assert (lookup.schema, lookup.table, lookup.column) == ("CONTROL", "REJECTION_CODES", "CODE")
+    test = render_tests(pack.latest)["exception_rejection_code_lookup.sql"]
+    assert test.startswith("-- Exception: REJECTION_CODE must be a value of CONTROL.REJECTION_CODES.CODE. Returns rows whose value is not.")
+    assert 'FROM {{ DATABASE }}."SILVER"."EXCEPTION" AS e' in test
+    assert 'LEFT JOIN {{ DATABASE }}."CONTROL"."REJECTION_CODES" AS r ON r."CODE" = e."REJECTION_CODE"' in test
+    assert test.rstrip().endswith('WHERE r."CODE" IS NULL;')  # the column is required, so no null filter
+    assert "Lookup: CONTROL.REJECTION_CODES.CODE." in render_ddl(pack.latest)
+
+
 def test_rendered_files_in_the_repository_are_current(pack):
     problems = check_rendered(pack, REPO)
     assert problems == [], [p.format() for p in problems]
@@ -268,6 +280,7 @@ def _strip(data: dict) -> None:
         (lambda d: _entity(d, "Firm")["columns"][2]["codes"].append({"value": "FAMILY_OFFICE", "meaning": "family office"}), "Firm: column FIRM_TYPE code list changed"),
         (lambda d: d["entities"].append({"name": "Benchmark", "term": "Benchmark", "table": "BENCHMARK", "key": ["BENCHMARK_ID"], "columns": [{"name": "BENCHMARK_ID", "type": "string", "required": True, "description": "Identifier."}]}), "entity Benchmark added"),
         (lambda d: _entity(d, "Price")["references"].clear(), "Price: reference to Security through (SECURITY_ID) removed"),
+        (lambda d: next(c for c in _entity(d, "Exception")["columns"] if c["name"] == "REJECTION_CODE").pop("lookup"), "Exception: column REJECTION_CODE lookup changed from CONTROL.REJECTION_CODES.CODE to none"),
     ],
 )
 def test_additive_changes_are_classified(tmp_path, mutate, expected):
@@ -360,7 +373,7 @@ def test_a_pack_needs_a_glossary_and_a_model(tmp_path):
 
 def test_cli_validate_reports_the_pack(capsys):
     assert main(["--root", str(REPO), "--domains", str(DOMAINS), "cdm", "validate"]) == 0
-    assert "checked 1 model version and 15 glossary terms across 1 domain pack: no problems" in capsys.readouterr().out
+    assert "checked 1 model version, 15 glossary terms and 67 rejection codes across 1 domain pack: no problems" in capsys.readouterr().out
 
     assert main(["--root", str(REPO), "--domains", str(DOMAINS), "--format", "json", "cdm", "validate"]) == 0
     payload = json.loads(capsys.readouterr().out)
@@ -385,7 +398,7 @@ def test_cli_render_check_and_show(tmp_path, capsys):
     assert "domains/custodial/cdm/rendered/1.0/ddl.sql: stale" in capsys.readouterr().out
 
     assert main([*args, "cdm", "render"]) == 0
-    assert "rendered custodial CDM 1.0: 9 tables, 17 tests" in capsys.readouterr().out
+    assert "rendered custodial CDM 1.0: 9 tables, 18 tests" in capsys.readouterr().out
     assert main([*args, "cdm", "render", "--check"]) == 0
     assert "rendered files are current" in capsys.readouterr().out
 

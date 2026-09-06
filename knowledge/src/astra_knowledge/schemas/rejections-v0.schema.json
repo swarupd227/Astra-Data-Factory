@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/rejections-v0.schema.json",
+  "title": "Rejection taxonomy, file version 0",
+  "description": "The rejection codes of a domain pack: every reason the factory rejects a file, a record or a value, with its level, severity, owner and resolution, and the legacy Loader codes it reproduces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rejections_version", "domain", "codes"],
+  "properties": {
+    "rejections_version": { "const": 0 },
+    "domain": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "codes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "name", "description", "level", "severity", "category", "owner", "resolution"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,62}$" },
+          "name": { "type": "string", "minLength": 3, "maxLength": 60 },
+          "description": { "type": "string", "minLength": 20 },
+          "level": {
+            "enum": ["file", "record", "field"],
+            "description": "How far the rejection reaches: the whole file, one record or pair, or one value."
+          },
+          "severity": {
+            "enum": ["critical", "error", "warning"],
+            "description": "critical: nothing from the file is loaded. error: the record is not loaded. warning: the record is loaded and the value is flagged."
+          },
+          "category": {
+            "enum": ["file", "record", "value", "pairing", "merge", "split", "lifecycle", "resolution", "reference_data", "reconciliation"]
+          },
+          "owner": {
+            "enum": ["custodian", "data_engineer", "steward", "platform"],
+            "description": "Who resolves exceptions with this code."
+          },
+          "entity": { "type": "string", "description": "Canonical entity the rejected record was meant for, when there is one." },
+          "resolution": { "type": "string", "minLength": 10, "description": "What the owner does about it." },
+          "auto_resolve": {
+            "type": "boolean",
+            "default": false,
+            "description": "Exception Triage may apply the resolution without a person (autonomy level L3, with audit)."
+          },
+          "loader_codes": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Codes in the Loader Rejections reference that this code reproduces."
+          },
+          "status": { "enum": ["active", "retired"], "default": "active" }
+        }
+      }
+    }
+  }
+}

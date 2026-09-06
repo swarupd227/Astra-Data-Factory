@@ -43,7 +43,7 @@ def split(parsed: ParsedFile) -> ParsedFile:
                 if isinstance(value, (int, Decimal)) and not isinstance(value, bool):
                     values[name] = -value
                 else:
-                    result.problems.append(RowProblem(row.line_number, f"split '{rule.name}' part '{part.name}' negates '{name}', which is not a number", row.record, name))
+                    result.problems.append(RowProblem(row.line_number, f"split '{rule.name}' part '{part.name}' negates '{name}', which is not a number", row.record, name, level="record", code="SPLIT_NOT_NUMERIC"))
             result.rows.append(ParsedRow(part.name, row.line_number, values, origin=row.record, split=rule.name, part=index))
             result.counts[part.name] = result.counts.get(part.name, 0) + 1
     return result

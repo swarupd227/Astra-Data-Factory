@@ -146,6 +146,10 @@ A domain pack is a directory under `domains/` (product spec Section 4): `glossar
 | `astra-spec cdm show --domain custodial [--version 1.0]` | Entities with keys, references, definitions and columns |
 | `astra-spec cdm diff --domain custodial --from 1.0 --to 2.0` | Every change between two versions, classified breaking or additive |
 | `astra-spec cdm render [--check]` | Writes `cdm/rendered/<version>/ddl.sql` and `tests/*.sql`; with `--check`, fails when they are stale (CI runs this) |
+| `astra-spec rejections list [--domain d] [--level l] [--owner o]` | The pack's rejection codes with level, severity, owner and Loader codes |
+| `astra-spec rejections parity --domain d [--reference file.csv]` | Which Loader codes the taxonomy reproduces and which it misses ([ADR 0014](../docs/adr/0014-rejection-taxonomy.md)) |
+
+Every problem the pattern library reports carries a rejection code from the pack's `rejections.yaml`; `RowProblem.code` is that code.
 
 ## What is checked
 
@@ -163,6 +167,7 @@ src/astra_knowledge/
   patterns/                            the pattern library: reference implementations and their result shape
   schemas/cdm-v0.schema.json           canonical data model versions; glossary-v0.schema.json the pack glossary
   cdm.py                               domain packs: loading, validation, version diff, DDL and test rendering
+  rejections.py                        the rejection taxonomy and Loader parity
   cli.py
 tests/                                 run against the shipped registry and temporary variants of it
 ```

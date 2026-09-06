@@ -197,7 +197,7 @@ COMMENT = 'Cash Balance: The cash held in one account in one currency as of one 
 -- Exception: key (EXCEPTION_ID)
 CREATE ICEBERG TABLE IF NOT EXISTS {{ DATABASE }}."SILVER"."EXCEPTION" (
   "EXCEPTION_ID"   STRING NOT NULL COMMENT 'Platform identifier of the exception.',
-  "REJECTION_CODE" STRING NOT NULL COMMENT 'Code from the rejection taxonomy that classifies the exception.',
+  "REJECTION_CODE" STRING NOT NULL COMMENT 'Code from the rejection taxonomy (rejections.yaml) that classifies the exception. Lookup: CONTROL.REJECTION_CODES.CODE.',
   "LEVEL"          STRING NOT NULL COMMENT 'How far the rejection reaches. Codes: FILE = the whole file was rejected; RECORD = one record or pair was rejected; FIELD = one value was rejected; the record may still have loaded.',
   "ENTITY"         STRING COMMENT 'Canonical entity the rejected record was meant for; null for file-level exceptions.',
   "CUSTODIAN_ID"   STRING COMMENT 'Custodian whose data raised the exception.',

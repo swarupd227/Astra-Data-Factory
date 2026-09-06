@@ -104,7 +104,7 @@ records:
     parsed = parse(spec, ["H*20260905", "DT*0001234", "DT*0009999", "HH*bad"])
     assert parsed.metadata["header"]["file_date"] == date(2026, 9, 5)
     assert [r.values["amount"] for r in parsed.rows] == [Decimal("12.34"), Decimal("99.99")]
-    assert [p.text() for p in parsed.problems] == ["line 4: no record type matches this line"]
+    assert [p.text() for p in parsed.problems] == ["line 4: RECORD_TYPE_UNKNOWN: no record type matches this line"]
 
 
 def test_problems_are_reported_per_line_and_field_without_stopping():
@@ -122,13 +122,13 @@ def test_problems_are_reported_per_line_and_field_without_stopping():
     ]
     parsed = parse_fixed_width(spec, lines)
     texts = [p.text() for p in parsed.problems]
-    assert "line 2 (detail.account_number): required field is blank" in texts
-    assert "line 3 (detail.quantity): sign is blank; the value is unknown, not zero" in texts
-    assert any(t.startswith("line 4 (detail.security_type): 'ZZ' is not a declared code") for t in texts)
-    assert "line 5 (detail.as_of_date): '20261399' is not a date in the format YYYYMMDD" in texts
-    assert "line 6: no record type matches this line" in texts
-    assert "line 7 (header): a second header record; a file has at most one" in texts
-    assert "line 8: line is 125 characters, longer than the record length 120" in texts
+    assert "line 2 (detail.account_number): FIELD_REQUIRED_BLANK: required field is blank" in texts
+    assert "line 3 (detail.quantity): FIELD_SIGN_INVALID: sign is blank; the value is unknown, not zero" in texts
+    assert any(t.startswith("line 4 (detail.security_type): FIELD_CODE_UNKNOWN: 'ZZ' is not a declared code") for t in texts)
+    assert "line 5 (detail.as_of_date): FIELD_DATE_INVALID: '20261399' is not a date in the format YYYYMMDD" in texts
+    assert "line 6: RECORD_TYPE_UNKNOWN: no record type matches this line" in texts
+    assert "line 7 (header): RECORD_DUPLICATE_HEADER: a second header record; a file has at most one" in texts
+    assert "line 8: RECORD_TOO_LONG: line is 125 characters, longer than the record length 120" in texts
     assert len(parsed.rows) == 5 and parsed.rows[1].values["quantity"] is None
     assert parsed.rows[2].values["security_type"] == "ZZ"
 
@@ -141,7 +141,7 @@ def test_short_lines_are_padded_and_blank_lines_skipped():
 
 def test_missing_header_or_trailer_is_a_problem():
     parsed = parse_fixed_width(gcus(), [dtl()])
-    assert [p.text() for p in parsed.problems] == ["file: the file has no header record", "file: the file has no trailer record"]
+    assert [p.text() for p in parsed.problems] == ["file: FILE_HEADER_MISSING: the file has no header record", "file: FILE_TRAILER_MISSING: the file has no trailer record"]
     assert parsed.rejected and all(p.level == "file" for p in parsed.problems)
 
 
@@ -205,7 +205,7 @@ def test_cli_parse_prints_rows_metadata_and_problems(tmp_path, capsys):
 
     assert re.search(r"file_date\s+2026-09-05", out) and re.search(r"detail_count\s+2\b", out)
     assert "line 2 detail: account_number=ACC0000001, cusip=123456789, quantity=123.45678" in out
-    assert "line 3 (detail.quantity): sign is blank; the value is unknown, not zero" in out
+    assert "line 3 (detail.quantity): FIELD_SIGN_INVALID: sign is blank; the value is unknown, not zero" in out
 
     code = main(["--root", str(REPO), "--specs", str(SPECS), "--format", "json", "parse", "--id", "pershing_gcus", "--version", "2017-07-25", str(sample)])
     payload = json.loads(capsys.readouterr().out)

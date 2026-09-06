@@ -30,6 +30,8 @@ from astra_core.problems import Problem, dedupe, display_path
 from astra_core.schema import describe_error, error_line, load_validator, sorted_errors
 from astra_core.yamlsource import SourceError, line_of, load
 
+from astra_knowledge.rejections import LOADER_REFERENCE_FILE, REJECTIONS_FILE, LoaderReference, Taxonomy, load_loader_reference, load_taxonomy, parity, parity_problems
+
 SCHEMA = "cdm-v0.schema.json"
 GLOSSARY_SCHEMA = "glossary-v0.schema.json"
 GLOSSARY_FILE = "glossary.yaml"
@@ -57,6 +59,19 @@ class Code:
 
 
 @dataclass(frozen=True)
+class Lookup:
+    """A control table the column's values must exist in."""
+
+    schema: str
+    table: str
+    column: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.schema}.{self.table}.{self.column}"
+
+
+@dataclass(frozen=True)
 class Column:
     name: str
     type: str
@@ -66,6 +81,7 @@ class Column:
     scale: int | None = None
     pii: str | None = None
     codes: tuple[Code, ...] = ()
+    lookup: Lookup | None = None
 
     @property
     def sql_type(self) -> str:
@@ -163,6 +179,8 @@ class DomainPack:
     root: Path
     glossary: Glossary
     models: tuple[Model, ...]  # in version order
+    rejections: Taxonomy
+    loader_reference: LoaderReference | None = None
 
     @property
     def latest(self) -> Model:
@@ -224,6 +242,7 @@ def _column(data: dict) -> Column:
         scale=data.get("scale"),
         pii=data.get("pii"),
         codes=tuple(Code(str(c["value"]), c["meaning"]) for c in data.get("codes") or ()),
+        lookup=Lookup(data["lookup"]["schema"], data["lookup"]["table"], data["lookup"]["column"]) if data.get("lookup") else None,
     )
 
 
@@ -385,10 +404,23 @@ def load_pack(root: Path, repo_root: Path | None = None) -> tuple[DomainPack | N
     if problems:
         return None, problems
 
-    problems.extend(_pack_problems(root, glossary, models, repo_root))
+    rejections_path = root / REJECTIONS_FILE
+    if not rejections_path.is_file():
+        return None, [Problem(display, None, f"domain pack has no {REJECTIONS_FILE}; every pack carries its rejection taxonomy")]
+    taxonomy, problems = load_taxonomy(rejections_path, repo_root)
+    if taxonomy is None:
+        return None, problems
+    reference: LoaderReference | None = None
+    reference_path = root / LOADER_REFERENCE_FILE
+    if reference_path.is_file():
+        reference, problems = load_loader_reference(reference_path, repo_root)
+        if reference is None:
+            return None, problems
+
+    problems.extend(_pack_problems(root, glossary, models, taxonomy, reference, repo_root))
     if problems:
         return None, problems
-    return DomainPack(root.name, root, glossary, tuple(models)), []
+    return DomainPack(root.name, root, glossary, tuple(models), taxonomy, reference), []
 
 
 def _version_key(name: str) -> tuple[int, int]:
@@ -396,12 +428,21 @@ def _version_key(name: str) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
-def _pack_problems(root: Path, glossary: Glossary, models: list[Model], repo_root: Path | None) -> list[Problem]:
+def _pack_problems(root: Path, glossary: Glossary, models: list[Model], taxonomy: Taxonomy, reference: LoaderReference | None, repo_root: Path | None) -> list[Problem]:
     problems: list[Problem] = []
     glossary_display = display_path(glossary.path, repo_root)
+    taxonomy_display = display_path(taxonomy.path, repo_root)
 
     if glossary.domain != root.name:
         problems.append(Problem(glossary_display, None, f"glossary domain '{glossary.domain}' must match the pack directory '{root.name}'"))
+    if taxonomy.domain != root.name:
+        problems.append(Problem(taxonomy_display, None, f"taxonomy domain '{taxonomy.domain}' must match the pack directory '{root.name}'"))
+    entity_names = {e.name for model in models for e in model.entities}
+    for code in taxonomy.codes:
+        if code.entity is not None and code.entity not in entity_names:
+            problems.append(Problem(taxonomy_display, None, f"code {code.code} names entity '{code.entity}', which is in no model version"))
+    if reference is not None:
+        problems.extend(parity_problems(taxonomy, reference, repo_root))
 
     # A term that defines an entity stays an entity term for as long as any
     # version has the entity, so older versions remain loadable after a
@@ -527,6 +568,8 @@ def _column_changes(old: tuple[Column, ...], new: tuple[Column, ...], label: str
             changes.append(Change(False, f"{label}: column {name} made optional", entity))
         if before.pii != column.pii:
             changes.append(Change(False, f"{label}: column {name} PII category changed from {before.pii or 'none'} to {column.pii or 'none'}", entity))
+        if before.lookup != column.lookup:
+            changes.append(Change(False, f"{label}: column {name} lookup changed from {before.lookup.label if before.lookup else 'none'} to {column.lookup.label if column.lookup else 'none'}", entity))
         if before.codes != column.codes:
             changes.append(Change(False, f"{label}: column {name} code list changed", entity))
         elif before.description != column.description:
@@ -553,6 +596,8 @@ def _column_comment(column: Column) -> str:
     parts = [column.description]
     if column.codes:
         parts.append("Codes: " + "; ".join(f"{c.value} = {c.meaning}" for c in column.codes) + ".")
+    if column.lookup:
+        parts.append(f"Lookup: {column.lookup.label}.")
     if column.pii:
         parts.append(f"PII: {column.pii}.")
     return " ".join(parts)
@@ -617,6 +662,25 @@ def render_tests(model: Model) -> dict[str, str]:
                     f"SELECT {select}",
                     f"FROM {_table(model, entity)} AS e",
                     f"LEFT JOIN {_table(model, target)} AS r ON {join}",
+                    f"WHERE {' AND '.join(where)};",
+                    "",
+                ]
+            )
+        for column in entity.columns:
+            if column.lookup is None:
+                continue
+            lookup = column.lookup
+            lookup_table = f"{DATABASE_PLACEHOLDER}.{_quote(lookup.schema)}.{_quote(lookup.table)}"
+            select = ", ".join(f"e.{_quote(c)}" for c in dict.fromkeys(entity.key + (column.name,)))
+            where = [f"r.{_quote(lookup.column)} IS NULL"]
+            if not column.required:
+                where.append(f"e.{_quote(column.name)} IS NOT NULL")
+            tests[f"{entity.table.lower()}_{column.name.lower()}_lookup.sql"] = "\n".join(
+                [
+                    f"-- {entity.name}: {column.name} must be a value of {lookup.label}{'' if column.required else ', when present'}. Returns rows whose value is not.",
+                    f"SELECT {select}",
+                    f"FROM {_table(model, entity)} AS e",
+                    f"LEFT JOIN {lookup_table} AS r ON r.{_quote(lookup.column)} = e.{_quote(column.name)}",
                     f"WHERE {' AND '.join(where)};",
                     "",
                 ]
