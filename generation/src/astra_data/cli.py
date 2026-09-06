@@ -16,6 +16,7 @@ from pathlib import Path
 
 from astra_data.bundle import BundleError, DeployError, Target, check_bundles, deploy, run_tests
 from astra_data.compiler import compile_paths
+from astra_data.render import bundle_name as release_bundle_name, check_bundle as check_release_bundle, write_bundle as write_release_bundle
 from astra_data.custodians import custodians_from_configs, sync, sync_statements
 from astra_data.reference_data import bundle_name, check_bundle, packs_with_reference_data, sync as sync_reference_feeds, sync_statements as reference_feed_statements, write_bundle
 from astra_data.rejections import sync as sync_rejections, sync_statements as rejection_statements, taxonomies_from_packs
@@ -81,7 +82,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_compile(args: argparse.Namespace) -> int:
+def _compile_inputs(args: argparse.Namespace):
+    """The spec registry, rule catalog and domain packs, or None after printing what is wrong with them."""
     from astra_knowledge.cdm import load_packs
     from astra_knowledge.registry import Registry
     from astra_knowledge.rules import Catalog
@@ -91,17 +93,26 @@ def cmd_compile(args: argparse.Namespace) -> int:
     if problems:
         _print_problems(problems, args.format)
         _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in the spec registry; fix them before configs can be compiled", args.format)
-        return 1
+        return None
     catalog, problems = Catalog.load(Path(args.rules), root, registry)
     if problems:
         _print_problems(problems, args.format)
         _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in the rule catalog; fix them before configs can be compiled", args.format)
-        return 1
+        return None
     packs, problems = load_packs(Path(args.domains), root)
     if problems:
         _print_problems(problems, args.format)
         _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in the domain packs; fix them before configs can be compiled", args.format)
+        return None
+    return registry, catalog, packs
+
+
+def cmd_compile(args: argparse.Namespace) -> int:
+    inputs = _compile_inputs(args)
+    if inputs is None:
         return 1
+    registry, catalog, packs = inputs
+    root = Path(args.root)
     compiled, problems = compile_paths(args.paths, registry=registry, catalog=catalog, packs=packs, root=root)
     count = len(compiled) + len({p.path for p in problems})
     if problems:
@@ -114,6 +125,48 @@ def cmd_compile(args: argparse.Namespace) -> int:
     for c in compiled:
         _summary(f"{c.id}: {c.spec.label} via {c.pattern.id} -> {c.model.label} on {c.profile.id}; {len(c.mappings)} mapping{'s' if len(c.mappings) != 1 else ''}, {len(c.rules)} rule{'s' if len(c.rules) != 1 else ''}, {len(c.dq_rules)} dq rule{'s' if len(c.dq_rules) != 1 else ''}", args.format)
     _summary(f"compiled {count} config{'s' if count != 1 else ''}: no problems" if count else "no config files found", args.format)
+    return 0
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    from astra_data.render import RenderError
+
+    inputs = _compile_inputs(args)
+    if inputs is None:
+        return 1
+    registry, catalog, packs = inputs
+    root = Path(args.root)
+    compiled, problems = compile_paths(args.paths, registry=registry, catalog=catalog, packs=packs, root=root)
+    if problems:
+        _print_problems(problems, args.format)
+        _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} compiling configs; nothing rendered", args.format)
+        return 1
+    out = Path(args.out)
+    if args.check:
+        problems = []
+        for c in compiled:
+            try:
+                problems.extend(check_release_bundle(c, out, root))
+            except RenderError as exc:
+                problems.extend(exc.problems)
+        if problems:
+            _print_problems(problems, args.format)
+            _summary(f"{len(problems)} release bundle file{'s' if len(problems) != 1 else ''} out of date; run astra-data render and commit the result", args.format)
+            return 1
+        _summary(f"release bundles are current for {len(compiled)} config{'s' if len(compiled) != 1 else ''}", args.format)
+        return 0
+    rendered = []
+    for c in compiled:
+        try:
+            bundle_root = write_release_bundle(c, out)
+        except RenderError as exc:
+            _print_problems(exc.problems, args.format)
+            return 1
+        files = sum(1 for p in bundle_root.rglob("*") if p.is_file())
+        rendered.append({"bundle": release_bundle_name(c), "path": _rel(bundle_root, root), "files": files})
+        _summary(f"rendered {release_bundle_name(c)}: {files} files -> {_rel(bundle_root, root)}", args.format)
+    if args.format == "json":
+        print(json.dumps(rendered, indent=2))
     return 0
 
 
@@ -348,6 +401,15 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--rules", default="rules", help="rule catalog directory (default: rules)")
     cp.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
     cp.set_defaults(func=cmd_compile)
+
+    rn = sub.add_parser("render", help="compile configs and render every artifact of each into a release bundle under --out")
+    rn.add_argument("paths", nargs="*", default=["configs"], help="config files or directories (default: configs)")
+    rn.add_argument("--specs", default="specs", help="spec registry directory (default: specs)")
+    rn.add_argument("--rules", default="rules", help="rule catalog directory (default: rules)")
+    rn.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
+    rn.add_argument("--out", default="releases", help="bundles directory (default: releases)")
+    rn.add_argument("--check", action="store_true", help="fail when a bundle is missing or stale instead of writing it")
+    rn.set_defaults(func=cmd_render)
 
     b = sub.add_parser("bundles", help="release bundle commands")
     bsub = b.add_subparsers(dest="bundles_command", required=True)

@@ -66,6 +66,13 @@ jobs:
       - name: Compile every config into its intermediate model
         run: astra-data --format github compile --specs specs --rules rules --domains domains configs
 
+      # The example config is never deployed, so its bundle is rendered to a
+      # scratch directory and checked there rather than committed under releases/.
+      - name: Render every config into a release bundle and check the result
+        run: |
+          astra-data --format github render --specs specs --rules rules --domains domains --out "$RUNNER_TEMP/releases" configs
+          astra-data --format github bundles check "$RUNNER_TEMP/releases"
+
       - name: Check release bundles
         run: astra-data --format github bundles check releases
 

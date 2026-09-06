@@ -1,15 +1,17 @@
 # releases
 
-Release bundles: everything rendered for one source, committed as one reviewable unit (product spec Appendix A). The deploy pipeline (S1.2.2) deploys every bundle here to dev on merge and to qa on approval. No bundles exist yet; the generation plane (E3) renders them.
+Release bundles: everything rendered for one source, committed as one reviewable unit (product spec Appendix A). The deploy pipeline (S1.2.2) deploys every bundle here to dev on merge and to qa on approval. `astra-data render` renders a bundle per config; `astra-data reference render` renders each domain pack's reference-data bundle. The example config is never deployed, so its bundle is rendered and checked in CI but not committed here.
 
 ## Bundle contract, version 0
 
 ```
 releases/<bundle>/
   manifest.yaml
-  ddl/*.sql  pipeline/*.sql  dq/*.sql   # steps
+  ddl/*.sql  pipeline/*.sql  dq/*.sql   # steps: Bronze tables, lines view, intake, process, tasks, data metric functions
   tests/**/*.sql                         # generated tests
-  ...                                    # docs, golden references, evidence, PROVENANCE.json
+  docs/<source>.md                       # the source, its layout, mappings and rules
+  atlan/<source>.json                    # catalog assets and lineage for Atlan
+  PROVENANCE.json                        # inputs and their digests, the digest of every file
 ```
 
 `manifest.yaml`:
