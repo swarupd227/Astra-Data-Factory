@@ -1,0 +1,17 @@
+# Rule catalog entry. The status changes only through `astra-spec rules set-status`,
+# which records who changed it and when in the history below.
+rule_version: 0
+
+rule:
+  id: pershing_gcus.refresh_mode
+  text: "The header's refresh flag says whether the file is a full refresh (R) that replaces every position of its remote id as of the file date, or an update (U) that merges by account and CUSIP and carries every other position forward. Any other value rejects the file."
+  class: ingestion
+  owner: { name: "Data steward, custodial", email: steward@example.com }
+  status: recovered
+  citation:
+    spec: { id: pershing_gcus, version: "2017-07-25", page: 4, line: 9 }
+  applies_to: { custodians: [pershing], entities: [Position] }
+  tags: [merge, full-vs-delta]
+
+history:
+  - { status: recovered, by: "spec-reader", at: "2026-09-06T09:00:00Z", note: "Recovered from the GCUS layout header record." }

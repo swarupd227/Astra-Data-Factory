@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/rule-v0.schema.json",
+  "title": "Rule catalog entry, file version 0",
+  "description": "One business rule in the rule catalog (product spec Section 4): what it says, where it was found, what kind of rule it is, who owns it, its status, and the history of status changes with who made them and when. Configs reference rules by id.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rule_version", "rule", "history"],
+  "properties": {
+    "rule_version": { "const": 0 },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "class", "owner", "status", "citation"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "description": "<group>.<name>, matching the file rules/<group>/<name>.yaml. The group is the spec, custodian or domain the rule belongs to."
+        },
+        "text": { "type": "string", "minLength": 20, "description": "The rule in plain words, as the owner would state it." },
+        "class": {
+          "enum": ["ingestion", "business", "normalisation"],
+          "description": "ingestion: how a file is read and accepted. normalisation: how a value becomes canonical. business: what the data means or how it is treated."
+        },
+        "owner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "email"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "email": { "type": "string", "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
+          }
+        },
+        "status": { "enum": ["recovered", "confirmed", "rejected", "legacy_defect"] },
+        "citation": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 1,
+          "description": "Exactly one of: a spec page (and line), a file and line of legacy code, or a page of a document.",
+          "properties": {
+            "spec": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "version", "page"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+                "version": { "type": "string", "minLength": 1 },
+                "page": { "type": "integer", "minimum": 1 },
+                "line": { "type": "integer", "minimum": 1 }
+              }
+            },
+            "code": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["file", "line"],
+              "properties": {
+                "repository": { "type": "string", "minLength": 1, "description": "Repository or archive the file belongs to, when not this one." },
+                "file": { "type": "string", "minLength": 1 },
+                "line": { "type": "integer", "minimum": 1 },
+                "end_line": { "type": "integer", "minimum": 1 }
+              }
+            },
+            "document": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "page"],
+              "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "page": { "type": "integer", "minimum": 1 },
+                "section": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        "applies_to": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "custodians": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" } },
+            "entities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "Canonical entities the rule concerns." }
+          }
+        },
+        "tags": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" } }
+      }
+    },
+    "history": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Every status the rule has had, oldest first, with who set it and when. The last entry is the current status.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "by", "at"],
+        "properties": {
+          "status": { "enum": ["recovered", "confirmed", "rejected", "legacy_defect"] },
+          "by": { "type": "string", "minLength": 1, "description": "The person (email) or agent that set the status." },
+          "at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "ISO 8601 with a timezone." },
+          "note": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

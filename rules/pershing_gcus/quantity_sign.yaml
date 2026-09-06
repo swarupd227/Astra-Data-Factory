@@ -1,0 +1,18 @@
+# Rule catalog entry. The status changes only through `astra-spec rules set-status`,
+# which records who changed it and when in the history below.
+rule_version: 0
+
+rule:
+  id: pershing_gcus.quantity_sign
+  text: "Quantity is unsigned digits with five implied decimals; the sign is the following one-character field, where '+' is long and '-' is short. A blank sign means the sign is unknown and the quantity is not zero, so the value is null rather than zero."
+  class: normalisation
+  owner: { name: "Data steward, custodial", email: steward@example.com }
+  status: confirmed
+  citation:
+    spec: { id: pershing_gcus, version: "2017-07-25", page: 13, line: 6 }
+  applies_to: { custodians: [pershing], entities: [Position] }
+  tags: [sign, implied-decimal]
+
+history:
+  - { status: recovered, by: "spec-reader", at: "2026-09-06T09:00:00Z", note: "Recovered from the GCUS layout: quantity field and its sign codes." }
+  - { status: confirmed, by: "steward@example.com", at: "2026-09-06T11:30:00Z", note: "Blank sign is unknown, not zero; confirmed against the sample file." }

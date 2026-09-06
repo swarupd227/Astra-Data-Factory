@@ -8,7 +8,8 @@ this adds nothing but checks.
 When a spec registry is given, each config's `spec` reference is checked
 against it: the version must exist, the custodian must be one that delivers
 the layout, the file type must match, and the config must not be in force
-before the spec version is.
+before the spec version is. When a rule catalog is given, every rule the
+config lists must be in it and must not have been rejected by its owner.
 """
 
 from __future__ import annotations
@@ -40,15 +41,15 @@ def discover(paths: Iterable[Path | str]) -> tuple[list[Path], list[Problem]]:
     return files, problems
 
 
-def validate_paths(paths: Iterable[Path | str], root: Path | None = None, registry=None) -> tuple[int, list[Problem]]:
+def validate_paths(paths: Iterable[Path | str], root: Path | None = None, registry=None, catalog=None) -> tuple[int, list[Problem]]:
     """Validate every config under the paths. Returns (files checked, problems)."""
     files, problems = discover(paths)
     for file in files:
-        problems.extend(validate_config_file(file, root, registry))
+        problems.extend(validate_config_file(file, root, registry, catalog))
     return len(files), problems
 
 
-def validate_config_file(path: Path, root: Path | None = None, registry=None) -> list[Problem]:
+def validate_config_file(path: Path, root: Path | None = None, registry=None, catalog=None) -> list[Problem]:
     display = display_path(path, root)
     try:
         text = path.read_text(encoding="utf-8")
@@ -77,6 +78,8 @@ def validate_config_file(path: Path, root: Path | None = None, registry=None) ->
     problems = _reference_problems(data, path, display)
     if registry is not None:
         problems.extend(_registry_problems(data, display, registry))
+    if catalog is not None:
+        problems.extend(_catalog_problems(data, display, catalog))
     return dedupe(problems)
 
 
@@ -95,12 +98,12 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
     except ValueError:
         problems.append(Problem(display, line_of(data, ["effective_from"]), f"effective_from '{data['effective_from']}' is not a valid calendar date"))
 
-    rules = data.get("rules") or []
-    rule_status = {}
-    for i, rule in enumerate(rules):
-        if rule["id"] in rule_status:
-            problems.append(Problem(display, line_of(data, ["rules", i, "id"]), f"rules[{i}].id '{rule['id']}' is already used by another rule; rule ids must be unique"))
-        rule_status[rule["id"]] = rule["status"]
+    rule_ids = data.get("rules") or []
+    declared: set[str] = set()
+    for i, rule_id in enumerate(rule_ids):
+        if rule_id in declared:
+            problems.append(Problem(display, line_of(data, ["rules", i]), f"rules[{i}] '{rule_id}' is listed more than once"))
+        declared.add(rule_id)
 
     seen_dq: set[str] = set()
     for i, dq in enumerate(data.get("dq_rules") or []):
@@ -115,12 +118,8 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
             problems.append(Problem(display, line_of(data, ["mappings", i, "target"]), f"mappings[{i}].target '{target}' is mapped more than once"))
         seen_targets.add(target)
         rule_id = mapping.get("rule")
-        if rule_id is None:
-            continue
-        if rule_id not in rule_status:
-            problems.append(Problem(display, line_of(data, ["mappings", i, "rule"]), f"mappings[{i}].rule '{rule_id}' is not defined under rules"))
-        elif rule_status[rule_id] == "rejected":
-            problems.append(Problem(display, line_of(data, ["mappings", i, "rule"]), f"mappings[{i}].rule '{rule_id}' has been rejected by its owner; a config may not use a rejected rule"))
+        if rule_id is not None and rule_id not in declared:
+            problems.append(Problem(display, line_of(data, ["mappings", i, "rule"]), f"mappings[{i}].rule '{rule_id}' is not listed under rules; a config lists every rule it uses"))
 
     delivery = data.get("delivery")
     if delivery:
@@ -160,6 +159,19 @@ def _registry_problems(data: LineDict, display: str, registry) -> list[Problem]:
         effective = None
     if effective is not None and effective < spec.effective_from:
         problems.append(Problem(display, line_of(data, ["effective_from"]), f"effective_from {effective} is before spec {spec_id} {version} comes into force on {spec.effective_from}"))
+    return problems
+
+
+def _catalog_problems(data: LineDict, display: str, catalog) -> list[Problem]:
+    """The config's rule references against the rule catalog (astra_knowledge.rules.Catalog)."""
+    problems: list[Problem] = []
+    for i, rule_id in enumerate(data.get("rules") or []):
+        rule = catalog.get(rule_id)
+        if rule is None:
+            problems.append(Problem(display, line_of(data, ["rules", i]), f"rules[{i}] '{rule_id}' is not in the rule catalog ({catalog.root.name}/<group>/<name>.yaml)"))
+        elif rule.status == "rejected":
+            last = rule.last_change
+            problems.append(Problem(display, line_of(data, ["rules", i]), f"rules[{i}] '{rule_id}' was rejected by {last.by} on {last.at:%Y-%m-%d}; a config may not use a rejected rule"))
     return problems
 
 

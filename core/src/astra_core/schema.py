@@ -19,6 +19,7 @@ from astra_core.yamlsource import line_of
 
 IDENTIFIER_PATTERN = "^[a-z][a-z0-9_]{0,62}$"
 DATE_PATTERN = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+RULE_ID_PATTERN = "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
 
 _validators: dict[tuple[str, str], Draft202012Validator] = {}
 
@@ -81,6 +82,8 @@ def describe_error(error: ValidationError) -> str:
             return f"{where}: {error.instance!r} must be lower-case letters, digits and underscores, starting with a letter"
         if error.validator_value == DATE_PATTERN:
             return f"{where}: {error.instance!r} must be a date written as YYYY-MM-DD"
+        if error.validator_value == RULE_ID_PATTERN:
+            return f"{where}: {error.instance!r} must be a rule catalog id written as <group>.<name> (rules/<group>/<name>.yaml)"
         return f"{where}: {error.instance!r} does not match the required pattern {error.validator_value}"
     if kind == "type":
         expected = error.validator_value if isinstance(error.validator_value, str) else " or ".join(error.validator_value)

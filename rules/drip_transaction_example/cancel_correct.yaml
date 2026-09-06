@@ -1,0 +1,17 @@
+# Rule catalog entry. The status changes only through `astra-spec rules set-status`,
+# which records who changed it and when in the history below.
+rule_version: 0
+
+rule:
+  id: drip_transaction_example.cancel_correct
+  text: "A record with action X cancels the transaction named in the original transaction id: the original is marked cancelled and both records point at each other. A record with action C corrects it: the original is marked superseded and the correction becomes the active transaction. A cancel or correction whose original has not been seen, or is already closed, is rejected."
+  class: business
+  owner: { name: "Data steward, custodial", email: steward@example.com }
+  status: recovered
+  citation:
+    spec: { id: drip_transaction_example, version: "2026-01-01", page: 4, line: 6 }
+  applies_to: { custodians: [example_custodian], entities: [Transaction] }
+  tags: [lifecycle, cancel, correct]
+
+history:
+  - { status: recovered, by: "spec-reader", at: "2026-09-06T09:15:00Z", note: "Recovered from the action codes of the layout." }

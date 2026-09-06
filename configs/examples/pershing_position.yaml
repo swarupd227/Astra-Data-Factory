@@ -29,14 +29,13 @@ mappings:
   - target: position.quantity
     source: QUANTITY
     transform: signed_implied_decimal(13, 5)
-    rule: quantity_sign
+    rule: pershing_gcus.quantity_sign
 
+# Rule catalog entries this config depends on (rules/<group>/<name>.yaml).
+# The catalog holds the rule's text, citation, owner and status; a rejected
+# rule fails validation here.
 rules:
-  - id: quantity_sign
-    text: Quantity is unsigned digits with the sign in the following field; a blank sign means unknown, not zero.
-    class: normalisation
-    citation: GCUS_20170725 page 14
-    status: recovered
+  - pershing_gcus.quantity_sign
 
 dq_rules:
   - id: trailer_control_total

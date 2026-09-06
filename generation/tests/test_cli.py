@@ -9,14 +9,14 @@ from tests.test_validate import VALID
 def test_validate_reports_problems_as_github_annotations(tmp_path, capsys):
     configs = tmp_path / "configs"
     configs.mkdir()
-    (configs / "pershing_position.yaml").write_text(VALID.replace("status: recovered", "status: maybe"), encoding="utf-8")
+    (configs / "pershing_position.yaml").write_text(VALID.replace("severity: error", "severity: maybe"), encoding="utf-8")
 
     code = main(["--root", str(tmp_path), "--format", "github", "validate", str(configs)])
     out = capsys.readouterr().out
 
     assert code == 1
     assert "::error file=configs/pershing_position.yaml,line=" in out
-    assert "title=Config validation::rules[0].status: 'maybe' is not one of" in out
+    assert "title=Config validation::dq_rules[0].severity: 'maybe' is not one of" in out
     assert "::notice title=Astra Data::1 problem in 1 config file" in out
 
 

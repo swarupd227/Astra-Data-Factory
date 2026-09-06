@@ -60,7 +60,16 @@ def cmd_validate(args: argparse.Namespace) -> int:
             _print_problems(registry_problems, args.format)
             _summary(f"{len(registry_problems)} problem{'s' if len(registry_problems) != 1 else ''} in the spec registry; fix them before configs can be checked against it", args.format)
             return 1
-    count, problems = validate_paths(args.paths, root=Path(args.root), registry=registry)
+    catalog = None
+    if args.rules:
+        from astra_knowledge.rules import Catalog
+
+        catalog, catalog_problems = Catalog.load(Path(args.rules), Path(args.root), registry)
+        if catalog_problems:
+            _print_problems(catalog_problems, args.format)
+            _summary(f"{len(catalog_problems)} problem{'s' if len(catalog_problems) != 1 else ''} in the rule catalog; fix them before configs can be checked against it", args.format)
+            return 1
+    count, problems = validate_paths(args.paths, root=Path(args.root), registry=registry, catalog=catalog)
     if problems:
         _print_problems(problems, args.format)
         _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in {count} config file{'s' if count != 1 else ''}", args.format)
@@ -293,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
     v = sub.add_parser("validate", help="validate config files against the config schema and their references")
     v.add_argument("paths", nargs="*", default=["configs"], help="files or directories (default: configs)")
     v.add_argument("--specs", help="spec registry directory; when given, each config's spec reference is checked against it")
+    v.add_argument("--rules", help="rule catalog directory; when given, each config's rule references must exist and must not be rejected")
     v.set_defaults(func=cmd_validate)
 
     b = sub.add_parser("bundles", help="release bundle commands")

@@ -21,9 +21,9 @@ astra-data validate configs            # from the repository root, after `pip in
 astra-data --format github validate    # what CI runs: one annotation per problem, on the file and line
 ```
 
-A problem is reported with file, line and a plain sentence: a missing field, an unknown field with the allowed ones listed, a value outside its allowed set, a mapping that references a rule that does not exist or has been rejected, duplicate ids, a file whose name does not match its `source.id`.
+A problem is reported with file, line and a plain sentence: a missing field, an unknown field with the allowed ones listed, a value outside its allowed set, a mapping whose rule is not listed under `rules`, a rule that is not in the catalog or has been rejected by its owner (with `--rules rules`), duplicate ids, a file whose name does not match its `source.id`.
 
-The schema is versioned by `config_version` and lives at `generation/src/astra_data/schemas/config-v<n>.schema.json`. Version 0 fixes identity, ownership, references and the shape of rules; field-level mapping semantics arrive with the config compiler (S3.1.1).
+The schema is versioned by `config_version` and lives at `generation/src/astra_data/schemas/config-v<n>.schema.json`. Version 0 fixes identity, ownership and references; rules are catalog ids (`rules/<group>/<name>.yaml`, see [rules/README.md](../rules/README.md)); field-level mapping semantics arrive with the config compiler (S3.1.1).
 
 Files starting with `_` are ignored, so a draft can sit beside real configs without failing the build.
 

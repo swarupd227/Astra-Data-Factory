@@ -1,0 +1,17 @@
+# Rule catalog entry. The status changes only through `astra-spec rules set-status`,
+# which records who changed it and when in the history below.
+rule_version: 0
+
+rule:
+  id: drip_transaction_example.drip_split
+  text: "A dividend reinvestment (transaction type DRIP) is one custodian record and two canonical transactions: a dividend received for the amount, and a purchase of the quantity for the negated amount. Both keep the custodian's transaction id and trace to the same line."
+  class: business
+  owner: { name: "Data steward, custodial", email: steward@example.com }
+  status: recovered
+  citation:
+    spec: { id: drip_transaction_example, version: "2026-01-01", page: 5, line: 6 }
+  applies_to: { custodians: [example_custodian], entities: [Transaction] }
+  tags: [split, drip]
+
+history:
+  - { status: recovered, by: "spec-reader", at: "2026-09-06T09:15:00Z", note: "Recovered from the transaction type codes of the layout." }

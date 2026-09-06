@@ -55,25 +55,14 @@
           "target": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$", "description": "entity.field in the canonical model" },
           "source": { "type": "string", "minLength": 1, "description": "Source field name from the spec" },
           "transform": { "type": "string" },
-          "rule": { "$ref": "#/$defs/identifier", "description": "Rule id from `rules` that governs this mapping." }
+          "rule": { "$ref": "#/$defs/rule_id", "description": "Rule catalog id that governs this mapping; must be listed under rules." }
         }
       }
     },
     "rules": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "text", "class", "citation", "status"],
-        "properties": {
-          "id": { "$ref": "#/$defs/identifier" },
-          "text": { "type": "string", "minLength": 1 },
-          "class": { "enum": ["ingestion", "business", "normalisation"] },
-          "citation": { "type": "string", "minLength": 1, "description": "file:line, spec page, or approver" },
-          "status": { "enum": ["recovered", "confirmed", "rejected", "legacy_defect"] },
-          "owner": { "type": "string" }
-        }
-      }
+      "description": "Ids of rule catalog entries (rules/<group>/<name>.yaml) this config depends on. A mapping's rule must be listed here; the catalog says what each rule is, who owns it and its status.",
+      "items": { "$ref": "#/$defs/rule_id" }
     },
     "dq_rules": {
       "type": "array",
@@ -137,6 +126,7 @@
     }
   },
   "$defs": {
+    "rule_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$", "description": "<group>.<name> of a rule catalog entry" },
     "identifier": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]{0,62}$"

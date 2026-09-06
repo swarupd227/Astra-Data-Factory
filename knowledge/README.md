@@ -150,6 +150,8 @@ A domain pack is a directory under `domains/` (product spec Section 4): `glossar
 | `astra-spec rejections parity --domain d [--reference file.csv]` | Which Loader codes the taxonomy reproduces and which it misses ([ADR 0014](../docs/adr/0014-rejection-taxonomy.md)) |
 
 | `astra-spec reference list [--domain d]` | The pack's reference-data feeds: what they resolve, how snapshots arrive, when they run ([ADR 0015](../docs/adr/0015-reference-data-replication.md)) |
+| `astra-spec rules validate [--configs configs]` | The rule catalog under `rules/`: every rule's shape, history and citation; with configs, every rule reference resolves and none is rejected ([ADR 0016](../docs/adr/0016-rule-catalog.md)) |
+| `astra-spec rules list | show <id> | set-status <id> --status s --by who` | Browse the catalog with usage from configs; record a status change with who and when |
 
 Every problem the pattern library reports carries a rejection code from the pack's `rejections.yaml`; `RowProblem.code` is that code.
 
@@ -172,6 +174,7 @@ src/astra_knowledge/
   rejections.py                        the rejection taxonomy and Loader parity
   reference_data.py                    reference-data feeds; patterns/reference_data.py replicates and resolves against them
   columns.py                           typed columns shared by the model and the feeds
+  rules.py                             the rule catalog: loading, validation, status changes with history, lineage to configs
   cli.py
 tests/                                 run against the shipped registry and temporary variants of it
 ```

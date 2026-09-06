@@ -41,10 +41,10 @@ def test_unknown_field_points_at_the_offending_line(tmp_path):
 
 
 def test_enum_violation_lists_the_allowed_values(tmp_path):
-    text = VALID.replace("status: recovered", "status: maybe")
+    text = VALID.replace("severity: error", "severity: maybe")
     problems = problems_for(tmp_path, text)
-    assert problems == [Problem("pershing_position.yaml", problems[0].line, "rules[0].status: 'maybe' is not one of recovered, confirmed, rejected, legacy_defect")]
-    assert text.splitlines()[problems[0].line - 1].strip() == "status: maybe"
+    assert problems == [Problem("pershing_position.yaml", problems[0].line, "dq_rules[0].severity: 'maybe' is not one of info, warning, error")]
+    assert text.splitlines()[problems[0].line - 1].strip() == "severity: maybe"
 
 
 def test_identifier_pattern_gets_a_plain_explanation(tmp_path):
@@ -66,20 +66,46 @@ def test_wrong_type_is_reported_in_words(tmp_path):
     assert problems[0].message == "source.tier: 2 is not one of simple, medium, complex"
 
 
-def test_mapping_may_not_reference_an_unknown_or_rejected_rule(tmp_path):
-    unknown = problems_for(tmp_path, VALID.replace("rule: quantity_sign", "rule: quantity_flip"))
-    assert unknown[0].message == "mappings[1].rule 'quantity_flip' is not defined under rules"
-    rejected = problems_for(tmp_path, VALID.replace("status: recovered", "status: rejected"))
-    assert rejected[0].message == "mappings[1].rule 'quantity_sign' has been rejected by its owner; a config may not use a rejected rule"
+def test_mapping_rule_must_be_listed_under_rules(tmp_path):
+    unlisted = problems_for(tmp_path, VALID.replace("rule: pershing_gcus.quantity_sign", "rule: pershing_gcus.quantity_flip"))
+    assert unlisted[0].message == "mappings[1].rule 'pershing_gcus.quantity_flip' is not listed under rules; a config lists every rule it uses"
+    shape = problems_for(tmp_path, VALID.replace("  - pershing_gcus.quantity_sign\n", "  - quantity_sign\n").replace("rule: pershing_gcus.quantity_sign", "rule: quantity_sign"))
+    assert [p.message for p in shape] == [
+        "mappings[1].rule: 'quantity_sign' must be a rule catalog id written as <group>.<name> (rules/<group>/<name>.yaml)",
+        "rules[0]: 'quantity_sign' must be a rule catalog id written as <group>.<name> (rules/<group>/<name>.yaml)",
+    ]
+
+
+def test_a_config_may_not_reference_an_unknown_or_rejected_catalog_rule(tmp_path):
+    import shutil
+    from datetime import datetime, timezone
+
+    from astra_knowledge.rules import Catalog, set_status
+
+    rules_dir = tmp_path / "rules"
+    shutil.copytree(EXAMPLE.parents[2] / "rules", rules_dir)
+    catalog, problems = Catalog.load(rules_dir, tmp_path)
+    assert problems == []
+    assert problems_for_catalog(tmp_path, VALID, catalog) == []
+
+    unknown = problems_for_catalog(tmp_path, VALID.replace("  - pershing_gcus.quantity_sign\n", "  - pershing_gcus.quantity_sign\n  - pershing_gcus.nowhere\n"), catalog)
+    assert [p.message for p in unknown] == ["rules[1] 'pershing_gcus.nowhere' is not in the rule catalog (rules/<group>/<name>.yaml)"]
+
+    set_status(catalog.get("pershing_gcus.quantity_sign"), "rejected", "steward@example.com", "Wrong.", at=datetime(2026, 9, 8, 9, 0, tzinfo=timezone.utc))
+    catalog, _ = Catalog.load(rules_dir, tmp_path)
+    rejected = problems_for_catalog(tmp_path, VALID, catalog)
+    assert [p.message for p in rejected] == ["rules[0] 'pershing_gcus.quantity_sign' was rejected by steward@example.com on 2026-09-08; a config may not use a rejected rule"]
+    assert VALID.splitlines()[rejected[0].line - 1].strip() == "- pershing_gcus.quantity_sign"
+
+
+def problems_for_catalog(tmp_path: Path, text: str, catalog) -> list[Problem]:
+    return validate_config_file(write(tmp_path, "pershing_position.yaml", text), root=tmp_path, catalog=catalog)
 
 
 def test_duplicate_ids_and_targets_are_rejected(tmp_path):
-    dup_rule = VALID.replace(
-        "dq_rules:",
-        "  - id: quantity_sign\n    text: again\n    class: business\n    citation: x\n    status: confirmed\n\ndq_rules:",
-    )
+    dup_rule = VALID.replace("  - pershing_gcus.quantity_sign\n", "  - pershing_gcus.quantity_sign\n  - pershing_gcus.quantity_sign\n")
     problems = problems_for(tmp_path, dup_rule)
-    assert any("rules[1].id 'quantity_sign' is already used" in p.message for p in problems)
+    assert any("rules[1] 'pershing_gcus.quantity_sign' is listed more than once" in p.message for p in problems)
 
     dup_target = VALID.replace("  - target: position.quantity", "  - target: position.account_number\n    source: X\n  - target: position.quantity")
     problems = problems_for(tmp_path, dup_target)

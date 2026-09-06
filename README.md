@@ -12,7 +12,8 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | `specs` | Knowledge (E2) | The spec registry: one directory per layout, one file per version, validated on every pull request |
 | `knowledge` | Knowledge (E2) | `astra-spec`: the registry, resolution of the version in force, and later patterns, domain packs and the rule catalog |
 | `domains` | Knowledge (E2) | Domain packs: glossary, canonical data model versions with rendered DDL and key tests, the rejection taxonomy and the reference-data feeds |
-| `configs` | Knowledge (E2) | Source configs, one YAML file per source, validated against the schema and the spec registry on every pull request |
+| `rules` | Knowledge (E2) | The rule catalog: one file per business rule with citation, class, owner, status and its history; configs reference rules by id |
+| `configs` | Knowledge (E2) | Source configs, one YAML file per source, validated against the schema, the spec registry and the rule catalog on every pull request |
 | `releases` | Generation (E3) | Release bundles rendered from configs and domain packs (reference-data replication); deployed by the pipeline |
 | `generation` | Generation (E3) | `astra-data`: config validation, bundle deploy and generated tests. The compiler and renderers grow here. |
 | `verification` | Verification (E4) | `astra-verify`: ephemeral sandboxes per task. Dry-runs, golden replay and parity grow here. |

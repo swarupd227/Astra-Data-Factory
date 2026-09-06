@@ -16,7 +16,7 @@ from pathlib import Path
 
 from astra_core.problems import Problem
 
-from astra_knowledge import cdm
+from astra_knowledge import cdm, rules
 from astra_knowledge.registry import Registry, SourceSpec
 
 FORMATS = ("text", "github", "json")
@@ -502,6 +502,147 @@ def cmd_cdm_render(args: argparse.Namespace) -> int:
     return 0
 
 
+# -- rule catalog ------------------------------------------------------------
+
+RULES_TITLE = "Rule catalog"
+
+
+def _config_files(paths: list[str]) -> list[Path]:
+    files: list[Path] = []
+    for raw in paths:
+        path = Path(raw)
+        if path.is_dir():
+            files.extend(sorted(p for p in path.rglob("*") if p.is_file() and p.suffix in (".yaml", ".yml") and not p.name.startswith("_")))
+        elif path.is_file():
+            files.append(path)
+    return files
+
+
+def _load_catalog(args: argparse.Namespace) -> rules.Catalog | None:
+    registry, registry_problems = Registry.load(Path(args.specs), repo_root=Path(args.root))
+    catalog, problems = rules.Catalog.load(Path(args.rules), Path(args.root), registry if not registry_problems else None)
+    if problems:
+        _print_problems(problems, args.format, RULES_TITLE)
+        _summary(f"{_plural(len(problems), 'problem')} in the rule catalog", args.format, RULES_TITLE)
+        return None
+    return catalog
+
+
+def _rule_dict(rule: rules.Rule, root: Path, usage: list[str] | None = None) -> dict:
+    payload = {
+        "id": rule.id,
+        "text": rule.text,
+        "class": rule.class_,
+        "owner": asdict(rule.owner),
+        "status": rule.status,
+        "citation": rule.citation.text,
+        "custodians": list(rule.custodians),
+        "entities": list(rule.entities),
+        "tags": list(rule.tags),
+        "history": [{"status": h.status, "by": h.by, "at": h.at.isoformat(), "note": h.note} for h in rule.history],
+        "path": _rel(rule.path, root),
+    }
+    if usage is not None:
+        payload["configs"] = usage
+    return payload
+
+
+def cmd_rules_validate(args: argparse.Namespace) -> int:
+    catalog = _load_catalog(args)
+    if catalog is None:
+        return 1
+    problems: list[Problem] = []
+    usage: rules.Lineage | None = None
+    if args.configs:
+        usage = rules.lineage(catalog, _config_files(args.configs), Path(args.root))
+        problems += [Problem(config, None, f"references rule '{rule_id}', which is not in the catalog ({args.rules}/<group>/<name>.yaml)") for config, rule_id in usage.unknown]
+        problems += [Problem(config, None, f"references rule '{rule_id}', which its owner has rejected; a config may not use a rejected rule") for config, rule_id in usage.rejected]
+    if problems:
+        _print_problems(problems, args.format, RULES_TITLE)
+        _summary(f"{_plural(len(problems), 'problem')} in rule references from configs", args.format, RULES_TITLE)
+        return 1
+    if args.format == "json":
+        print(json.dumps({"problems": [], "rules": [_rule_dict(r, Path(args.root), usage.configs_for(r.id) if usage else None) for r in catalog.rules]}, indent=2))
+        return 0
+    counts = ", ".join(f"{len(catalog.by_status(s))} {s.replace('_', ' ')}" for s in rules.STATUSES if catalog.by_status(s))
+    detail = f" ({counts})" if counts else ""
+    configs = len(_config_files(args.configs)) if args.configs else 0
+    lineage_note = f"; {_plural(configs, 'config')} reference{'s' if configs == 1 else ''} only known, unrejected rules" if args.configs else ""
+    _summary(f"checked {_plural(len(catalog.rules), 'rule')}{detail}: no problems{lineage_note}", args.format, RULES_TITLE)
+    if usage:
+        for rule in catalog.rules:
+            if rule.status in ("recovered", "confirmed") and not usage.configs_for(rule.id) and args.format == "text":
+                print(f"note: {rule.id} is {rule.status} but no config uses it")
+    return 0
+
+
+def cmd_rules_list(args: argparse.Namespace) -> int:
+    catalog = _load_catalog(args)
+    if catalog is None:
+        return 1
+    usage = rules.lineage(catalog, _config_files(args.configs), Path(args.root)) if args.configs else None
+    selected = [r for r in catalog.rules if (args.status is None or r.status == args.status) and (getattr(args, "class_", None) is None or r.class_ == args.class_) and (args.group is None or r.group == args.group)]
+    if args.format == "json":
+        print(json.dumps([_rule_dict(r, Path(args.root), usage.configs_for(r.id) if usage else None) for r in selected], indent=2))
+        return 0
+    if not selected:
+        print("no rules match")
+        return 1
+    width = max(len(r.id) for r in selected)
+    for r in selected:
+        used = f"  used by {_plural(len(usage.configs_for(r.id)), 'config')}" if usage else ""
+        print(f"{r.id.ljust(width)}  {r.class_.ljust(13)}  {r.status.replace('_', ' ').ljust(13)}  {r.owner.email}  {r.citation.text}{used}")
+    print(_plural(len(selected), "rule"))
+    return 0
+
+
+def cmd_rules_show(args: argparse.Namespace) -> int:
+    catalog = _load_catalog(args)
+    if catalog is None:
+        return 1
+    rule = catalog.get(args.id)
+    if rule is None:
+        print(f"error: no rule {args.id} in {args.rules}; rules are {', '.join(catalog.ids()) or 'none'}", file=sys.stderr)
+        return 1
+    usage = rules.lineage(catalog, _config_files(args.configs), Path(args.root)).configs_for(rule.id) if args.configs else None
+    if args.format == "json":
+        print(json.dumps(_rule_dict(rule, Path(args.root), usage), indent=2))
+        return 0
+    print(f"{rule.id}  {rule.class_}  {rule.status.replace('_', ' ')}  owner {rule.owner.name} <{rule.owner.email}>  {_rel(rule.path, Path(args.root))}")
+    print(f"  {rule.text}")
+    print(f"  citation: {rule.citation.text}")
+    if rule.custodians or rule.entities:
+        print(f"  applies to: {', '.join(rule.custodians) or 'any custodian'}; {', '.join(rule.entities) or 'any entity'}")
+    if rule.tags:
+        print(f"  tags: {', '.join(rule.tags)}")
+    print("  history:")
+    for h in rule.history:
+        print(f"    {h.at.strftime('%Y-%m-%d %H:%M UTC')}  {h.status.replace('_', ' ').ljust(13)}  by {h.by}" + (f"  {h.note}" if h.note else ""))
+    if usage is not None:
+        print("  used by: " + (", ".join(usage) if usage else "no config"))
+    return 0
+
+
+def cmd_rules_set_status(args: argparse.Namespace) -> int:
+    catalog = _load_catalog(args)
+    if catalog is None:
+        return 1
+    rule = catalog.get(args.id)
+    if rule is None:
+        print(f"error: no rule {args.id} in {args.rules}; rules are {', '.join(catalog.ids()) or 'none'}", file=sys.stderr)
+        return 1
+    try:
+        changed = rules.set_status(rule, args.status, args.by, args.note)
+    except rules.StatusError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.format == "json":
+        print(json.dumps(_rule_dict(changed, Path(args.root)), indent=2))
+    else:
+        print(f"{changed.id}: {rule.status.replace('_', ' ')} -> {changed.status.replace('_', ' ')} by {changed.last_change.by} at {changed.last_change.at.strftime('%Y-%m-%d %H:%M UTC')}; recorded in {_rel(changed.path, Path(args.root))}")
+    return 0
+
+
 def cmd_reference_list(args: argparse.Namespace) -> int:
     packs = _load_packs(args)
     if packs is None:
@@ -530,6 +671,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", default=".", help="repository root used to display paths (default: current directory)")
     parser.add_argument("--specs", default="specs", help="registry directory (default: specs)")
     parser.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
+    parser.add_argument("--rules", default="rules", help="rule catalog directory (default: rules)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("validate", help="validate every spec and the registry as a whole").set_defaults(func=cmd_validate)
@@ -601,6 +743,28 @@ def build_parser() -> argparse.ArgumentParser:
     rl = rfsub.add_parser("list", help="every feed: what it resolves, how it arrives, when it runs")
     rl.add_argument("--domain", help="one domain pack (default: all)")
     rl.set_defaults(func=cmd_reference_list)
+
+    ru = sub.add_parser("rules", help="the rule catalog: validate, list, show, and record status changes")
+    rusub = ru.add_subparsers(dest="rules_command", required=True)
+    rv = rusub.add_parser("validate", help="every rule file, its history and citation; with --configs, every config reference resolves to a rule that is not rejected")
+    rv.add_argument("--configs", nargs="*", default=[], help="config files or directories whose rule references are checked")
+    rv.set_defaults(func=cmd_rules_validate)
+    rli = rusub.add_parser("list", help="the catalog, optionally filtered, with usage when configs are given")
+    rli.add_argument("--status", choices=rules.STATUSES)
+    rli.add_argument("--class", dest="class_", choices=rules.CLASSES)
+    rli.add_argument("--group", help="rules of one group (spec, custodian or domain)")
+    rli.add_argument("--configs", nargs="*", default=[], help="config files or directories to count usage from")
+    rli.set_defaults(func=cmd_rules_list)
+    rsh = rusub.add_parser("show", help="one rule with its citation, history and the configs that use it")
+    rsh.add_argument("id")
+    rsh.add_argument("--configs", nargs="*", default=[])
+    rsh.set_defaults(func=cmd_rules_show)
+    rst = rusub.add_parser("set-status", help="record a status change: who, when and why are written to the rule's history")
+    rst.add_argument("id")
+    rst.add_argument("--status", required=True, choices=rules.STATUSES)
+    rst.add_argument("--by", required=True, help="who is changing it: an email or an agent id")
+    rst.add_argument("--note", help="why")
+    rst.set_defaults(func=cmd_rules_set_status)
     return parser
 
 

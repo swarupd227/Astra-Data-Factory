@@ -13,7 +13,7 @@ pytest
 
 | Command | What it does | Needs |
 |---|---|---|
-| `astra-data validate [paths]` | Validates config files against the config schema and their references | nothing |
+| `astra-data validate [--specs specs] [--rules rules] [paths]` | Validates config files against the config schema and their references; with the registry and the catalog, spec versions must exist and rule ids must exist and not be rejected | nothing |
 | `astra-data bundles check [releases]` | Checks every release bundle's manifest, files and placeholders | nothing |
 | `astra-data deploy --environment <env> [releases]` | Runs every bundle's steps against the environment | Snowflake |
 | `astra-data test --environment <env> [releases]` | Runs every bundle's tests; a test passes when it returns no rows | Snowflake |
