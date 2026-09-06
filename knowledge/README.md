@@ -53,6 +53,25 @@ pairing:
     keys: [account_number, cusip]      # fields present in each, equal values pair them
 ```
 
+| merge (spec block) | any spec with `merge` | Decides how a parsed file changes Silver from a header flag: **refresh** replaces every row of the file's scope (for example the remote id) as of the file's business date, inserting or updating the rows in the file and retiring the rest; **update** merges on keys and carries every other row forward untouched. `patterns.merge` is the reference implementation over an in-memory Silver state and the oracle for the rendered MERGE (S3.2.3). An unknown mode, a missing header or a business date earlier than what Silver already holds for the scope is a file-level problem (`MERGE_MODE_UNKNOWN`, `MERGE_OUT_OF_ORDER`) and nothing is merged; duplicate or blank keys within a file are `MERGE_DUPLICATE_KEY` and `MERGE_KEY_BLANK`. Every application yields the `MERGE_LOG` entry the platform records, from which a refresh not seen for N days is alerted. |
+
+```yaml
+merge:
+  mode_field: refresh_flag              # header field carrying the mode
+  modes: { R: refresh, U: update }      # its codes, both modes required
+  scope: [remote_id]                    # header fields identifying what a refresh replaces
+  business_date_field: file_date        # header date field
+  keys: [account_number, cusip]         # keys of the merged (logical) record
+```
+
+```python
+from astra_knowledge.patterns import SilverState, merge, parse
+state = SilverState()
+result = merge(state, spec, parse(spec, open("GCUS_20260905.dat")), "GCUS_20260905.dat")
+result.mode, result.inserted, result.updated, result.carried, result.retired
+result.log_entry(spec, "GCUS_20260905.dat")   # what CONTROL.MERGE_LOG records
+```
+
 A parse result carries problems at three levels: `file` (the whole file is unusable: column count mismatch, header mismatch, missing trailer, malformed quoting), `record` (a line could not be placed) and `field` (one value). `ParsedFile.rejected` is true when any file-level problem exists.
 
 ```python

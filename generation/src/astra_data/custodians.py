@@ -45,6 +45,7 @@ class Custodian:
     failure_severity: str
     files: tuple[ExpectedFile, ...]
     sources: tuple[str, ...]
+    refresh_expected_days: int | None = None
 
     @property
     def business_days_text(self) -> str:
@@ -59,6 +60,8 @@ class _Draft:
     late: str | None = None
     failure: str | None = None
     severity_source: str = ""
+    refresh_days: int | None = None
+    refresh_source: str = ""
     files: dict[str, ExpectedFile] = field(default_factory=dict)
     sources: list[str] = field(default_factory=list)
 
@@ -96,6 +99,12 @@ def custodians_from_configs(paths: Iterable[Path | str], root: Path | None = Non
                 problems.append(Problem(display, None, f"delivery for custodian '{custodian_id}' (cutoff, timezone, business days) differs from {draft.delivery_source}; every source of a custodian must agree"))
             for entry in delivery["files"]:
                 draft.files.setdefault(entry["pattern"], ExpectedFile(entry["pattern"], entry.get("description", "")))
+            refresh_days = delivery.get("refresh_expected_every_days")
+            if refresh_days is not None:
+                if draft.refresh_days is not None and draft.refresh_days != refresh_days:
+                    problems.append(Problem(display, None, f"delivery.refresh_expected_every_days for custodian '{custodian_id}' is {refresh_days} here and {draft.refresh_days} in {draft.refresh_source}; every source of a custodian must agree"))
+                elif draft.refresh_days is None:
+                    draft.refresh_days, draft.refresh_source = refresh_days, display
 
         late, failure = alerts.get("late"), alerts.get("task_failure")
         for label, value, current in (("alerts.late", late, draft.late), ("alerts.task_failure", failure, draft.failure)):
@@ -117,6 +126,7 @@ def custodians_from_configs(paths: Iterable[Path | str], root: Path | None = Non
             failure_severity=d.failure or DEFAULT_SEVERITY,
             files=tuple(d.files.values()),
             sources=tuple(d.sources),
+            refresh_expected_days=d.refresh_days,
         )
         for d in sorted(drafts.values(), key=lambda d: d.custodian_id)
     ]
@@ -160,6 +170,7 @@ def sync_statements(
                     _lit(c.business_days_text),
                     _lit(c.late_severity),
                     _lit(c.failure_severity),
+                    "NULL" if c.refresh_expected_days is None else str(int(c.refresh_expected_days)),
                     _lit(", ".join(c.sources)),
                 ]
             )
@@ -168,12 +179,12 @@ def sync_statements(
         )
         statements.append(
             f"MERGE INTO {custodians_table} t "
-            f"USING (SELECT * FROM VALUES {rows} AS v (CUSTODIAN_ID, NAME, CUTOFF_TIME, TIMEZONE, BUSINESS_DAYS, LATE_SEVERITY, FAILURE_SEVERITY, SOURCE)) s "
+            f"USING (SELECT * FROM VALUES {rows} AS v (CUSTODIAN_ID, NAME, CUTOFF_TIME, TIMEZONE, BUSINESS_DAYS, LATE_SEVERITY, FAILURE_SEVERITY, REFRESH_EXPECTED_DAYS, SOURCE)) s "
             f"ON t.CUSTODIAN_ID = s.CUSTODIAN_ID "
             f"WHEN MATCHED THEN UPDATE SET NAME = s.NAME, CUTOFF_TIME = s.CUTOFF_TIME, TIMEZONE = s.TIMEZONE, BUSINESS_DAYS = s.BUSINESS_DAYS, "
-            f"LATE_SEVERITY = s.LATE_SEVERITY, FAILURE_SEVERITY = s.FAILURE_SEVERITY, ENABLED = TRUE, SOURCE = s.SOURCE, UPDATED_AT = {updated_at}::TIMESTAMP_NTZ "
-            f"WHEN NOT MATCHED THEN INSERT (CUSTODIAN_ID, NAME, CUTOFF_TIME, TIMEZONE, BUSINESS_DAYS, LATE_SEVERITY, FAILURE_SEVERITY, ENABLED, SOURCE, UPDATED_AT) "
-            f"VALUES (s.CUSTODIAN_ID, s.NAME, s.CUTOFF_TIME, s.TIMEZONE, s.BUSINESS_DAYS, s.LATE_SEVERITY, s.FAILURE_SEVERITY, TRUE, s.SOURCE, {updated_at}::TIMESTAMP_NTZ)"
+            f"LATE_SEVERITY = s.LATE_SEVERITY, FAILURE_SEVERITY = s.FAILURE_SEVERITY, REFRESH_EXPECTED_DAYS = s.REFRESH_EXPECTED_DAYS, ENABLED = TRUE, SOURCE = s.SOURCE, UPDATED_AT = {updated_at}::TIMESTAMP_NTZ "
+            f"WHEN NOT MATCHED THEN INSERT (CUSTODIAN_ID, NAME, CUTOFF_TIME, TIMEZONE, BUSINESS_DAYS, LATE_SEVERITY, FAILURE_SEVERITY, REFRESH_EXPECTED_DAYS, ENABLED, SOURCE, UPDATED_AT) "
+            f"VALUES (s.CUSTODIAN_ID, s.NAME, s.CUTOFF_TIME, s.TIMEZONE, s.BUSINESS_DAYS, s.LATE_SEVERITY, s.FAILURE_SEVERITY, s.REFRESH_EXPECTED_DAYS, TRUE, s.SOURCE, {updated_at}::TIMESTAMP_NTZ)"
         )
         keep = ", ".join(_lit(c.custodian_id) for c in custodians)
         statements.append(f"UPDATE {custodians_table} SET ENABLED = FALSE, UPDATED_AT = {updated_at}::TIMESTAMP_NTZ WHERE ENABLED AND CUSTODIAN_ID NOT IN ({keep})")

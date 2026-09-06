@@ -26,6 +26,13 @@ file:
   encoding: ASCII
   line_ending: any
 
+merge:
+  mode_field: refresh_flag
+  modes: { R: refresh, U: update }
+  scope: [remote_id]
+  business_date_field: file_date
+  keys: [account_number, cusip]
+
 records:
   - type: header
     match: { position: { start: 1, length: 3 }, value: HDR }

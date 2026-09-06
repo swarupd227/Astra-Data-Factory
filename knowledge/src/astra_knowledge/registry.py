@@ -122,6 +122,24 @@ class Pairing:
 
 
 @dataclass(frozen=True)
+class MergeRule:
+    """How a file changes Silver: refresh replaces its scope, update merges on keys."""
+
+    mode_field: str
+    modes: dict[str, str]
+    business_date_field: str
+    keys: tuple[str, ...]
+    scope: tuple[str, ...] = ()
+    record: str | None = None
+
+    def mode_for(self, code) -> str | None:
+        if code is None:
+            return None
+        text = str(code)
+        return self.modes.get(text) or self.modes.get(text.strip())
+
+
+@dataclass(frozen=True)
 class SourceSpec:
     id: str
     version: str
@@ -136,6 +154,15 @@ class SourceSpec:
     provider: str | None = None
     description: str = ""
     pairings: tuple[Pairing, ...] = ()
+    merge: MergeRule | None = None
+
+    def logical_records(self) -> list[str]:
+        """Labels of the rows a parse produces: pairing names and unpaired detail records."""
+        paired = {label for p in self.pairings for label in p.records}
+        return [p.name for p in self.pairings] + [r.label for r in self.records if r.type == "detail" and r.label not in paired]
+
+    def header(self) -> Record | None:
+        return next((r for r in self.records if r.type == "header"), None)
 
     @property
     def format(self) -> str:
@@ -342,6 +369,55 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
                 if key not in field_names:
                     problems.append(Problem(display, line_of(data, where + ["keys"]), f"pairing[{pi}] key '{key}' is not a field of record '{label}'"))
 
+    merge = data.get("merge")
+    if merge:
+        where = ["merge"]
+        header = next((r for r in records if r["type"] == "header"), None)
+        header_fields = {f["name"]: f for f in header["fields"]} if header else {}
+        if header is None:
+            problems.append(Problem(display, line_of(data, where), "merge needs a header record to read the mode, the scope and the business date from"))
+        else:
+            mode_field = header_fields.get(merge["mode_field"])
+            if mode_field is None:
+                problems.append(Problem(display, line_of(data, where + ["mode_field"]), f"merge.mode_field '{merge['mode_field']}' is not a field of the header record"))
+            else:
+                declared = {str(c["value"]) for c in mode_field.get("codes") or []}
+                for code in merge["modes"]:
+                    if declared and str(code) not in declared:
+                        problems.append(Problem(display, line_of(data, where + ["modes"]), f"merge.modes code {code!r} is not a declared code of '{merge['mode_field']}'; declared codes are {', '.join(repr(v) for v in sorted(declared))}"))
+            if set(merge["modes"].values()) != {"refresh", "update"}:
+                problems.append(Problem(display, line_of(data, where + ["modes"]), "merge.modes must map codes to both refresh and update"))
+            for name in merge.get("scope") or []:
+                if name not in header_fields:
+                    problems.append(Problem(display, line_of(data, where + ["scope"]), f"merge.scope field '{name}' is not a field of the header record"))
+            date_field = header_fields.get(merge["business_date_field"])
+            if date_field is None:
+                problems.append(Problem(display, line_of(data, where + ["business_date_field"]), f"merge.business_date_field '{merge['business_date_field']}' is not a field of the header record"))
+            elif date_field.get("type") != "date":
+                problems.append(Problem(display, line_of(data, where + ["business_date_field"]), f"merge.business_date_field '{merge['business_date_field']}' must be a date field"))
+
+        pairings_by_name = {p["name"]: p for p in data.get("pairing") or []}
+        detail_labels = [r.get("name") or r["type"] for r in records if r["type"] == "detail"]
+        paired = {label for p in pairings_by_name.values() for label in p["records"]}
+        logical = list(pairings_by_name) + [label for label in detail_labels if label not in paired]
+        target = merge.get("record")
+        if target is None and len(logical) != 1:
+            problems.append(Problem(display, line_of(data, where), f"merge.record is required because the file has more than one logical record: {', '.join(logical)}"))
+        elif target is not None and target not in logical:
+            problems.append(Problem(display, line_of(data, where + ["record"]), f"merge.record '{target}' is not a logical record of this spec; logical records are {', '.join(logical) or 'none'}"))
+        else:
+            label = target or logical[0]
+            if label in pairings_by_name:
+                pairing = pairings_by_name[label]
+                available = set(pairing["keys"])
+                for rec_label in pairing["records"]:
+                    available |= {f["name"] for f in record_by_label[rec_label]["fields"]} if rec_label in record_by_label else set()
+            else:
+                available = {f["name"] for f in record_by_label[label]["fields"]} if label in record_by_label else set()
+            for key in merge["keys"]:
+                if key not in available:
+                    problems.append(Problem(display, line_of(data, where + ["keys"]), f"merge key '{key}' is not a field of '{label}'"))
+
     return problems
 
 
@@ -398,6 +474,18 @@ def _build(data: dict, path: Path) -> SourceSpec:
         provider=spec.get("provider"),
         description=spec.get("description", ""),
         pairings=tuple(Pairing(p["name"], tuple(p["records"]), tuple(p["keys"]), p.get("description", "")) for p in data.get("pairing") or []),
+        merge=(
+            MergeRule(
+                mode_field=data["merge"]["mode_field"],
+                modes={str(k): v for k, v in data["merge"]["modes"].items()},
+                business_date_field=data["merge"]["business_date_field"],
+                keys=tuple(data["merge"]["keys"]),
+                scope=tuple(data["merge"].get("scope") or ()),
+                record=data["merge"].get("record"),
+            )
+            if data.get("merge")
+            else None
+        ),
     )
 
 

@@ -36,6 +36,7 @@ delivery:
   cutoff_time: "06:00"            # HH:MM in the custodian's timezone
   timezone: America/New_York      # IANA name
   business_days: [mon, tue, wed, thu, fri]   # default
+  refresh_expected_every_days: 7  # a full refresh file at least this often, else a refresh_stale alert
   files:
     - pattern: pershing/GCUS_%_POS_%.dat     # SQL LIKE pattern relative to the landing prefix
       description: Positions

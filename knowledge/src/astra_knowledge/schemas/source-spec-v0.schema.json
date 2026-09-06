@@ -51,6 +51,25 @@
         "line_ending": { "enum": ["lf", "crlf", "any"] }
       }
     },
+    "merge": {
+      "type": "object",
+      "description": "How a file changes Silver: a header flag says whether the file is a full refresh (replaces every row of its scope as of the business date) or an update (merges on keys, untouched rows carried forward).",
+      "additionalProperties": false,
+      "required": ["mode_field", "modes", "business_date_field", "keys"],
+      "properties": {
+        "record": { "$ref": "#/$defs/identifier", "description": "Logical record merged into Silver: a detail record label or a pairing name. Defaults to the only one." },
+        "mode_field": { "$ref": "#/$defs/identifier", "description": "Header field whose code decides the mode." },
+        "modes": {
+          "type": "object",
+          "minProperties": 2,
+          "additionalProperties": { "enum": ["refresh", "update"] },
+          "description": "Code of mode_field to mode. Both refresh and update must appear."
+        },
+        "scope": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" }, "description": "Header fields that identify the partition a refresh replaces, for example the remote id. Empty means the whole source." },
+        "business_date_field": { "$ref": "#/$defs/identifier", "description": "Header date field giving the business date the file is as of." },
+        "keys": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" }, "description": "Fields of the merged record that identify a row." }
+      }
+    },
     "pairing": {
       "type": "array",
       "minItems": 1,

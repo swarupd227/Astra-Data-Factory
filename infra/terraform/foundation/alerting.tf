@@ -28,6 +28,48 @@ locals {
   alert_routes_fqn     = "${local.control_fqn}.\"ALERT_ROUTES\""
   custodians_fqn       = "${local.control_fqn}.\"CUSTODIANS\""
   custodian_files_fqn  = "${local.control_fqn}.\"CUSTODIAN_FILES\""
+  merge_log_fqn        = "${local.control_fqn}.\"MERGE_LOG\""
+
+  # A custodian that has merged files but whose last full refresh of a scope
+  # is older than its expectation gets one 'refresh_stale' alert per day.
+  detect_stale_refreshes_definition = <<-SQL
+    DECLARE
+      raised INTEGER DEFAULT 0;
+    BEGIN
+      INSERT INTO ${local.alerts_fqn} (ALERT_ID, RAISED_AT, KIND, SEVERITY, CUSTODIAN_ID, TITLE, BODY, SOURCE_KEY, BUSINESS_DATE)
+      WITH scopes AS (
+        SELECT m.CUSTODIAN_ID, m.SOURCE_ID, m.SCOPE,
+               MAX(IFF(m.MODE = 'refresh', m.LOADED_AT, NULL)) AS LAST_REFRESH,
+               MAX(m.LOADED_AT) AS LAST_LOAD
+        FROM ${local.merge_log_fqn} m
+        GROUP BY m.CUSTODIAN_ID, m.SOURCE_ID, m.SCOPE
+      ),
+      stale AS (
+        SELECT s.CUSTODIAN_ID, s.SOURCE_ID, s.SCOPE, s.LAST_REFRESH, s.LAST_LOAD, c.NAME, c.LATE_SEVERITY, c.REFRESH_EXPECTED_DAYS
+        FROM scopes s
+        JOIN ${local.custodians_fqn} c ON c.CUSTODIAN_ID = s.CUSTODIAN_ID AND c.ENABLED AND c.REFRESH_EXPECTED_DAYS IS NOT NULL
+        WHERE s.LAST_REFRESH IS NULL OR s.LAST_REFRESH < DATEADD('day', -c.REFRESH_EXPECTED_DAYS, SYSDATE())
+      )
+      SELECT UUID_STRING(),
+             SYSDATE(),
+             'refresh_stale',
+             t.LATE_SEVERITY,
+             t.CUSTODIAN_ID,
+             t.NAME || ': no full refresh of ' || t.SOURCE_ID || ' (' || t.SCOPE || ') for over ' || t.REFRESH_EXPECTED_DAYS || ' days',
+             t.NAME || ' (' || t.CUSTODIAN_ID || ') is expected to send a full refresh of ' || t.SOURCE_ID || ' for ' || t.SCOPE
+               || ' at least every ' || t.REFRESH_EXPECTED_DAYS || ' days. Last refresh: '
+               || COALESCE(t.LAST_REFRESH::TIMESTAMP_NTZ(0)::STRING || ' UTC', 'never') || '. Last file of any kind: '
+               || t.LAST_LOAD::TIMESTAMP_NTZ(0)::STRING || ' UTC. Silver for this scope may be missing retired positions.',
+             'refresh:' || t.CUSTODIAN_ID || ':' || t.SOURCE_ID || ':' || t.SCOPE || ':' || CURRENT_DATE()::STRING,
+             CURRENT_DATE()
+      FROM stale t
+      WHERE NOT EXISTS (
+        SELECT 1 FROM ${local.alerts_fqn} a
+        WHERE a.SOURCE_KEY = 'refresh:' || t.CUSTODIAN_ID || ':' || t.SOURCE_ID || ':' || t.SCOPE || ':' || CURRENT_DATE()::STRING);
+      raised := SQLROWCOUNT;
+      RETURN raised;
+    END;
+  SQL
 
   email_integration_name = "${local.name_prefix}_ALERT_EMAIL"
   slack_integration_name = "${local.name_prefix}_ALERT_SLACK"
@@ -220,6 +262,7 @@ locals {
     BEGIN
       CALL ${local.control_fqn}."DETECT_TASK_FAILURES"();
       CALL ${local.control_fqn}."DETECT_LATE_CUSTODIANS"();
+      CALL ${local.control_fqn}."DETECT_STALE_REFRESHES"();
       CALL ${local.control_fqn}."DISPATCH_ALERTS"();
       RETURN 'ok';
     END;
@@ -418,6 +461,11 @@ resource "snowflake_iceberg_table" "custodians" {
     not_null = "true"
   }
   column {
+    name    = "REFRESH_EXPECTED_DAYS"
+    type    = "NUMBER(5,0)"
+    comment = "A full refresh is expected at least this often; null means no expectation"
+  }
+  column {
     name     = "ENABLED"
     type     = "BOOLEAN"
     not_null = "true"
@@ -461,6 +509,85 @@ resource "snowflake_iceberg_table" "custodian_files" {
   }
 
   depends_on = [snowflake_grant_privileges_to_account_role.future_objects]
+}
+
+resource "snowflake_iceberg_table" "merge_log" {
+  name     = "MERGE_LOG"
+  database = snowflake_database.this.name
+  schema   = snowflake_schema.this[local.control_schema].name
+  comment  = "Every file merged into Silver: which custodian, source and scope, the business date, whether it was a full refresh or an update, and the row counts. Written by rendered pipelines; read by the stale-refresh detector. Managed by Terraform."
+
+  external_volume = snowflake_external_volume.iceberg.name
+  base_location   = "control/merge_log/"
+
+  column {
+    name     = "CUSTODIAN_ID"
+    type     = "STRING"
+    not_null = "true"
+  }
+  column {
+    name     = "SOURCE_ID"
+    type     = "STRING"
+    not_null = "true"
+    comment  = "Source id of the config the pipeline was rendered from"
+  }
+  column {
+    name     = "SCOPE"
+    type     = "STRING"
+    not_null = "true"
+    comment  = "Partition a refresh replaces, for example remote_id=RMT0000001, or 'all'"
+  }
+  column {
+    name = "BUSINESS_DATE"
+    type = "DATE"
+  }
+  column {
+    name     = "MODE"
+    type     = "STRING"
+    not_null = "true"
+    comment  = "refresh or update"
+  }
+  column {
+    name     = "FILE_NAME"
+    type     = "STRING"
+    not_null = "true"
+  }
+  column {
+    name = "ROWS_INSERTED"
+    type = "NUMBER(18,0)"
+  }
+  column {
+    name = "ROWS_UPDATED"
+    type = "NUMBER(18,0)"
+  }
+  column {
+    name = "ROWS_CARRIED"
+    type = "NUMBER(18,0)"
+  }
+  column {
+    name = "ROWS_RETIRED"
+    type = "NUMBER(18,0)"
+  }
+  column {
+    name     = "LOADED_AT"
+    type     = "TIMESTAMP_NTZ(6)"
+    not_null = "true"
+  }
+
+  depends_on = [snowflake_grant_privileges_to_account_role.future_objects]
+}
+
+resource "snowflake_procedure_sql" "detect_stale_refreshes" {
+  name     = "DETECT_STALE_REFRESHES"
+  database = snowflake_database.this.name
+  schema   = snowflake_schema.this[local.control_schema].name
+  comment  = "Raises one 'refresh_stale' alert per day for each custodian, source and scope whose last full refresh is older than the custodian expects. Managed by Terraform."
+
+  return_type          = "INTEGER"
+  execute_as           = "OWNER"
+  procedure_definition = local.detect_stale_refreshes_definition
+
+  depends_on = [snowflake_iceberg_table.alerts, snowflake_iceberg_table.custodians, snowflake_iceberg_table.merge_log]
 }
 
 # --- Channels -------------------------------------------------------------
@@ -605,6 +732,7 @@ resource "snowflake_procedure_sql" "run_alerting" {
   depends_on = [
     snowflake_procedure_sql.detect_task_failures,
     snowflake_procedure_sql.detect_late_custodians,
+    snowflake_procedure_sql.detect_stale_refreshes,
     snowflake_procedure_sql.dispatch_alerts,
   ]
 }

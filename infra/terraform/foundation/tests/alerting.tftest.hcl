@@ -188,8 +188,8 @@ run "custodian_tables_carry_cutoff_business_days_files_and_severities" {
   command = plan
 
   assert {
-    condition     = [for c in snowflake_iceberg_table.custodians.column : c.name] == ["CUSTODIAN_ID", "NAME", "CUTOFF_TIME", "TIMEZONE", "BUSINESS_DAYS", "LATE_SEVERITY", "FAILURE_SEVERITY", "ENABLED", "SOURCE", "UPDATED_AT"]
-    error_message = "CUSTODIANS holds the schedule and both severities per custodian."
+    condition     = [for c in snowflake_iceberg_table.custodians.column : c.name] == ["CUSTODIAN_ID", "NAME", "CUTOFF_TIME", "TIMEZONE", "BUSINESS_DAYS", "LATE_SEVERITY", "FAILURE_SEVERITY", "REFRESH_EXPECTED_DAYS", "ENABLED", "SOURCE", "UPDATED_AT"]
+    error_message = "CUSTODIANS holds the schedule, both severities and the refresh expectation per custodian."
   }
 
   assert {
@@ -200,6 +200,34 @@ run "custodian_tables_carry_cutoff_business_days_files_and_severities" {
   assert {
     condition     = [for c in snowflake_iceberg_table.alerts.column : c.name] == ["ALERT_ID", "RAISED_AT", "KIND", "SEVERITY", "CUSTODIAN_ID", "TITLE", "BODY", "SOURCE_KEY", "BUSINESS_DATE"]
     error_message = "ALERTS identifies each alert, its kind, severity, custodian and deduplication key."
+  }
+}
+
+run "stale_refreshes_are_alerted_from_the_merge_log" {
+  command = plan
+
+  assert {
+    condition     = [for c in snowflake_iceberg_table.merge_log.column : c.name] == ["CUSTODIAN_ID", "SOURCE_ID", "SCOPE", "BUSINESS_DATE", "MODE", "FILE_NAME", "ROWS_INSERTED", "ROWS_UPDATED", "ROWS_CARRIED", "ROWS_RETIRED", "LOADED_AT"]
+    error_message = "MERGE_LOG records who, what scope, which mode and the counts of every merge."
+  }
+
+  assert {
+    condition = alltrue([
+      for needle in [
+        "MAX(IFF(m.MODE = 'refresh', m.LOADED_AT, NULL)) AS LAST_REFRESH",
+        "c.REFRESH_EXPECTED_DAYS IS NOT NULL",
+        "s.LAST_REFRESH IS NULL OR s.LAST_REFRESH < DATEADD('day', -c.REFRESH_EXPECTED_DAYS, SYSDATE())",
+        "'refresh_stale'",
+        "t.LATE_SEVERITY",
+        "'refresh:' || t.CUSTODIAN_ID || ':' || t.SOURCE_ID || ':' || t.SCOPE || ':' || CURRENT_DATE()::STRING",
+      ] : strcontains(snowflake_procedure_sql.detect_stale_refreshes.procedure_definition, needle)
+    ])
+    error_message = "Stale detection must compare the last refresh per custodian, source and scope with the custodian's expectation and alert once per day at the late severity."
+  }
+
+  assert {
+    condition     = strcontains(snowflake_procedure_sql.run_alerting.procedure_definition, "DETECT_STALE_REFRESHES")
+    error_message = "The alerting run includes stale refresh detection."
   }
 }
 

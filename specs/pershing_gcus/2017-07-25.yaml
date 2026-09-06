@@ -26,6 +26,15 @@ file:
   encoding: ASCII
   line_ending: any
 
+# The header's refresh flag decides how the file changes Silver: R replaces
+# every position of the remote id as of the file date, U merges on keys.
+merge:
+  mode_field: refresh_flag
+  modes: { R: refresh, U: update }
+  scope: [remote_id]
+  business_date_field: file_date
+  keys: [account_number, cusip]
+
 records:
   - type: header
     match: { position: { start: 1, length: 3 }, value: HDR }

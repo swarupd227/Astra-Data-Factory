@@ -79,6 +79,18 @@ def test_sources_of_one_custodian_are_merged_and_must_agree(tmp_path):
     assert {p.path for p in problems} == {"pershing/pershing_position.yaml", "pershing/pershing_price.yaml"}
 
 
+def test_refresh_expectation_is_folded_and_must_agree(tmp_path):
+    write_config(tmp_path, "pershing", "pershing_position", DELIVERY.replace("  files:", "  refresh_expected_every_days: 7\n  files:"))
+    (c,), problems = custodians_from_configs([tmp_path], root=tmp_path)
+    assert problems == [] and c.refresh_expected_days == 7
+    merge = sync_statements([c], Target("dev"), clock=lambda: NOW)[1]
+    assert "'critical', 'warning', 7, 'pershing/pershing_position.yaml')" in merge
+
+    write_config(tmp_path, "pershing", "pershing_price", DELIVERY.replace("  files:", "  refresh_expected_every_days: 30\n  files:"))
+    _, problems = custodians_from_configs([tmp_path], root=tmp_path)
+    assert any("refresh_expected_every_days for custodian 'pershing' is 30 here and 7 in pershing/pershing_position.yaml" in p.message for p in problems)
+
+
 def test_configs_without_delivery_or_alerts_are_not_custodian_rows(tmp_path):
     write_config(tmp_path, "schwab", "schwab_position")
     custodians, problems = custodians_from_configs([tmp_path], root=tmp_path)
@@ -114,8 +126,9 @@ def test_sync_statements_are_one_transaction_that_upserts_disables_and_replaces_
     assert statements[0] == "BEGIN TRANSACTION" and statements[-1] == "COMMIT"
     merge = statements[1]
     assert merge.startswith('MERGE INTO "ASTRA_QA"."CONTROL"."CUSTODIANS" t')
-    assert "('pershing', 'Pershing', '06:00', 'America/New_York', 'MON,TUE,WED,THU,FRI', 'critical', 'warning', 'pershing/pershing_position.yaml')" in merge
+    assert "('pershing', 'Pershing', '06:00', 'America/New_York', 'MON,TUE,WED,THU,FRI', 'critical', 'warning', NULL, 'pershing/pershing_position.yaml')" in merge
     assert "WHEN MATCHED THEN UPDATE SET" in merge and "ENABLED = TRUE" in merge and "'2026-09-06 09:30:00'::TIMESTAMP_NTZ" in merge
+    assert "REFRESH_EXPECTED_DAYS = s.REFRESH_EXPECTED_DAYS" in merge
     assert statements[2] == 'UPDATE "ASTRA_QA"."CONTROL"."CUSTODIANS" SET ENABLED = FALSE, UPDATED_AT = \'2026-09-06 09:30:00\'::TIMESTAMP_NTZ WHERE ENABLED AND CUSTODIAN_ID NOT IN (\'pershing\')'
     assert statements[3] == 'DELETE FROM "ASTRA_QA"."CONTROL"."CUSTODIAN_FILES"'
     assert statements[4] == (

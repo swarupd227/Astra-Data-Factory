@@ -110,6 +110,7 @@
           "items": { "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] },
           "description": "Defaults to Monday to Friday"
         },
+        "refresh_expected_every_days": { "type": "integer", "minimum": 1, "maximum": 366, "description": "A full refresh file is expected at least this often; when none has been merged for longer, a refresh_stale alert is raised at the custodian's late severity." },
         "files": {
           "type": "array",
           "minItems": 1,
