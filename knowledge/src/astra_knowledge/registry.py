@@ -112,6 +112,16 @@ class Record:
 
 
 @dataclass(frozen=True)
+class Pairing:
+    """Detail record types that form one logical record, joined on key fields."""
+
+    name: str
+    records: tuple[str, ...]
+    keys: tuple[str, ...]
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class SourceSpec:
     id: str
     version: str
@@ -125,6 +135,7 @@ class SourceSpec:
     family: str | None = None
     provider: str | None = None
     description: str = ""
+    pairings: tuple[Pairing, ...] = ()
 
     @property
     def format(self) -> str:
@@ -310,6 +321,27 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
                 if declared and not {"positive", "negative"} <= declared:
                     problems.append(Problem(display, line_of(data, ["records", ri, "fields", names[sign], "codes"]), f"records[{ri}].fields[{names[sign]}] '{sign}' declares sign meanings on its codes but must declare both a positive and a negative code"))
 
+    record_by_label = {(r.get("name") or r["type"]): r for r in records}
+    used_in_pairing: dict[str, str] = {}
+    for pi, pairing in enumerate(data.get("pairing") or []):
+        where = ["pairing", pi]
+        if pairing["name"] in record_by_label:
+            problems.append(Problem(display, line_of(data, where + ["name"]), f"pairing[{pi}].name '{pairing['name']}' is already the label of a record; the logical record needs its own name"))
+        for label in pairing["records"]:
+            record = record_by_label.get(label)
+            if record is None:
+                problems.append(Problem(display, line_of(data, where + ["records"]), f"pairing[{pi}] lists record '{label}', which is not a record of this spec"))
+                continue
+            if record["type"] != "detail":
+                problems.append(Problem(display, line_of(data, where + ["records"]), f"pairing[{pi}] lists '{label}', a {record['type']} record; only detail records are paired"))
+            if label in used_in_pairing:
+                problems.append(Problem(display, line_of(data, where + ["records"]), f"pairing[{pi}] lists '{label}', already paired in '{used_in_pairing[label]}'; a record belongs to one pairing"))
+            used_in_pairing[label] = pairing["name"]
+            field_names = {f["name"] for f in record["fields"]}
+            for key in pairing["keys"]:
+                if key not in field_names:
+                    problems.append(Problem(display, line_of(data, where + ["keys"]), f"pairing[{pi}] key '{key}' is not a field of record '{label}'"))
+
     return problems
 
 
@@ -365,6 +397,7 @@ def _build(data: dict, path: Path) -> SourceSpec:
         family=spec.get("family"),
         provider=spec.get("provider"),
         description=spec.get("description", ""),
+        pairings=tuple(Pairing(p["name"], tuple(p["records"]), tuple(p["keys"]), p.get("description", "")) for p in data.get("pairing") or []),
     )
 
 

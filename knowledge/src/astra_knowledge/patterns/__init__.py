@@ -14,6 +14,7 @@ from typing import Callable, Iterable
 
 from astra_knowledge.patterns.delimited import parse_delimited
 from astra_knowledge.patterns.fixed_width import parse_fixed_width
+from astra_knowledge.patterns.pairing import pair
 from astra_knowledge.patterns.result import ParsedFile, ParsedRow, RowProblem
 from astra_knowledge.registry import SourceSpec
 
@@ -59,12 +60,17 @@ def patterns_for(spec: SourceSpec) -> list[Pattern]:
     return [p for p in PATTERNS.values() if p.applies_to(spec)]
 
 
-def parse(spec: SourceSpec, lines: Iterable[str]) -> ParsedFile:
-    """Parse a file with the first pattern that applies to its spec."""
+def parse(spec: SourceSpec, lines: Iterable[str], *, pairing: bool = True) -> ParsedFile:
+    """Parse a file with the first pattern that applies to its spec, then pair records when the spec says so.
+
+    The result is the logical view of the file: one row per position, not
+    per physical record, when a pairing is configured.
+    """
     applicable = patterns_for(spec)
     if not applicable:
         raise ValueError(f"no pattern in the library handles {spec.label} ({spec.format})")
-    return applicable[0].parse(spec, lines)
+    parsed = applicable[0].parse(spec, lines)
+    return pair(parsed) if pairing else parsed
 
 
-__all__ = ["DELIMITED_FILE", "FIXED_WIDTH_MULTI_RECORD", "PATTERNS", "ParsedFile", "ParsedRow", "Pattern", "RowProblem", "parse", "patterns_for"]
+__all__ = ["DELIMITED_FILE", "FIXED_WIDTH_MULTI_RECORD", "PATTERNS", "ParsedFile", "ParsedRow", "Pattern", "RowProblem", "pair", "parse", "patterns_for"]

@@ -22,13 +22,15 @@ class RowProblem:
     record: str | None = None
     field: str | None = None
     level: str = "field"
+    code: str | None = None  # rejection code from the domain pack's taxonomy, when one applies
 
     def text(self) -> str:
         where = f"line {self.line_number}" if self.line_number else "file"
         if self.record:
             where += f" ({self.record}"
             where += f".{self.field})" if self.field else ")"
-        return f"{where}: {self.message}"
+        prefix = f"{self.code}: " if self.code else ""
+        return f"{where}: {prefix}{self.message}"
 
 
 @dataclass(frozen=True)

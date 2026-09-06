@@ -51,6 +51,22 @@
         "line_ending": { "enum": ["lf", "crlf", "any"] }
       }
     },
+    "pairing": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Detail record types that together form one logical record, joined on key fields present in each. A record whose partner is missing is reported as PAIR_INCOMPLETE.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "records", "keys"],
+        "properties": {
+          "name": { "$ref": "#/$defs/identifier", "description": "Label of the logical record." },
+          "records": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" }, "description": "Record labels (names of detail records) that make up one logical record, in the order their fields are merged." },
+          "keys": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" }, "description": "Fields, present in every listed record, whose equal values pair the records." },
+          "description": { "type": "string" }
+        }
+      }
+    },
     "records": {
       "type": "array",
       "minItems": 1,

@@ -19,7 +19,7 @@ def run(*argv: str) -> tuple[int, str]:
 def test_validate_reports_the_shipped_registry_clean():
     code, out = run("validate")
     assert code == 0
-    assert "checked 3 spec versions across 2 specs: no problems" in out
+    assert "checked 4 spec versions across 3 specs: no problems" in out
 
 
 def test_list_shows_every_version_with_its_effective_date():
