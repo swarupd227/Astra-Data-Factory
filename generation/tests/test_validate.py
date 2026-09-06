@@ -118,7 +118,7 @@ def test_file_name_must_match_source_id(tmp_path):
 
 
 def test_duplicate_yaml_keys_are_an_error_not_a_silent_override(tmp_path):
-    text = VALID.replace("domain_pack: custodial_wealth", "domain_pack: custodial_wealth\ndomain_pack: insurance")
+    text = VALID.replace("owner:\n", "domain_pack: insurance\nowner:\n")
     problems = problems_for(tmp_path, text)
     assert problems[0].message.startswith("invalid YAML: duplicate key 'domain_pack'")
     assert problems[0].line == text.splitlines().index("domain_pack: insurance") + 1

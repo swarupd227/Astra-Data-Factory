@@ -15,6 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from astra_data.bundle import BundleError, DeployError, Target, check_bundles, deploy, run_tests
+from astra_data.compiler import compile_paths
 from astra_data.custodians import custodians_from_configs, sync, sync_statements
 from astra_data.reference_data import bundle_name, check_bundle, packs_with_reference_data, sync as sync_reference_feeds, sync_statements as reference_feed_statements, write_bundle
 from astra_data.rejections import sync as sync_rejections, sync_statements as rejection_statements, taxonomies_from_packs
@@ -77,6 +78,42 @@ def cmd_validate(args: argparse.Namespace) -> int:
     if args.format == "json":
         print("[]")
     _summary(f"checked {count} config file{'s' if count != 1 else ''}: no problems" if count else "no config files found", args.format)
+    return 0
+
+
+def cmd_compile(args: argparse.Namespace) -> int:
+    from astra_knowledge.cdm import load_packs
+    from astra_knowledge.registry import Registry
+    from astra_knowledge.rules import Catalog
+
+    root = Path(args.root)
+    registry, problems = Registry.load(Path(args.specs), repo_root=root)
+    if problems:
+        _print_problems(problems, args.format)
+        _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in the spec registry; fix them before configs can be compiled", args.format)
+        return 1
+    catalog, problems = Catalog.load(Path(args.rules), root, registry)
+    if problems:
+        _print_problems(problems, args.format)
+        _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in the rule catalog; fix them before configs can be compiled", args.format)
+        return 1
+    packs, problems = load_packs(Path(args.domains), root)
+    if problems:
+        _print_problems(problems, args.format)
+        _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in the domain packs; fix them before configs can be compiled", args.format)
+        return 1
+    compiled, problems = compile_paths(args.paths, registry=registry, catalog=catalog, packs=packs, root=root)
+    count = len(compiled) + len({p.path for p in problems})
+    if problems:
+        _print_problems(problems, args.format)
+        _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} compiling {count} config{'s' if count != 1 else ''}", args.format)
+        return 1
+    if args.format == "json":
+        print(json.dumps([c.to_dict() for c in compiled], indent=2))
+        return 0
+    for c in compiled:
+        _summary(f"{c.id}: {c.spec.label} via {c.pattern.id} -> {c.model.label} on {c.profile.id}; {len(c.mappings)} mapping{'s' if len(c.mappings) != 1 else ''}, {len(c.rules)} rule{'s' if len(c.rules) != 1 else ''}, {len(c.dq_rules)} dq rule{'s' if len(c.dq_rules) != 1 else ''}", args.format)
+    _summary(f"compiled {count} config{'s' if count != 1 else ''}: no problems" if count else "no config files found", args.format)
     return 0
 
 
@@ -304,6 +341,13 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--specs", help="spec registry directory; when given, each config's spec reference is checked against it")
     v.add_argument("--rules", help="rule catalog directory; when given, each config's rule references must exist and must not be rejected")
     v.set_defaults(func=cmd_validate)
+
+    cp = sub.add_parser("compile", help="validate configs and resolve every reference into the compiled model the renderers use")
+    cp.add_argument("paths", nargs="*", default=["configs"], help="config files or directories (default: configs)")
+    cp.add_argument("--specs", default="specs", help="spec registry directory (default: specs)")
+    cp.add_argument("--rules", default="rules", help="rule catalog directory (default: rules)")
+    cp.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
+    cp.set_defaults(func=cmd_compile)
 
     b = sub.add_parser("bundles", help="release bundle commands")
     bsub = b.add_subparsers(dest="bundles_command", required=True)

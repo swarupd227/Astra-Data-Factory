@@ -15,19 +15,22 @@ spec:
   id: pershing_gcus            # specs/pershing_gcus/
   version: "2017-07-25"        # specs/pershing_gcus/2017-07-25.yaml
 
-target_profile: snowflake_iceberg
-domain_pack: custodial_wealth
+pattern: fixed_width_multi_record   # pattern library id that parses the spec
+target_profile: snowflake_iceberg   # a profile with renderers (astra_data.targets)
+domain_pack: custodial              # domains/custodial; its latest canonical model is the target
 effective_from: 2026-09-01
 
 owner:
   name: Data steward, custodial
   email: steward@example.com
 
+# Canonical column <- spec field (of the spec's logical record), with an
+# optional transform from the renderers' vocabulary and the rule that governs it.
 mappings:
   - target: position.account_number
-    source: ACCOUNT_NUMBER
+    source: account_number
   - target: position.quantity
-    source: QUANTITY
+    source: quantity
     transform: signed_implied_decimal(13, 5)
     rule: pershing_gcus.quantity_sign
 

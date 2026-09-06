@@ -63,6 +63,9 @@ jobs:
       - name: Validate configs against the schema, the spec registry and the rule catalog
         run: astra-data --format github validate --specs specs --rules rules configs
 
+      - name: Compile every config into its intermediate model
+        run: astra-data --format github compile --specs specs --rules rules --domains domains configs
+
       - name: Check release bundles
         run: astra-data --format github bundles check releases
 

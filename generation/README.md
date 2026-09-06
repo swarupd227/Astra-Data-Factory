@@ -14,6 +14,7 @@ pytest
 | Command | What it does | Needs |
 |---|---|---|
 | `astra-data validate [--specs specs] [--rules rules] [paths]` | Validates config files against the config schema and their references; with the registry and the catalog, spec versions must exist and rule ids must exist and not be rejected | nothing |
+| `astra-data compile [--specs specs] [--rules rules] [--domains domains] [paths]` | Validates, then resolves every reference of each config (spec version, pattern, target profile, domain pack and model, catalog rules, mapping columns, fields and transforms) into the compiled model the renderers use; `--format json` prints it ([ADR 0017](../docs/adr/0017-config-compiler.md)) | nothing |
 | `astra-data bundles check [releases]` | Checks every release bundle's manifest, files and placeholders | nothing |
 | `astra-data deploy --environment <env> [releases]` | Runs every bundle's steps against the environment | Snowflake |
 | `astra-data test --environment <env> [releases]` | Runs every bundle's tests; a test passes when it returns no rows | Snowflake |
@@ -36,6 +37,9 @@ src/astra_data/
   schemas/bundle-v0.schema.json    the release bundle manifest schema
   yamlsource.py                    YAML loading that keeps line numbers and rejects duplicate keys
   validate.py                      schema validation plus reference checks, plain-language messages
+  compiler.py                      the config compiler: references resolved, mapping types checked, provenance recorded
+  transforms.py                    the transform vocabulary mappings may use, with argument and type checks
+  targets.py                       target profiles the factory has renderers for
   bundle.py                        bundle loading, placeholder rendering, deploy and test
   custodians.py                    delivery expectations and alert severities, from configs to CONTROL
   rejections.py                    the rejection taxonomy, from the domain pack to CONTROL
