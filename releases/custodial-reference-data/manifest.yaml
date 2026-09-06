@@ -1,0 +1,13 @@
+# Reference-data replication of the custodial domain pack. Rendered by astra-data reference render from
+# domains/custodial/reference-data.yaml; the version is a digest of the rendered files. Do not edit.
+bundle: custodial-reference-data
+version: "6c89711742fa"
+source: custodial_reference_data
+steps:
+  - ddl/reference_tables.sql
+  - pipeline/replicate_security_master.sql
+  - pipeline/replicate_account_xref.sql
+  - pipeline/lookups.sql
+  - pipeline/tasks.sql
+tests:
+  - tests/*.sql

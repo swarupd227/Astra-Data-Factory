@@ -16,6 +16,7 @@ from pathlib import Path
 
 from astra_data.bundle import BundleError, DeployError, Target, check_bundles, deploy, run_tests
 from astra_data.custodians import custodians_from_configs, sync, sync_statements
+from astra_data.reference_data import bundle_name, check_bundle, packs_with_reference_data, sync as sync_reference_feeds, sync_statements as reference_feed_statements, write_bundle
 from astra_data.rejections import sync as sync_rejections, sync_statements as rejection_statements, taxonomies_from_packs
 from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExecutor, connect
 from astra_data.validate import Problem, validate_paths
@@ -225,6 +226,61 @@ def cmd_rejections_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reference_render(args: argparse.Namespace) -> int:
+    packs, problems = packs_with_reference_data(args.domains, root=Path(args.root), domain=args.domain)
+    if problems:
+        _print_problems(problems, args.format)
+        return 1
+    if not packs:
+        _summary("no domain pack declares reference data", args.format)
+        return 0
+    releases = Path(args.releases)
+    if args.check:
+        problems = [p for pack in packs for p in check_bundle(pack, releases, Path(args.root))]
+        if problems:
+            _print_problems(problems, args.format)
+            _summary(f"{len(problems)} reference-data bundle file{'s' if len(problems) != 1 else ''} out of date; run astra-data reference render and commit the result", args.format)
+            return 1
+        _summary(f"reference-data bundles are current for {len(packs)} domain pack{'s' if len(packs) != 1 else ''}", args.format)
+        return 0
+    for pack in packs:
+        root = write_bundle(pack, releases)
+        feeds = len(pack.reference_data.feeds)
+        _summary(f"rendered {bundle_name(pack)}: {feeds} feed{'s' if feeds != 1 else ''} -> {_rel(root, Path(args.root))}", args.format)
+    return 0
+
+
+def cmd_reference_sync(args: argparse.Namespace) -> int:
+    packs, problems = packs_with_reference_data(args.domains, root=Path(args.root), domain=args.domain)
+    if problems:
+        _print_problems(problems, args.format)
+        return 1
+    target = Target(args.environment, args.prefix)
+    if args.format == "json" and args.dry_run:
+        print(json.dumps({"statements": reference_feed_statements(packs, target, root=Path(args.root))}, indent=2))
+        return 0
+    if args.dry_run:
+        print(";\n".join(reference_feed_statements(packs, target, root=Path(args.root))) + ";")
+        return 0
+    executor = _executor()
+    try:
+        count = sync_reference_feeds(executor, packs, target, root=Path(args.root))
+    except Exception as exc:  # the database's own error is the message
+        print(f"::error title=Reference feed sync failed::{exc}" if args.format == "github" else f"error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        executor.close()
+    _summary(f"synced {count} reference feed{'s' if count != 1 else ''} to {target.environment_database}.CONTROL.REFERENCE_FEEDS", args.format)
+    return 0
+
+
+def _rel(path: Path, root: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 # -- parser ------------------------------------------------------------------
 
 
@@ -279,6 +335,22 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
         p.add_argument("--domain", help="one domain pack (default: all)")
         p.set_defaults(func=func)
+
+    rf = sub.add_parser("reference", help="reference-data replication: render each domain pack's bundle, sync CONTROL.REFERENCE_FEEDS")
+    rfsub = rf.add_subparsers(dest="reference_command", required=True)
+    rr = rfsub.add_parser("render", help="write releases/<pack>-reference-data/ from the pack's feeds; --check fails when it is stale")
+    rr.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
+    rr.add_argument("--domain", help="one domain pack (default: all)")
+    rr.add_argument("--releases", default="releases", help="bundles directory (default: releases)")
+    rr.add_argument("--check", action="store_true")
+    rr.set_defaults(func=cmd_reference_render)
+    rs = rfsub.add_parser("sync", help="bring CONTROL.REFERENCE_FEEDS in line with the packs' feeds; feeds that left are disabled")
+    rs.add_argument("--environment", required=True, type=environment_name)
+    rs.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    rs.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
+    rs.add_argument("--domain", help="one domain pack (default: all)")
+    rs.add_argument("--dry-run", action="store_true", help="print the SQL instead of running it")
+    rs.set_defaults(func=cmd_reference_sync)
 
     return parser
 

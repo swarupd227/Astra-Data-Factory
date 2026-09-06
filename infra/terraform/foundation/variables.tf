@@ -94,6 +94,11 @@ variable "schemas" {
       writers = ["PIPELINE"]
       readers = ["STEWARD", "CONSUMER", "AUDITOR", "SANDBOX"]
     }
+    REFERENCE = {
+      comment = "Replicated reference data (security master, account cross-reference) with change logs. Written by the replication tasks."
+      writers = ["PIPELINE"]
+      readers = ["STEWARD", "AUDITOR"]
+    }
   }
 
   validation {
@@ -245,6 +250,22 @@ variable "landing_reconcile_interval_minutes" {
   validation {
     condition     = var.landing_reconcile_interval_minutes >= 1 && var.landing_reconcile_interval_minutes <= 60 && floor(var.landing_reconcile_interval_minutes) == var.landing_reconcile_interval_minutes
     error_message = "landing_reconcile_interval_minutes must be a whole number between 1 and 60."
+  }
+}
+
+variable "reference_prefix" {
+  description = "Key prefix in the landing bucket where source systems drop reference-data snapshots (one folder per feed). Snowpipe does not watch it; the replication tasks read it."
+  type        = string
+  default     = "reference"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9_/-]*[a-z0-9]$", var.reference_prefix)) && !strcontains(var.reference_prefix, "//")
+    error_message = "reference_prefix must be lower-case letters, digits, underscores, hyphens and single slashes, with no leading or trailing slash."
+  }
+
+  validation {
+    condition     = var.reference_prefix != var.landing_prefix && !startswith(var.reference_prefix, "${var.landing_prefix}/")
+    error_message = "reference_prefix must not be inside landing_prefix, or Snowpipe would ingest reference snapshots as custodian files."
   }
 }
 

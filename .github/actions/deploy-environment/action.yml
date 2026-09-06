@@ -158,6 +158,16 @@ runs:
         SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
       run: astra-data --format github rejections sync --environment "${{ inputs.environment }}" --domains domains
 
+    - name: Sync the reference-data feeds
+      shell: bash
+      env:
+        SNOWFLAKE_ORGANIZATION_NAME: ${{ inputs.snowflake-organization }}
+        SNOWFLAKE_ACCOUNT_NAME: ${{ inputs.snowflake-account }}
+        SNOWFLAKE_USER: ${{ inputs.snowflake-user }}
+        SNOWFLAKE_ROLE: ${{ inputs.snowflake-role }}
+        SNOWFLAKE_WAREHOUSE: ${{ inputs.snowflake-warehouse }}
+      run: astra-data --format github reference sync --environment "${{ inputs.environment }}" --domains domains
+
     - name: Run generated tests
       shell: bash
       env:

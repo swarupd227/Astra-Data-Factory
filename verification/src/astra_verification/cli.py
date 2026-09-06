@@ -1,4 +1,4 @@
-"""Command line: `astra-verify sandbox create | destroy | list | reap | cost | check`.
+"""Command line: `astra-verify sandbox ...`, `astra-verify pii check`, `astra-verify reference status`.
 
 Snowflake connection settings come from the environment (see
 astra_data.snowflake_connection). Run as the environment's SANDBOX role.
@@ -18,6 +18,7 @@ from astra_data.bundle import BundleError, DeployError, Target
 from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExecutor, connect
 
 from astra_verification.pii import run_checks as run_pii_checks
+from astra_verification.reference import feed_statuses
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
     WAREHOUSE_SIZES,
@@ -188,6 +189,33 @@ def cmd_pii_check(args: argparse.Namespace) -> int:
     return 0 if all(r.passed for r in results) else 1
 
 
+def cmd_reference_status(args: argparse.Namespace) -> int:
+    """Per feed: the last replication run, its row counts, the delta it made, and whether the replica is fresh."""
+    target = Target(args.environment, args.prefix)
+    executor = _executor()
+    try:
+        statuses = feed_statuses(executor, target)
+    finally:
+        executor.close()
+    if args.json:
+        print(json.dumps([{**s.__dict__, "healthy": s.healthy, "stale": s.stale, "delta": s.delta} for s in statuses], indent=2))
+        return 0 if statuses and all(s.healthy for s in statuses) else 1
+    if not statuses:
+        print(f"no enabled reference feeds in {target.environment_database}.CONTROL.REFERENCE_FEEDS; run astra-data reference sync")
+        return 1
+    width = max(len(s.feed_id) for s in statuses)
+    for s in statuses:
+        last = f"last run {s.last_started_at} {s.last_status}" if s.last_run_id else "no run yet"
+        since = f"{s.hours_since_success:.1f}h ago" if s.hours_since_success is not None else "never"
+        line = f"{'OK  ' if s.healthy else 'FAIL'}  {s.feed_id.ljust(width)}  {last}  delta {s.delta}  replica {s.rows_total if s.rows_total is not None else '-'}  last success {since} (expected within {s.expected_every_hours}h)"
+        if s.last_error:
+            line += f"  error: {s.last_error}"
+        print(line)
+        if s.last_run_id:
+            print(f"      changes of run {s.last_run_id} are in REFERENCE.{s.table}_CHANGES")
+    return 0 if all(s.healthy for s in statuses) else 1
+
+
 # -- parser ------------------------------------------------------------------
 
 
@@ -236,6 +264,11 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--privileged-role", help="role that sees PII in clear (default <PREFIX>_<ENV>_ENGINEER)")
     pc.add_argument("--restricted-role", help="role that must see the mask (default <PREFIX>_<ENV>_AUDITOR)")
     pc.set_defaults(func=cmd_pii_check)
+
+    reference_parser = sub.add_parser("reference", help="reference-data replication")
+    rsub = reference_parser.add_subparsers(dest="reference_command", required=True)
+    rs = rsub.add_parser("status", parents=[common], help="per feed: last run, row counts, delta and freshness; exit 1 when a feed failed or is stale")
+    rs.set_defaults(func=cmd_reference_status)
 
     return parser
 

@@ -90,7 +90,7 @@ run "landing_prefix_is_configurable" {
   }
 
   assert {
-    condition     = toset(snowflake_storage_integration_aws.landing.storage_allowed_locations) == toset(["s3://astra-dev-landing-123456789012/inbound/custodians/", "s3://astra-dev-landing-123456789012/sandbox/"])
+    condition     = toset(snowflake_storage_integration_aws.landing.storage_allowed_locations) == toset(["s3://astra-dev-landing-123456789012/inbound/custodians/", "s3://astra-dev-landing-123456789012/sandbox/", "s3://astra-dev-landing-123456789012/reference/"])
     error_message = "The storage integration must be limited to the landing and sandbox prefixes."
   }
 }

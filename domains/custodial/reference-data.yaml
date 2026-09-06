@@ -1,0 +1,73 @@
+# Reference data the custodial pack replicates into the platform on a
+# schedule, so that account and security resolution is a set-based join
+# against a local replica and never a call to the source system.
+#
+# Each feed is a full snapshot the source system drops under the landing
+# bucket's reference prefix (reference/<folder>/<file>.csv, header row, the
+# columns below in order). The nightly task loads the newest snapshot,
+# computes the delta against the replica (inserted, updated, deleted rows),
+# writes it to <TABLE>_CHANGES, brings the replica in line and records the
+# run with its row counts in CONTROL.REFERENCE_DATA_RUNS.
+reference_data_version: 0
+domain: custodial
+
+feeds:
+  - id: security_master
+    name: Security master
+    system: SOS
+    description: >-
+      The platform's security master: one row per security with the identifiers custodian
+      records carry (CUSIP, ISIN, SEDOL, ticker), so that a custodian's security resolves to
+      the platform's SECURITY_ID by join.
+    table: SECURITY_MASTER
+    key: [SECURITY_ID]
+    file: { folder: security_master }
+    schedule: { cron: "0 2 * * *", timezone: America/New_York }
+    expected_every_hours: 26
+    stale_severity: error
+    resolves:
+      entity: Security
+      identifiers: [CUSIP, ISIN, SEDOL, TICKER]
+    rejections: { not_found: SECURITY_NOT_FOUND, ambiguous: SECURITY_AMBIGUOUS, conflict: REFERENCE_DATA_CONFLICT }
+    columns:
+      - { name: SECURITY_ID, type: string, required: true, description: "Security master identifier." }
+      - { name: CUSIP, type: string, description: "CUSIP, nine characters." }
+      - { name: ISIN, type: string, description: "ISIN, twelve characters." }
+      - { name: SEDOL, type: string, description: "SEDOL, seven characters." }
+      - { name: TICKER, type: string, description: "Exchange ticker." }
+      - { name: DESCRIPTION, type: string, required: true, description: "Name of the security." }
+      - { name: ASSET_CLASS, type: string, required: true, description: "Broad class of the security, in the security master's vocabulary." }
+      - { name: SECURITY_TYPE, type: string, description: "Finer type within the asset class." }
+      - { name: ISSUER, type: string, description: "Issuer of the security." }
+      - { name: CURRENCY, type: string, required: true, description: "ISO 4217 currency the security trades in." }
+      - { name: PRICE_FACTOR, type: decimal, precision: 18, scale: 8, description: "Multiplier from quoted price to value per unit." }
+      - { name: MATURITY_DATE, type: date, description: "Maturity date of a fixed-income security." }
+      - { name: STATUS, type: string, required: true, description: "ACTIVE or INACTIVE in the security master." }
+      - { name: SOURCE_UPDATED_AT, type: timestamp, description: "When the security master last changed the row." }
+
+  - id: account_xref
+    name: Account cross-reference
+    system: CAS
+    description: >-
+      The account cross-reference: one row per custodian account the platform manages, with
+      the platform account id and firm it belongs to, so that a custodian's account number
+      resolves to the platform's ACCOUNT_ID by join.
+    table: ACCOUNT_XREF
+    key: [CUSTODIAN_ID, CUSTODIAN_ACCOUNT_NUMBER]
+    file: { folder: account_xref }
+    schedule: { cron: "30 2 * * *", timezone: America/New_York }
+    expected_every_hours: 26
+    stale_severity: error
+    resolves:
+      entity: Account
+    rejections: { not_found: ACCOUNT_NOT_FOUND, ambiguous: ACCOUNT_AMBIGUOUS, conflict: REFERENCE_DATA_CONFLICT }
+    columns:
+      - { name: CUSTODIAN_ID, type: string, required: true, description: "Custodian that holds the account, by the platform's custodian id." }
+      - { name: CUSTODIAN_ACCOUNT_NUMBER, type: string, required: true, pii: account_number, description: "Account number as the custodian assigns it." }
+      - { name: ACCOUNT_ID, type: string, required: true, description: "Platform account id." }
+      - { name: FIRM_ID, type: string, required: true, description: "Firm the account belongs to." }
+      - { name: ACCOUNT_NAME, type: string, pii: name, description: "Registration name of the account." }
+      - { name: STATUS, type: string, required: true, description: "OPEN, CLOSED or PENDING in the account system." }
+      - { name: OPENED_ON, type: date, description: "Date the account was opened." }
+      - { name: CLOSED_ON, type: date, description: "Date the account was closed; blank while open." }
+      - { name: SOURCE_UPDATED_AT, type: timestamp, description: "When the account system last changed the row." }

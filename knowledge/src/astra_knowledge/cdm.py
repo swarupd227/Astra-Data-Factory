@@ -30,6 +30,8 @@ from astra_core.problems import Problem, dedupe, display_path
 from astra_core.schema import describe_error, error_line, load_validator, sorted_errors
 from astra_core.yamlsource import SourceError, line_of, load
 
+from astra_knowledge.columns import SQL_TYPES, Code, Column, Lookup, column_from, column_problems
+from astra_knowledge.reference_data import REFERENCE_DATA_FILE, ReferenceData, load_reference_data, reference_data_problems
 from astra_knowledge.rejections import LOADER_REFERENCE_FILE, REJECTIONS_FILE, LoaderReference, Taxonomy, load_loader_reference, load_taxonomy, parity, parity_problems
 
 SCHEMA = "cdm-v0.schema.json"
@@ -40,64 +42,7 @@ RENDERED_DIR = "rendered"
 VERSION_FILE = re.compile(r"^([1-9][0-9]*)\.(0|[1-9][0-9]*)\.ya?ml$")
 DATABASE_PLACEHOLDER = "{{ DATABASE }}"
 
-SQL_TYPES = {
-    "string": "STRING",
-    "integer": "NUMBER(18,0)",
-    "date": "DATE",
-    "timestamp": "TIMESTAMP_NTZ(6)",
-    "boolean": "BOOLEAN",
-}
-
-
 # -- model -------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Code:
-    value: str
-    meaning: str
-
-
-@dataclass(frozen=True)
-class Lookup:
-    """A control table the column's values must exist in."""
-
-    schema: str
-    table: str
-    column: str
-
-    @property
-    def label(self) -> str:
-        return f"{self.schema}.{self.table}.{self.column}"
-
-
-@dataclass(frozen=True)
-class Column:
-    name: str
-    type: str
-    description: str
-    required: bool = False
-    precision: int | None = None
-    scale: int | None = None
-    pii: str | None = None
-    codes: tuple[Code, ...] = ()
-    lookup: Lookup | None = None
-
-    @property
-    def sql_type(self) -> str:
-        if self.type == "decimal":
-            return f"NUMBER({self.precision},{self.scale})"
-        return SQL_TYPES[self.type]
-
-    def widens(self, other: "Column") -> bool:
-        """True when a value of `other`'s type always fits this column's type."""
-        if self.type == other.type:
-            if self.type != "decimal":
-                return True
-            return self.precision >= other.precision and self.scale >= other.scale and (self.precision - self.scale) >= (other.precision - other.scale)
-        if other.type == "integer" and self.type == "decimal":
-            return (self.precision - self.scale) >= 18
-        return False
 
 
 @dataclass(frozen=True)
@@ -181,6 +126,7 @@ class DomainPack:
     models: tuple[Model, ...]  # in version order
     rejections: Taxonomy
     loader_reference: LoaderReference | None = None
+    reference_data: ReferenceData | None = None
 
     @property
     def latest(self) -> Model:
@@ -232,20 +178,6 @@ def load_glossary(path: Path, root: Path | None = None) -> tuple[Glossary | None
     return Glossary(data["domain"], terms, path), []
 
 
-def _column(data: dict) -> Column:
-    return Column(
-        name=data["name"],
-        type=data["type"],
-        description=" ".join(str(data["description"]).split()),
-        required=bool(data.get("required", False)),
-        precision=data.get("precision"),
-        scale=data.get("scale"),
-        pii=data.get("pii"),
-        codes=tuple(Code(str(c["value"]), c["meaning"]) for c in data.get("codes") or ()),
-        lookup=Lookup(data["lookup"]["schema"], data["lookup"]["table"], data["lookup"]["column"]) if data.get("lookup") else None,
-    )
-
-
 def load_model_file(path: Path, glossary: Glossary | None, root: Path | None = None) -> tuple[Model | None, list[Problem]]:
     """Parse and validate one model version. Definitions come from the glossary; without one, they are blank."""
     path = Path(path)
@@ -270,7 +202,7 @@ def load_model_file(path: Path, glossary: Glossary | None, root: Path | None = N
             term=e["term"],
             table=e["table"],
             key=tuple(e["key"]),
-            columns=tuple(_column(c) for c in e["columns"]),
+            columns=tuple(column_from(c) for c in e["columns"]),
             references=tuple(Reference(r["entity"], tuple(r["columns"]), bool(r.get("optional", False))) for r in e.get("references") or ()),
             definition=glossary.term(e["term"]).definition if glossary and glossary.term(e["term"]) else "",
         )
@@ -282,7 +214,7 @@ def load_model_file(path: Path, glossary: Glossary | None, root: Path | None = N
         version=str(model["version"]),
         schema=model["schema"],
         description=" ".join(model["description"].split()),
-        lineage=tuple(_column(c) for c in data["lineage"]),
+        lineage=tuple(column_from(c) for c in data["lineage"]),
         entities=entities,
         path=path,
         migration=model.get("migration"),
@@ -367,13 +299,8 @@ def _model_problems(data: dict, path: Path, display: str, glossary: Glossary | N
 
 
 def _column_problems(column: dict, where: list, data: dict, display: str, problems: list[Problem]) -> None:
-    if column["type"] == "decimal" and column["scale"] >= column["precision"]:
-        problems.append(Problem(display, line_of(data, where), f"column '{column['name']}': scale {column['scale']} must be less than precision {column['precision']}"))
-    codes = column.get("codes") or ()
-    values = [c["value"] for c in codes]
-    for value in set(values):
-        if values.count(value) > 1:
-            problems.append(Problem(display, line_of(data, where + ["codes"]), f"column '{column['name']}': code '{value}' is listed twice"))
+    for message in column_problems(column):
+        problems.append(Problem(display, line_of(data, where), message))
 
 
 def load_pack(root: Path, repo_root: Path | None = None) -> tuple[DomainPack | None, list[Problem]]:
@@ -417,10 +344,17 @@ def load_pack(root: Path, repo_root: Path | None = None) -> tuple[DomainPack | N
         if reference is None:
             return None, problems
 
-    problems.extend(_pack_problems(root, glossary, models, taxonomy, reference, repo_root))
+    reference_data: ReferenceData | None = None
+    reference_data_path = root / REFERENCE_DATA_FILE
+    if reference_data_path.is_file():
+        reference_data, problems = load_reference_data(reference_data_path, repo_root)
+        if reference_data is None:
+            return None, problems
+
+    problems.extend(_pack_problems(root, glossary, models, taxonomy, reference, reference_data, repo_root))
     if problems:
         return None, problems
-    return DomainPack(root.name, root, glossary, tuple(models), taxonomy, reference), []
+    return DomainPack(root.name, root, glossary, tuple(models), taxonomy, reference, reference_data), []
 
 
 def _version_key(name: str) -> tuple[int, int]:
@@ -428,7 +362,7 @@ def _version_key(name: str) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
-def _pack_problems(root: Path, glossary: Glossary, models: list[Model], taxonomy: Taxonomy, reference: LoaderReference | None, repo_root: Path | None) -> list[Problem]:
+def _pack_problems(root: Path, glossary: Glossary, models: list[Model], taxonomy: Taxonomy, reference: LoaderReference | None, reference_data: ReferenceData | None, repo_root: Path | None) -> list[Problem]:
     problems: list[Problem] = []
     glossary_display = display_path(glossary.path, repo_root)
     taxonomy_display = display_path(taxonomy.path, repo_root)
@@ -443,6 +377,10 @@ def _pack_problems(root: Path, glossary: Glossary, models: list[Model], taxonomy
             problems.append(Problem(taxonomy_display, None, f"code {code.code} names entity '{code.entity}', which is in no model version"))
     if reference is not None:
         problems.extend(parity_problems(taxonomy, reference, repo_root))
+    if reference_data is not None:
+        if reference_data.domain != root.name:
+            problems.append(Problem(display_path(reference_data.path, repo_root), None, f"reference data domain '{reference_data.domain}' must match the pack directory '{root.name}'"))
+        problems.extend(reference_data_problems(reference_data, entity_names, {c.code for c in taxonomy.codes}, repo_root))
 
     # A term that defines an entity stays an entity term for as long as any
     # version has the entity, so older versions remain loadable after a

@@ -7,6 +7,7 @@ domains/custodial/
   glossary.yaml            the vocabulary: entity terms and concept terms
   rejections.yaml          the rejection taxonomy: every code with level, severity, owner, resolution
   loader-rejections.csv    the Loader Rejections reference (client material; not yet added), for parity
+  reference-data.yaml      the reference-data feeds replicated into REFERENCE: security master, account cross-reference
   cdm/<major>.<minor>.yaml one file per model version
   cdm/migrations/<v>.md    migration note, required for every new major version
   cdm/rendered/<v>/        DDL and key tests rendered from the model (checked in CI)
@@ -58,7 +59,21 @@ The pattern library raises these codes on every problem it reports, and a test f
 | `astra-spec rejections list [--domain custodial] [--level file|record|field] [--owner ...]` | The codes with level, severity, owner and Loader codes |
 | `astra-spec rejections parity --domain custodial [--reference file.csv]` | Loader codes reproduced, not reproduced, and named but not in the reference |
 
+## Reference data
+
+[reference-data.yaml](reference-data.yaml) declares the reference data the pack replicates so that resolution is a join against a local replica, never a call to the source system: the security master (SOS) and the account cross-reference (CAS). A feed says what it carries and how it is keyed, the folder under the landing bucket's `reference/` prefix where the source drops full snapshots (CSV, header row, the columns in order), its cron schedule and how often a success is expected, which entity it resolves and through which identifiers in order, and which taxonomy codes resolution raises (not found, ambiguous, conflict).
+
+`astra-data reference render` turns the feeds into the bundle [releases/custodial-reference-data](../../releases/custodial-reference-data): replica, staging, change and conflict tables in `REFERENCE`; a procedure per feed that loads the newest snapshot files, computes the delta (inserted, updated, deleted, with the row before and after in `<TABLE>_CHANGES`), brings the replica in line and records the run with its row counts in `CONTROL.REFERENCE_DATA_RUNS`; identifier views for one-join resolution; a serverless task per feed; and tests. CI fails when the bundle is stale. `astra-data reference sync` keeps `CONTROL.REFERENCE_FEEDS` in line so the foundation alerts when a feed has no successful run within its expected interval. `astra-verify reference status` shows each feed's last run, counts and delta. The reference implementation is `astra_knowledge.patterns.reference_data` ([ADR 0015](../../docs/adr/0015-reference-data-replication.md)).
+
+Snapshots must arrive under a new file name each time: the replication loads only files no earlier run has loaded, and a run that finds none is recorded as `skipped`.
+
+| Command | What it does |
+|---|---|
+| `astra-spec reference list [--domain custodial]` | The feeds: what they resolve, how they arrive, when they run |
+| `astra-data reference render [--check]` | Writes the replication bundle; `--check` fails when it is stale |
+| `astra-data reference sync --environment <env>` | Syncs `CONTROL.REFERENCE_FEEDS` |
+| `astra-verify reference status --environment <env>` | Last run, row counts, delta and freshness per feed |
+
 ## Still to come in this pack
 
-- Reference-data replication patterns for the security master and account cross-reference (S2.3.3).
 - Rule and DQ patterns (F2.4, F3.3).

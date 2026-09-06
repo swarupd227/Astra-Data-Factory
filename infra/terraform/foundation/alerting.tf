@@ -263,6 +263,7 @@ locals {
       CALL ${local.control_fqn}."DETECT_TASK_FAILURES"();
       CALL ${local.control_fqn}."DETECT_LATE_CUSTODIANS"();
       CALL ${local.control_fqn}."DETECT_STALE_REFRESHES"();
+      CALL ${local.control_fqn}."DETECT_STALE_REFERENCE_DATA"();
       CALL ${local.control_fqn}."DISPATCH_ALERTS"();
       RETURN 'ok';
     END;
@@ -723,7 +724,7 @@ resource "snowflake_procedure_sql" "run_alerting" {
   name     = "RUN_ALERTING"
   database = snowflake_database.this.name
   schema   = snowflake_schema.this[local.control_schema].name
-  comment  = "Detects failed tasks and late custodians, then dispatches. Managed by Terraform."
+  comment  = "Detects failed tasks, late custodians, stale refreshes and stale reference data, then dispatches. Managed by Terraform."
 
   return_type          = "STRING"
   execute_as           = "OWNER"
@@ -733,6 +734,7 @@ resource "snowflake_procedure_sql" "run_alerting" {
     snowflake_procedure_sql.detect_task_failures,
     snowflake_procedure_sql.detect_late_custodians,
     snowflake_procedure_sql.detect_stale_refreshes,
+    snowflake_procedure_sql.detect_stale_reference_data,
     snowflake_procedure_sql.dispatch_alerts,
   ]
 }

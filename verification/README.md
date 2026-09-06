@@ -29,6 +29,10 @@ Because a sandbox is a whole database, a release bundle deploys into it unchange
 
 Every create and destroy is logged in `CONTROL.SANDBOX_LOG` with the reason: `task_done`, `task_failed`, `expired`, `max_age` or `manual`.
 
+## Reference data
+
+`astra-verify reference status --environment <env> [--json]` reads `CONTROL.REFERENCE_FEEDS` and `CONTROL.REFERENCE_DATA_RUNS` and prints, per feed, the last replication run with its status, the rows it counted, the delta it made (inserted, updated, deleted, conflicts) and when the replica last succeeded against the feed's expected interval. Exit 1 when any feed's last run failed or no run succeeded within the interval. The rows of a delta are in `REFERENCE.<TABLE>_CHANGES` under the run id.
+
 ## Commands
 
 Run as the environment's `SANDBOX` role, with the Snowflake connection in the environment (same names as `astra-data`).

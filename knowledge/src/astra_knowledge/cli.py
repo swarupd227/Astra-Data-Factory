@@ -502,6 +502,25 @@ def cmd_cdm_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reference_list(args: argparse.Namespace) -> int:
+    packs = _load_packs(args)
+    if packs is None:
+        return 1
+    feeds = [(pack, feed) for pack in packs if pack.reference_data for feed in pack.reference_data.feeds]
+    if args.format == "json":
+        print(json.dumps([{"domain": pack.name, **asdict(feed)} for pack, feed in feeds], indent=2))
+        return 0
+    if not feeds:
+        print("no domain pack declares reference data")
+        return 1
+    for pack, feed in feeds:
+        identifiers = ", ".join(feed.resolves.identifiers) or "the key"
+        print(f"{feed.id}  {feed.name} ({feed.system})  REFERENCE.{feed.table}  key {', '.join(feed.key)}")
+        print(f"  resolves {feed.resolves.entity} by {identifiers}; not found {feed.rejections.not_found}, ambiguous {feed.rejections.ambiguous}, conflict {feed.rejections.conflict}")
+        print(f"  snapshots under reference/{feed.file.folder}/; runs {feed.schedule.cron} {feed.schedule.timezone}; expected at least every {feed.expected_every_hours} hours ({feed.stale_severity} when stale); {_plural(len(feed.columns), 'column')}")
+    return 0
+
+
 # -- parser ------------------------------------------------------------------
 
 
@@ -576,6 +595,12 @@ def build_parser() -> argparse.ArgumentParser:
     xp.add_argument("--domain", required=True)
     xp.add_argument("--reference", help="Loader Rejections reference CSV (default: the pack's loader-rejections.csv)")
     xp.set_defaults(func=cmd_rejections_parity)
+
+    rf = sub.add_parser("reference", help="the reference-data feeds of each domain pack")
+    rfsub = rf.add_subparsers(dest="reference_command", required=True)
+    rl = rfsub.add_parser("list", help="every feed: what it resolves, how it arrives, when it runs")
+    rl.add_argument("--domain", help="one domain pack (default: all)")
+    rl.set_defaults(func=cmd_reference_list)
     return parser
 
 
