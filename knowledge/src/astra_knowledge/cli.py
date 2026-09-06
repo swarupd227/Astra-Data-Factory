@@ -259,7 +259,7 @@ def cmd_parse(args: argparse.Namespace) -> int:
                     "lines": parsed.lines,
                     "counts": parsed.counts,
                     "metadata": {k: {n: _plain(v) for n, v in fields.items()} for k, fields in parsed.metadata.items()},
-                    "rows": [{"record": r.record, "line": r.line_number, "values": {n: _plain(v) for n, v in r.values.items()}} for r in shown],
+                    "rows": [_row_dict(r) for r in shown],
                     "problems": [asdict(p) for p in parsed.problems],
                 },
                 indent=2,
@@ -277,12 +277,21 @@ def cmd_parse(args: argparse.Namespace) -> int:
         print(f"\nrows (showing {len(shown)} of {len(parsed.rows)}):")
         for row in shown:
             values = ", ".join(f"{n}={_plain(v)}" for n, v in row.values.items() if n not in ("filler", "record_type"))
-            print(f"  line {row.line_number} {row.record}: {values}")
+            provenance = f" (from {row.origin}, split {row.split} part {row.part + 1})" if row.origin is not None else ""
+            print(f"  line {row.line_number} {row.record}{provenance}: {values}")
     if parsed.problems:
         print(f"\nproblems ({len(parsed.problems)}):")
         for p in parsed.problems:
             print(f"  {p.text()}")
     return 0 if parsed.ok else 1
+
+
+def _row_dict(row) -> dict:
+    """A parsed row for JSON output; split parts carry the record, rule and part they came from."""
+    item = {"record": row.record, "line": row.line_number, "values": {n: _plain(v) for n, v in row.values.items()}}
+    if row.origin is not None:
+        item["origin"] = {"record": row.origin, "split": row.split, "part": row.part}
+    return item
 
 
 # -- parser ------------------------------------------------------------------

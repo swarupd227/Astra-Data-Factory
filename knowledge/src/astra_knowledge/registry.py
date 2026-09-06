@@ -11,10 +11,10 @@ answers which. Two versions of one spec coexist as two files.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from astra_core.problems import Problem, dedupe, display_path
 from astra_core.schema import describe_error, error_line, load_validator, sorted_errors
@@ -140,6 +140,46 @@ class MergeRule:
 
 
 @dataclass(frozen=True)
+class SplitPart:
+    name: str
+    set: dict[str, Any] = field(default_factory=dict)
+    negate: tuple[str, ...] = ()
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class SplitRule:
+    """One custodian record becomes several canonical records when a field matches."""
+
+    name: str
+    record: str
+    field: str
+    values: tuple[str, ...]
+    parts: tuple[SplitPart, ...]
+    description: str = ""
+
+    def applies(self, value) -> bool:
+        return value is not None and str(value).strip() in self.values
+
+
+@dataclass(frozen=True)
+class LifecycleRule:
+    """How cancel and correction records relate to their originals."""
+
+    record: str
+    action_field: str
+    actions: dict[str, str]
+    identity: tuple[str, ...]
+    reference: tuple[str, ...]
+
+    def action_for(self, code) -> str:
+        if code is None:
+            return "new"
+        text = str(code)
+        return self.actions.get(text) or self.actions.get(text.strip()) or "new"
+
+
+@dataclass(frozen=True)
 class SourceSpec:
     id: str
     version: str
@@ -155,11 +195,29 @@ class SourceSpec:
     description: str = ""
     pairings: tuple[Pairing, ...] = ()
     merge: MergeRule | None = None
+    splits: tuple[SplitRule, ...] = ()
+    lifecycle: LifecycleRule | None = None
 
     def logical_records(self) -> list[str]:
         """Labels of the rows a parse produces: pairing names and unpaired detail records."""
         paired = {label for p in self.pairings for label in p.records}
         return [p.name for p in self.pairings] + [r.label for r in self.records if r.type == "detail" and r.label not in paired]
+
+    def logical_fields(self, label: str) -> set[str]:
+        """Field names of a logical record: a pairing's merged fields, a split part's source fields, or a record's own."""
+        pairing = next((p for p in self.pairings if p.name == label), None)
+        if pairing is None:
+            for rule in self.splits:
+                if any(part.name == label for part in rule.parts):
+                    return self.logical_fields(rule.record)
+            record = self.record(label)
+            return {f.name for f in record.fields} if record else set()
+        names = set(pairing.keys)
+        for rec_label in pairing.records:
+            record = self.record(rec_label)
+            if record:
+                names |= {f.name for f in record.fields}
+        return names
 
     def header(self) -> Record | None:
         return next((r for r in self.records if r.type == "header"), None)
@@ -418,6 +476,54 @@ def _reference_problems(data: LineDict, path: Path, display: str) -> list[Proble
                 if key not in available:
                     problems.append(Problem(display, line_of(data, where + ["keys"]), f"merge key '{key}' is not a field of '{label}'"))
 
+    # Logical records and their fields, as splits and the lifecycle see them.
+    pairings_by_name = {p["name"]: p for p in data.get("pairing") or []}
+    paired = {label for p in pairings_by_name.values() for label in p["records"]}
+    logical_fields: dict[str, set[str]] = {}
+    for p in pairings_by_name.values():
+        names = set(p["keys"])
+        for rec_label in p["records"]:
+            names |= {f["name"] for f in record_by_label[rec_label]["fields"]} if rec_label in record_by_label else set()
+        logical_fields[p["name"]] = names
+    for r in records:
+        label = r.get("name") or r["type"]
+        if r["type"] == "detail" and label not in paired:
+            logical_fields[label] = {f["name"] for f in r["fields"]}
+
+    part_labels: dict[str, str] = {}
+    for si, rule in enumerate(data.get("split") or []):
+        where = ["split", si]
+        fields_of = logical_fields.get(rule["record"])
+        if fields_of is None:
+            problems.append(Problem(display, line_of(data, where + ["record"]), f"split[{si}].record '{rule['record']}' is not a logical record of this spec; logical records are {', '.join(logical_fields) or 'none'}"))
+            continue
+        if rule["when"]["field"] not in fields_of:
+            problems.append(Problem(display, line_of(data, where + ["when", "field"]), f"split[{si}].when.field '{rule['when']['field']}' is not a field of '{rule['record']}'"))
+        for pi, part in enumerate(rule["into"]):
+            if part["name"] in logical_fields or part["name"] in part_labels:
+                problems.append(Problem(display, line_of(data, where + ["into", pi, "name"]), f"split[{si}].into[{pi}].name '{part['name']}' is already the label of a record or another split part"))
+            part_labels[part["name"]] = rule["record"]
+            for name in list(part.get("set") or {}) + list(part.get("negate") or []):
+                if name not in fields_of:
+                    problems.append(Problem(display, line_of(data, where + ["into", pi]), f"split[{si}].into[{pi}] refers to '{name}', which is not a field of '{rule['record']}'"))
+
+    lifecycle = data.get("lifecycle")
+    if lifecycle:
+        where = ["lifecycle"]
+        target = lifecycle["record"]
+        fields_of = logical_fields.get(target) or (logical_fields.get(part_labels[target]) if target in part_labels else None)
+        if fields_of is None:
+            problems.append(Problem(display, line_of(data, where + ["record"]), f"lifecycle.record '{target}' is not a logical record of this spec; logical records are {', '.join(logical_fields) or 'none'}"))
+        else:
+            for key, names in (("action_field", [lifecycle["action_field"]]), ("identity", lifecycle["identity"]), ("reference", lifecycle["reference"])):
+                for name in names:
+                    if name not in fields_of:
+                        problems.append(Problem(display, line_of(data, where + [key]), f"lifecycle.{key} '{name}' is not a field of '{target}'"))
+            if len(lifecycle["identity"]) != len(lifecycle["reference"]):
+                problems.append(Problem(display, line_of(data, where + ["reference"]), "lifecycle.reference must have one field for each identity field, in the same order"))
+            if "cancel" not in lifecycle["actions"].values() and "correct" not in lifecycle["actions"].values():
+                problems.append(Problem(display, line_of(data, where + ["actions"]), "lifecycle.actions must map at least one code to cancel or correct"))
+
     return problems
 
 
@@ -484,6 +590,28 @@ def _build(data: dict, path: Path) -> SourceSpec:
                 record=data["merge"].get("record"),
             )
             if data.get("merge")
+            else None
+        ),
+        splits=tuple(
+            SplitRule(
+                name=s["name"],
+                record=s["record"],
+                field=s["when"]["field"],
+                values=tuple(str(v) for v in ([s["when"]["equals"]] if "equals" in s["when"] else s["when"]["in"])),
+                parts=tuple(SplitPart(p["name"], dict(p.get("set") or {}), tuple(p.get("negate") or ()), p.get("description", "")) for p in s["into"]),
+                description=s.get("description", ""),
+            )
+            for s in data.get("split") or []
+        ),
+        lifecycle=(
+            LifecycleRule(
+                record=data["lifecycle"]["record"],
+                action_field=data["lifecycle"]["action_field"],
+                actions={str(k): v for k, v in data["lifecycle"]["actions"].items()},
+                identity=tuple(data["lifecycle"]["identity"]),
+                reference=tuple(data["lifecycle"]["reference"]),
+            )
+            if data.get("lifecycle")
             else None
         ),
     )

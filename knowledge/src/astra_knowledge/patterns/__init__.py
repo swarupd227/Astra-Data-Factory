@@ -14,9 +14,11 @@ from typing import Callable, Iterable
 
 from astra_knowledge.patterns.delimited import parse_delimited
 from astra_knowledge.patterns.fixed_width import parse_fixed_width
+from astra_knowledge.patterns.lifecycle import LifecycleRecord, LifecycleResult, LifecycleState, apply_lifecycle
 from astra_knowledge.patterns.merge import MergeLogEntry, MergeResult, SilverState, apply as merge
 from astra_knowledge.patterns.pairing import pair
 from astra_knowledge.patterns.result import ParsedFile, ParsedRow, RowProblem
+from astra_knowledge.patterns.split import split
 from astra_knowledge.registry import SourceSpec
 
 
@@ -61,23 +63,30 @@ def patterns_for(spec: SourceSpec) -> list[Pattern]:
     return [p for p in PATTERNS.values() if p.applies_to(spec)]
 
 
-def parse(spec: SourceSpec, lines: Iterable[str], *, pairing: bool = True) -> ParsedFile:
-    """Parse a file with the first pattern that applies to its spec, then pair records when the spec says so.
+def parse(spec: SourceSpec, lines: Iterable[str], *, pairing: bool = True, splitting: bool = True) -> ParsedFile:
+    """Parse a file with the first pattern that applies to its spec, then pair and split records when the spec says so.
 
-    The result is the logical view of the file: one row per position, not
-    per physical record, when a pairing is configured.
+    The result is the canonical view of the file: one row per logical
+    record after pairing, and one row per canonical record after splits.
     """
     applicable = patterns_for(spec)
     if not applicable:
         raise ValueError(f"no pattern in the library handles {spec.label} ({spec.format})")
     parsed = applicable[0].parse(spec, lines)
-    return pair(parsed) if pairing else parsed
+    if pairing:
+        parsed = pair(parsed)
+    if splitting:
+        parsed = split(parsed)
+    return parsed
 
 
 __all__ = [
     "DELIMITED_FILE",
     "FIXED_WIDTH_MULTI_RECORD",
     "PATTERNS",
+    "LifecycleRecord",
+    "LifecycleResult",
+    "LifecycleState",
     "MergeLogEntry",
     "MergeResult",
     "ParsedFile",
@@ -85,8 +94,10 @@ __all__ = [
     "Pattern",
     "RowProblem",
     "SilverState",
+    "apply_lifecycle",
     "merge",
     "pair",
     "parse",
     "patterns_for",
+    "split",
 ]

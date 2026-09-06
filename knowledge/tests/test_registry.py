@@ -39,7 +39,7 @@ def test_the_shipped_registry_is_valid_and_has_two_coexisting_versions():
     registry, problems = Registry.load(SPECS, REPO)
     assert problems == []
     assert [s.version for s in registry.versions("pershing_gcus")] == ["2017-07-25", "2026-01-01"]
-    assert registry.ids() == ["csv_price_example", "pershing_gcus", "split_position_example"]
+    assert registry.ids() == ["csv_price_example", "drip_transaction_example", "pershing_gcus", "split_position_example"]
 
 
 def test_every_field_carries_position_picture_and_citation():

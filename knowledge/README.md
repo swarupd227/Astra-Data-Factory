@@ -64,6 +64,29 @@ merge:
   keys: [account_number, cusip]         # keys of the merged (logical) record
 ```
 
+| split (spec block) | any spec with `split` | After parsing and pairing, turns one custodian record into several canonical records. A rule names the logical record, the field and codes that trigger it, and two or more parts; each part sets values (a code, a cleared quantity), negates numeric fields, and keeps every other value. The DRIP example yields a `dividend` and a `purchase` from one line. Every part records its origin: the source record label, the rule name, its position in the rule and the line number. `parse(..., splitting=False)` returns the unsplit rows. |
+
+```yaml
+split:
+  - name: drip
+    record: detail
+    when: { field: transaction_type, equals: DRIP }     # or `in: [A, B]`
+    into:
+      - { name: dividend, set: { transaction_type: DIV, quantity: null } }
+      - { name: purchase, set: { transaction_type: BUY }, negate: [amount] }
+```
+
+| lifecycle (spec block) | any spec with `lifecycle` | Cancels and corrections. The block names the action field and which codes mean `new`, `cancel` and `correct`, the fields that identify a record and the fields of a cancel or correction that name the original. `patterns.lifecycle.apply_lifecycle` runs a parsed file against a state of transactions: a cancel marks the original `cancelled` and points at the cancel, and the cancel record points back at the original; a correction marks the original `superseded`, points at the correction, and the correction is the active record. Split parts share their line's identity, so a cancel of a DRIP line closes both the dividend and the purchase. Problems: `LIFECYCLE_ORIGINAL_MISSING`, `LIFECYCLE_ALREADY_CLOSED`, `LIFECYCLE_DUPLICATE`, `LIFECYCLE_IDENTITY_BLANK`. |
+
+```yaml
+lifecycle:
+  record: detail
+  action_field: action
+  actions: { N: new, X: cancel, C: correct }
+  identity: [transaction_id]                  # what identifies a record
+  reference: [original_transaction_id]        # how a cancel or correction names it
+```
+
 ```python
 from astra_knowledge.patterns import SilverState, merge, parse
 state = SilverState()

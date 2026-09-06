@@ -38,6 +38,12 @@ class ParsedRow:
     record: str
     line_number: int
     values: dict[str, Any]
+    # Set when the row was produced from another row by a split rule: the
+    # source record label, the rule and the part, so every canonical record
+    # is traceable to the custodian line it came from.
+    origin: str | None = None
+    split: str | None = None
+    part: int | None = None
 
 
 @dataclass

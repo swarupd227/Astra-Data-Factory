@@ -1,0 +1,104 @@
+# Source Spec: an illustrative fixed-width transaction file with an action
+# code (new, cancel, correct) and a DRIP transaction type that the factory
+# splits into a dividend and a purchase. It exists to exercise the split and
+# lifecycle patterns; the custodian and document are examples.
+spec_version: 0
+
+spec:
+  id: drip_transaction_example
+  version: "2026-01-01"
+  effective_from: 2026-01-01
+  file_type: transaction
+  custodians: [example_custodian]
+  family: split_transaction
+  provider: Example Custodian (illustrative)
+  description: Daily transactions with cancels, corrections and dividend reinvestments.
+
+document:
+  title: Transaction File Layout
+  reference: TransactionFile_v4.pdf
+  pages: 14
+
+file:
+  format: fixed_width
+  record_length: 100
+  encoding: ASCII
+
+# A DRIP line is one custodian record and two canonical transactions: the
+# dividend received and the shares bought with it. The purchase carries the
+# cash out, so its amount is negated.
+split:
+  - name: drip
+    record: detail
+    when: { field: transaction_type, equals: DRIP }
+    into:
+      - name: dividend
+        set: { transaction_type: DIV, quantity: null }
+        description: The dividend received in cash.
+      - name: purchase
+        set: { transaction_type: BUY }
+        negate: [amount]
+        description: The shares bought with it.
+
+# Cancels and corrections name the transaction they act on.
+lifecycle:
+  record: detail
+  action_field: action
+  actions: { N: new, X: cancel, C: correct }
+  identity: [transaction_id]
+  reference: [original_transaction_id]
+
+records:
+  - type: header
+    match: { position: { start: 1, length: 1 }, value: H }
+    fields:
+      - { name: record_type, position: { start: 1, length: 1 }, picture: X(1), type: code, citation: { page: 2, line: 3 }, codes: [{ value: H, meaning: header }] }
+      - { name: file_date, position: { start: 2, length: 8 }, picture: 9(8), type: date, format: YYYYMMDD, citation: { page: 2, line: 5 } }
+      - { name: filler, position: { start: 10, length: 91 }, picture: X(91), citation: { page: 2, line: 7 } }
+
+  - type: detail
+    match: { position: { start: 1, length: 1 }, value: D }
+    fields:
+      - { name: record_type, position: { start: 1, length: 1 }, picture: X(1), type: code, citation: { page: 4, line: 2 }, codes: [{ value: D, meaning: transaction }] }
+      - { name: transaction_id, position: { start: 2, length: 12 }, picture: X(12), required: true, citation: { page: 4, line: 4 } }
+      - name: action
+        position: { start: 14, length: 1 }
+        picture: X(1)
+        type: code
+        citation: { page: 4, line: 6 }
+        codes:
+          - { value: N, meaning: new transaction }
+          - { value: X, meaning: cancels the transaction named in original_transaction_id }
+          - { value: C, meaning: corrects the transaction named in original_transaction_id }
+      - { name: original_transaction_id, position: { start: 15, length: 12 }, picture: X(12), citation: { page: 4, line: 8 }, description: Blank for new transactions. }
+      - { name: account_number, position: { start: 27, length: 10 }, picture: X(10), required: true, citation: { page: 5, line: 2 } }
+      - { name: cusip, position: { start: 37, length: 9 }, picture: X(9), required: true, citation: { page: 5, line: 4 } }
+      - name: transaction_type
+        position: { start: 46, length: 4 }
+        picture: X(4)
+        type: code
+        citation: { page: 5, line: 6 }
+        codes:
+          - { value: DIV, meaning: cash dividend }
+          - { value: BUY, meaning: purchase }
+          - { value: SELL, meaning: sale }
+          - { value: DRIP, meaning: dividend reinvested into shares }
+      - { name: trade_date, position: { start: 50, length: 8 }, picture: 9(8), type: date, format: YYYYMMDD, citation: { page: 5, line: 8 } }
+      - { name: quantity, position: { start: 58, length: 13 }, picture: 9(9)V9(4), citation: { page: 6, line: 2 } }
+      - { name: amount, position: { start: 71, length: 13 }, picture: 9(11)V9(2), sign_field: amount_sign, citation: { page: 6, line: 4 } }
+      - name: amount_sign
+        position: { start: 84, length: 1 }
+        picture: X(1)
+        type: code
+        citation: { page: 6, line: 6 }
+        codes:
+          - { value: "+", meaning: cash in, sign: positive }
+          - { value: "-", meaning: cash out, sign: negative }
+      - { name: filler, position: { start: 85, length: 16 }, picture: X(16), citation: { page: 6, line: 8 } }
+
+  - type: trailer
+    match: { position: { start: 1, length: 1 }, value: T }
+    fields:
+      - { name: record_type, position: { start: 1, length: 1 }, picture: X(1), type: code, citation: { page: 12, line: 3 }, codes: [{ value: T, meaning: trailer }] }
+      - { name: record_count, position: { start: 2, length: 9 }, picture: 9(9), citation: { page: 12, line: 5 } }
+      - { name: filler, position: { start: 11, length: 90 }, picture: X(90), citation: { page: 12, line: 7 } }
