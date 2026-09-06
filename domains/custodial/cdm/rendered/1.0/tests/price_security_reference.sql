@@ -1,0 +1,5 @@
+-- Price -> Security: (SECURITY_ID) must exist in SECURITY. Returns rows with no match.
+SELECT e."SECURITY_ID", e."PRICE_DATE", e."PRICE_SOURCE"
+FROM {{ DATABASE }}."SILVER"."PRICE" AS e
+LEFT JOIN {{ DATABASE }}."SILVER"."SECURITY" AS r ON r."SECURITY_ID" = e."SECURITY_ID"
+WHERE r."SECURITY_ID" IS NULL;

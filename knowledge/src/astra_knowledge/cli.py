@@ -1,4 +1,4 @@
-"""Command line: `astra-spec validate | list | resolve | show`.
+"""Command line: `astra-spec validate | list | resolve | show | search | unclassified | parse` and `astra-spec cdm ...`.
 
 Exit codes: 0 done, 1 problems found or nothing in force, 2 usage error.
 `--format github` prints workflow annotations; `--format json` is for tools.
@@ -16,24 +16,29 @@ from pathlib import Path
 
 from astra_core.problems import Problem
 
+from astra_knowledge import cdm
 from astra_knowledge.registry import Registry, SourceSpec
 
 FORMATS = ("text", "github", "json")
 
 
-def _print_problems(problems: list[Problem], style: str) -> None:
+def _print_problems(problems: list[Problem], style: str, title: str = "Spec registry") -> None:
     if style == "json":
         print(json.dumps([p.__dict__ for p in problems], indent=2))
         return
     for p in problems:
-        print(p.format(style, title="Spec registry"))
+        print(p.format(style, title=title))
 
 
-def _summary(message: str, style: str) -> None:
+def _summary(message: str, style: str, title: str = "Spec registry") -> None:
     if style == "github":
-        print(f"::notice title=Spec registry::{message}")
+        print(f"::notice title={title}::{message}")
     elif style == "text":
         print(message)
+
+
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}{'s' if count != 1 else ''}"
 
 
 def _spec_dict(spec: SourceSpec, root: Path) -> dict:
@@ -294,6 +299,157 @@ def _row_dict(row) -> dict:
     return item
 
 
+# -- canonical data model ----------------------------------------------------
+
+CDM_TITLE = "Domain packs"
+
+
+def _load_packs(args: argparse.Namespace) -> list[cdm.DomainPack] | None:
+    packs, problems = cdm.load_packs(Path(args.domains), Path(args.root))
+    if problems:
+        _print_problems(problems, args.format, CDM_TITLE)
+        _summary(f"{_plural(len(problems), 'problem')} in the domain packs", args.format, CDM_TITLE)
+        return None
+    if getattr(args, "domain", None):
+        packs = [p for p in packs if p.name == args.domain]
+        if not packs:
+            print(f"no domain pack named '{args.domain}' under {args.domains}", file=sys.stderr)
+            return None
+    return packs
+
+
+def _pack_dict(pack: cdm.DomainPack, root: Path) -> dict:
+    return {
+        "name": pack.name,
+        "path": _rel(pack.root, root),
+        "versions": [m.version for m in pack.models],
+        "entities": {m.version: [e.name for e in m.entities] for m in pack.models},
+        "terms": len(pack.glossary.terms),
+    }
+
+
+def cmd_cdm_validate(args: argparse.Namespace) -> int:
+    packs = _load_packs(args)
+    if packs is None:
+        return 1
+    if args.format == "json":
+        print(json.dumps({"packs": [_pack_dict(p, Path(args.root)) for p in packs]}, indent=2))
+        return 0
+    versions = sum(len(p.models) for p in packs)
+    terms = sum(len(p.glossary.terms) for p in packs)
+    _summary(f"checked {_plural(versions, 'model version')} and {_plural(terms, 'glossary term')} across {_plural(len(packs), 'domain pack')}: no problems", args.format, CDM_TITLE)
+    return 0
+
+
+def _model_for(args: argparse.Namespace, pack: cdm.DomainPack, version: str | None) -> cdm.Model | None:
+    if version is None:
+        return pack.latest
+    model = pack.model(version)
+    if model is None:
+        print(f"{pack.name} has no model version {version}; versions are {', '.join(m.version for m in pack.models)}", file=sys.stderr)
+    return model
+
+
+def cmd_cdm_show(args: argparse.Namespace) -> int:
+    packs = _load_packs(args)
+    if packs is None:
+        return 1
+    pack = packs[0]
+    model = _model_for(args, pack, args.version)
+    if model is None:
+        return 1
+    if args.format == "json":
+        print(json.dumps(_model_dict(model), indent=2))
+        return 0
+    print(f"{model.label}: {model.description}")
+    print(f"schema {model.schema}; {_plural(len(model.entities), 'entity').replace('entitys', 'entities')}; {_plural(len(model.lineage), 'lineage column')} on every table" + (f"; migration note {model.migration}" if model.migration else ""))
+    name_width = max(len(e.name) for e in model.entities)
+    table_width = max(len(e.table) for e in model.entities)
+    for entity in model.entities:
+        print()
+        print(f"{entity.name.ljust(name_width)}  {entity.table.ljust(table_width)}  key: {', '.join(entity.key)}")
+        print(f"  {entity.definition}")
+        for ref in entity.references:
+            print(f"  references {ref.entity} through {', '.join(ref.columns)}{' when present' if ref.optional else ''}")
+        columns = model.table_columns(entity)
+        width = max(len(c.name) for c in columns)
+        for column in columns:
+            flags = "required" if column.required else "optional"
+            if column.pii:
+                flags += f"  PII {column.pii}"
+            print(f"  {column.name.ljust(width)}  {column.sql_type.ljust(16)}  {flags.ljust(26)}  {column.description}")
+    return 0
+
+
+def _model_dict(model: cdm.Model) -> dict:
+    def column(c: cdm.Column) -> dict:
+        return {"name": c.name, "type": c.sql_type, "required": c.required, "pii": c.pii, "description": c.description, "codes": [asdict(code) for code in c.codes]}
+
+    return {
+        "domain": model.domain,
+        "version": model.version,
+        "schema": model.schema,
+        "description": model.description,
+        "migration": model.migration,
+        "lineage": [column(c) for c in model.lineage],
+        "entities": [
+            {
+                "name": e.name,
+                "table": e.table,
+                "definition": e.definition,
+                "key": list(e.key),
+                "references": [asdict(r) for r in e.references],
+                "columns": [column(c) for c in e.columns],
+            }
+            for e in model.entities
+        ],
+    }
+
+
+def cmd_cdm_diff(args: argparse.Namespace) -> int:
+    packs = _load_packs(args)
+    if packs is None:
+        return 1
+    pack = packs[0]
+    old = _model_for(args, pack, args.from_version)
+    new = _model_for(args, pack, args.to_version)
+    if old is None or new is None:
+        return 1
+    changes = cdm.diff(old, new)
+    breaking = [c for c in changes if c.breaking]
+    additive = [c for c in changes if not c.breaking]
+    if args.format == "json":
+        print(json.dumps({"from": old.version, "to": new.version, "migration": new.migration, "changes": [{"kind": c.kind, "entity": c.entity, "message": c.message} for c in changes]}, indent=2))
+        return 0
+    print(f"{pack.name} CDM {old.version} -> {new.version}: {_plural(len(breaking), 'breaking change')}, {_plural(len(additive), 'additive change')}" + (f"; migration note {new.migration}" if new.migration else ""))
+    for change in changes:
+        print(f"  {change.kind.ljust(8)}  {change.message}")
+    return 0
+
+
+def cmd_cdm_render(args: argparse.Namespace) -> int:
+    packs = _load_packs(args)
+    if packs is None:
+        return 1
+    root = Path(args.root)
+    if args.check:
+        problems = [p for pack in packs for p in cdm.check_rendered(pack, root)]
+        if problems:
+            _print_problems(problems, args.format, CDM_TITLE)
+            _summary(f"{_plural(len(problems), 'rendered file')} out of date; run astra-spec cdm render and commit the result", args.format, CDM_TITLE)
+            return 1
+        versions = sum(len(p.models) for p in packs)
+        _summary(f"rendered files are current for {_plural(versions, 'model version')}", args.format, CDM_TITLE)
+        return 0
+    for pack in packs:
+        cdm.write_rendered(pack)
+        for model in pack.models:
+            tests = len(cdm.render_tests(model))
+            if args.format != "json":
+                print(f"rendered {model.label}: {_plural(len(model.entities), 'table')}, {_plural(tests, 'test')} -> {_rel(cdm.rendered_dir(pack, model), root)}")
+    return 0
+
+
 # -- parser ------------------------------------------------------------------
 
 
@@ -302,6 +458,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", choices=FORMATS, default="text")
     parser.add_argument("--root", default=".", help="repository root used to display paths (default: current directory)")
     parser.add_argument("--specs", default="specs", help="registry directory (default: specs)")
+    parser.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("validate", help="validate every spec and the registry as a whole").set_defaults(func=cmd_validate)
@@ -335,6 +492,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--encoding", default="utf-8")
     p.add_argument("--limit", type=int, default=20, help="rows to print (0 for all)")
     p.set_defaults(func=cmd_parse)
+
+    c = sub.add_parser("cdm", help="the canonical data model of each domain pack: validate, show, diff versions, render DDL")
+    csub = c.add_subparsers(dest="cdm_command", required=True)
+    csub.add_parser("validate", help="validate every domain pack: glossary, model versions and the versioning rule").set_defaults(func=cmd_cdm_validate)
+
+    cs = csub.add_parser("show", help="print a model version: entities, keys, references and columns")
+    cs.add_argument("--domain", required=True)
+    cs.add_argument("--version", help="model version (default: latest)")
+    cs.set_defaults(func=cmd_cdm_show)
+
+    cd = csub.add_parser("diff", help="the changes between two model versions, each classified breaking or additive")
+    cd.add_argument("--domain", required=True)
+    cd.add_argument("--from", dest="from_version", required=True, metavar="VERSION")
+    cd.add_argument("--to", dest="to_version", required=True, metavar="VERSION")
+    cd.set_defaults(func=cmd_cdm_diff)
+
+    cr = csub.add_parser("render", help="write the DDL and key tests of every model version under cdm/rendered/<version>/")
+    cr.add_argument("--domain", help="one domain pack (default: all)")
+    cr.add_argument("--check", action="store_true", help="fail when the rendered files are missing or stale instead of writing them")
+    cr.set_defaults(func=cmd_cdm_render)
     return parser
 
 

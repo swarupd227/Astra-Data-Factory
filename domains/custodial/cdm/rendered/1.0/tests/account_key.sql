@@ -1,0 +1,5 @@
+-- Account: the key (CUSTODIAN_ID, ACCOUNT_NUMBER) identifies one row. Returns keys with more than one row.
+SELECT "CUSTODIAN_ID", "ACCOUNT_NUMBER", COUNT(*) AS ROW_COUNT
+FROM {{ DATABASE }}."SILVER"."ACCOUNT"
+GROUP BY "CUSTODIAN_ID", "ACCOUNT_NUMBER"
+HAVING COUNT(*) > 1;

@@ -1,0 +1,314 @@
+# Custodial canonical data model, version 1.0.
+#
+# Every client instance starts from this model. Entities take their definition
+# from the glossary term they name; keys are the reconciliation identity; the
+# lineage columns are appended to every table. The versioning rule is in the
+# pack README: a breaking change needs a new major version and a migration
+# note, an additive change a new minor version.
+cdm_version: 0
+
+model:
+  domain: custodial
+  version: "1.0"
+  schema: SILVER
+  description: >-
+    Accounts, securities, positions, lots, transactions, prices, cash balances, firms and
+    exceptions as a custodian-neutral model on Iceberg.
+
+lineage:
+  - { name: SOURCE_SYSTEM, type: string, required: true, description: "Custodian id or reference feed that produced the row." }
+  - { name: SOURCE_FILE, type: string, description: "Name of the file the row was loaded from; null for rows produced by resolution or reference data." }
+  - { name: SOURCE_LINE, type: integer, description: "Line of the source file the row came from." }
+  - { name: CONFIG_VERSION, type: string, description: "Version of the config whose pipeline produced the row." }
+  - { name: LOADED_AT, type: timestamp, required: true, description: "When the row was written." }
+  - { name: UPDATED_AT, type: timestamp, description: "When the row last changed; null until it does." }
+
+entities:
+  - name: Firm
+    term: Firm
+    table: FIRM
+    key: [FIRM_ID]
+    columns:
+      - { name: FIRM_ID, type: string, required: true, description: "Platform identifier of the firm." }
+      - { name: FIRM_NAME, type: string, required: true, description: "Legal or trading name of the firm." }
+      - name: FIRM_TYPE
+        type: string
+        description: What kind of firm it is.
+        codes:
+          - { value: RIA, meaning: "registered investment adviser" }
+          - { value: BROKER_DEALER, meaning: "broker-dealer" }
+          - { value: BANK, meaning: "bank or trust company" }
+          - { value: OTHER, meaning: "any other type" }
+      - name: STATUS
+        type: string
+        required: true
+        description: Whether the platform still manages accounts for the firm.
+        codes:
+          - { value: ACTIVE, meaning: "accounts are managed" }
+          - { value: INACTIVE, meaning: "no accounts are managed" }
+
+  - name: Account
+    term: Account
+    table: ACCOUNT
+    key: [CUSTODIAN_ID, ACCOUNT_NUMBER]
+    references:
+      - { entity: Firm, columns: [FIRM_ID] }
+    columns:
+      - { name: CUSTODIAN_ID, type: string, required: true, description: "Custodian that holds the account." }
+      - { name: ACCOUNT_NUMBER, type: string, required: true, pii: account_number, description: "Account number as the custodian assigns it." }
+      - { name: FIRM_ID, type: string, required: true, description: "Firm the account belongs to." }
+      - { name: ACCOUNT_ID, type: string, description: "Platform account id from the account cross-reference; null until resolved." }
+      - { name: ACCOUNT_NAME, type: string, pii: name, description: "Registration name of the account." }
+      - { name: ACCOUNT_TYPE, type: string, description: "Custodian's account type, as received." }
+      - name: REGISTRATION_TYPE
+        type: string
+        description: Canonical registration of the account.
+        codes:
+          - { value: INDIVIDUAL, meaning: "individual" }
+          - { value: JOINT, meaning: "joint" }
+          - { value: TRUST, meaning: "trust" }
+          - { value: RETIREMENT, meaning: "IRA or other retirement account" }
+          - { value: CORPORATE, meaning: "corporate or entity" }
+          - { value: OTHER, meaning: "any other registration" }
+      - name: TAX_STATUS
+        type: string
+        description: Whether the account is taxable.
+        codes:
+          - { value: TAXABLE, meaning: "taxable" }
+          - { value: TAX_DEFERRED, meaning: "tax deferred" }
+          - { value: TAX_EXEMPT, meaning: "tax exempt" }
+      - { name: BASE_CURRENCY, type: string, required: true, description: "ISO 4217 currency the account is valued in." }
+      - { name: OPENED_ON, type: date, description: "Date the custodian opened the account." }
+      - { name: CLOSED_ON, type: date, description: "Date the custodian closed the account; null while open." }
+      - name: STATUS
+        type: string
+        required: true
+        description: Whether the account is open.
+        codes:
+          - { value: OPEN, meaning: "open" }
+          - { value: CLOSED, meaning: "closed" }
+          - { value: PENDING, meaning: "opened at the custodian but not yet resolved to a platform account" }
+
+  - name: Security
+    term: Security
+    table: SECURITY
+    key: [SECURITY_ID]
+    columns:
+      - { name: SECURITY_ID, type: string, required: true, description: "Security master identifier." }
+      - { name: CUSIP, type: string, description: "CUSIP, nine characters." }
+      - { name: ISIN, type: string, description: "ISIN, twelve characters." }
+      - { name: SEDOL, type: string, description: "SEDOL, seven characters." }
+      - { name: TICKER, type: string, description: "Exchange ticker." }
+      - { name: DESCRIPTION, type: string, required: true, description: "Name of the security as the security master states it." }
+      - name: ASSET_CLASS
+        type: string
+        required: true
+        description: Broad class of the security.
+        codes:
+          - { value: EQUITY, meaning: "equity" }
+          - { value: FIXED_INCOME, meaning: "fixed income" }
+          - { value: FUND, meaning: "mutual fund, ETF or other pooled vehicle" }
+          - { value: OPTION, meaning: "option" }
+          - { value: CASH, meaning: "cash or cash equivalent" }
+          - { value: OTHER, meaning: "any other class" }
+      - { name: SECURITY_TYPE, type: string, description: "Security master's finer type within the asset class." }
+      - { name: ISSUER, type: string, description: "Issuer of the security." }
+      - { name: CURRENCY, type: string, required: true, description: "ISO 4217 currency the security trades in." }
+      - { name: PRICE_FACTOR, type: decimal, precision: 18, scale: 8, description: "Multiplier from quoted price to value per unit; 1 unless the security quotes per 100 or per contract." }
+      - { name: MATURITY_DATE, type: date, description: "Maturity date of a fixed-income security." }
+      - name: STATUS
+        type: string
+        required: true
+        description: Whether the security is current in the security master.
+        codes:
+          - { value: ACTIVE, meaning: "active" }
+          - { value: INACTIVE, meaning: "matured, delisted or retired" }
+
+  - name: Position
+    term: Position
+    table: POSITION
+    key: [CUSTODIAN_ID, ACCOUNT_NUMBER, SECURITY_ID, AS_OF_DATE]
+    references:
+      - { entity: Account, columns: [CUSTODIAN_ID, ACCOUNT_NUMBER] }
+      - { entity: Security, columns: [SECURITY_ID] }
+    columns:
+      - { name: CUSTODIAN_ID, type: string, required: true, description: "Custodian that reported the position." }
+      - { name: ACCOUNT_NUMBER, type: string, required: true, pii: account_number, description: "Account the position is held in." }
+      - { name: SECURITY_ID, type: string, required: true, description: "Security held, resolved through the security master." }
+      - { name: AS_OF_DATE, type: date, required: true, description: "Business date the snapshot describes." }
+      - { name: CUSTODIAN_SECURITY_ID, type: string, description: "Identifier the custodian sent for the security, before resolution." }
+      - name: POSITION_TYPE
+        type: string
+        required: true
+        description: Long or short.
+        codes:
+          - { value: LONG, meaning: "long" }
+          - { value: SHORT, meaning: "short" }
+      - { name: QUANTITY, type: decimal, precision: 28, scale: 8, required: true, description: "Units held; negative for short positions." }
+      - { name: PRICE, type: decimal, precision: 28, scale: 10, description: "Price the custodian valued the position at." }
+      - { name: MARKET_VALUE, type: decimal, precision: 28, scale: 4, description: "Market value the custodian reported, in the position currency." }
+      - { name: COST_BASIS, type: decimal, precision: 28, scale: 4, description: "Total cost basis the custodian reported." }
+      - { name: ACCRUED_INTEREST, type: decimal, precision: 28, scale: 4, description: "Accrued interest included in the valuation, for fixed income." }
+      - { name: CURRENCY, type: string, required: true, description: "ISO 4217 currency of the price and values." }
+
+  - name: Lot
+    term: Lot
+    table: LOT
+    key: [CUSTODIAN_ID, ACCOUNT_NUMBER, SECURITY_ID, LOT_ID, AS_OF_DATE]
+    references:
+      - { entity: Position, columns: [CUSTODIAN_ID, ACCOUNT_NUMBER, SECURITY_ID, AS_OF_DATE] }
+    columns:
+      - { name: CUSTODIAN_ID, type: string, required: true, description: "Custodian that reported the lot." }
+      - { name: ACCOUNT_NUMBER, type: string, required: true, pii: account_number, description: "Account the lot is held in." }
+      - { name: SECURITY_ID, type: string, required: true, description: "Security the lot holds." }
+      - { name: LOT_ID, type: string, required: true, description: "Custodian's identifier of the lot; the acquisition date and sequence when the custodian sends none." }
+      - { name: AS_OF_DATE, type: date, required: true, description: "Business date the snapshot describes." }
+      - { name: ACQUIRED_ON, type: date, required: true, description: "Date the lot was acquired." }
+      - { name: QUANTITY, type: decimal, precision: 28, scale: 8, required: true, description: "Units remaining in the lot." }
+      - { name: UNIT_COST, type: decimal, precision: 28, scale: 10, description: "Cost per unit at acquisition." }
+      - { name: COST_BASIS, type: decimal, precision: 28, scale: 4, description: "Total cost basis of the remaining units." }
+      - name: HOLDING_PERIOD
+        type: string
+        description: Short or long term for tax purposes as of the business date.
+        codes:
+          - { value: SHORT, meaning: "held one year or less" }
+          - { value: LONG, meaning: "held more than one year" }
+      - { name: CURRENCY, type: string, required: true, description: "ISO 4217 currency of the cost figures." }
+
+  - name: Transaction
+    term: Transaction
+    table: TRANSACTION
+    key: [CUSTODIAN_ID, TRANSACTION_ID]
+    references:
+      - { entity: Account, columns: [CUSTODIAN_ID, ACCOUNT_NUMBER] }
+      - { entity: Security, columns: [SECURITY_ID], optional: true }
+    columns:
+      - { name: CUSTODIAN_ID, type: string, required: true, description: "Custodian that reported the transaction." }
+      - { name: TRANSACTION_ID, type: string, required: true, description: "Canonical transaction id; the custodian's id, suffixed with the part name when a record was split." }
+      - { name: SOURCE_TRANSACTION_ID, type: string, required: true, description: "Transaction id as the custodian sent it." }
+      - { name: SPLIT_RULE, type: string, description: "Name of the split rule that produced this row from the custodian record; null when the record was not split." }
+      - { name: SPLIT_PART, type: integer, description: "Position of this row among the parts of a split record, from 1." }
+      - { name: ACCOUNT_NUMBER, type: string, required: true, pii: account_number, description: "Account the transaction belongs to." }
+      - { name: SECURITY_ID, type: string, description: "Security involved; null for cash-only transactions." }
+      - { name: CUSTODIAN_SECURITY_ID, type: string, description: "Identifier the custodian sent for the security, before resolution." }
+      - name: TRANSACTION_TYPE
+        type: string
+        required: true
+        description: Canonical type, resolved from the custodian's transaction code.
+        codes:
+          - { value: BUY, meaning: "purchase" }
+          - { value: SELL, meaning: "sale" }
+          - { value: DIVIDEND, meaning: "cash dividend" }
+          - { value: INTEREST, meaning: "interest" }
+          - { value: CAPITAL_GAIN, meaning: "capital gain distribution" }
+          - { value: FEE, meaning: "fee or expense" }
+          - { value: DEPOSIT, meaning: "cash in" }
+          - { value: WITHDRAWAL, meaning: "cash out" }
+          - { value: TRANSFER_IN, meaning: "securities in" }
+          - { value: TRANSFER_OUT, meaning: "securities out" }
+          - { value: CORPORATE_ACTION, meaning: "split, merger, spin-off or similar" }
+          - { value: ADJUSTMENT, meaning: "custodian adjustment" }
+          - { value: OTHER, meaning: "any other type" }
+      - { name: CUSTODIAN_TRANSACTION_CODE, type: string, required: true, description: "Transaction code as the custodian sent it." }
+      - { name: TRADE_DATE, type: date, required: true, description: "Date the transaction took place." }
+      - { name: SETTLE_DATE, type: date, description: "Date the transaction settled or is due to settle." }
+      - { name: QUANTITY, type: decimal, precision: 28, scale: 8, description: "Units transacted; null for cash-only transactions." }
+      - { name: PRICE, type: decimal, precision: 28, scale: 10, description: "Price per unit." }
+      - { name: GROSS_AMOUNT, type: decimal, precision: 28, scale: 4, description: "Amount before fees; positive for cash in, negative for cash out." }
+      - { name: FEES, type: decimal, precision: 28, scale: 4, description: "Commissions and fees charged." }
+      - { name: NET_AMOUNT, type: decimal, precision: 28, scale: 4, required: true, description: "Amount that moved cash; positive for cash in, negative for cash out." }
+      - { name: CURRENCY, type: string, required: true, description: "ISO 4217 currency of the amounts." }
+      - { name: DESCRIPTION, type: string, description: "Narrative the custodian sent." }
+      - name: STATUS
+        type: string
+        required: true
+        description: Lifecycle status of the transaction.
+        codes:
+          - { value: ACTIVE, meaning: "counts towards holdings and cash" }
+          - { value: CANCELLED, meaning: "cancelled by a later record" }
+          - { value: SUPERSEDED, meaning: "replaced by a correction" }
+          - { value: CANCEL, meaning: "the record that cancels another; never counts" }
+      - { name: CANCELS_TRANSACTION_ID, type: string, description: "For a cancel record, the transaction it cancels." }
+      - { name: CORRECTS_TRANSACTION_ID, type: string, description: "For a correction, the transaction it replaces." }
+      - { name: CANCELLED_BY_TRANSACTION_ID, type: string, description: "For a cancelled transaction, the cancel record." }
+      - { name: SUPERSEDED_BY_TRANSACTION_ID, type: string, description: "For a superseded transaction, the correction that replaced it." }
+
+  - name: Price
+    term: Price
+    table: PRICE
+    key: [SECURITY_ID, PRICE_DATE, PRICE_SOURCE]
+    references:
+      - { entity: Security, columns: [SECURITY_ID] }
+    columns:
+      - { name: SECURITY_ID, type: string, required: true, description: "Security priced." }
+      - { name: PRICE_DATE, type: date, required: true, description: "Date the price is for." }
+      - { name: PRICE_SOURCE, type: string, required: true, description: "Custodian id or pricing vendor that supplied the price." }
+      - name: PRICE_TYPE
+        type: string
+        required: true
+        description: Which price this is.
+        codes:
+          - { value: CLOSE, meaning: "closing price" }
+          - { value: BID, meaning: "bid" }
+          - { value: ASK, meaning: "ask" }
+          - { value: EVALUATED, meaning: "evaluated price for an instrument that did not trade" }
+          - { value: NAV, meaning: "net asset value of a fund" }
+      - { name: PRICE, type: decimal, precision: 28, scale: 10, required: true, description: "Price per unit, before the security's price factor." }
+      - { name: CURRENCY, type: string, required: true, description: "ISO 4217 currency of the price." }
+
+  - name: Cash Balance
+    term: Cash Balance
+    table: CASH_BALANCE
+    key: [CUSTODIAN_ID, ACCOUNT_NUMBER, CURRENCY, BALANCE_TYPE, AS_OF_DATE]
+    references:
+      - { entity: Account, columns: [CUSTODIAN_ID, ACCOUNT_NUMBER] }
+    columns:
+      - { name: CUSTODIAN_ID, type: string, required: true, description: "Custodian that reported the balance." }
+      - { name: ACCOUNT_NUMBER, type: string, required: true, pii: account_number, description: "Account the cash is held in." }
+      - { name: CURRENCY, type: string, required: true, description: "ISO 4217 currency of the balance." }
+      - name: BALANCE_TYPE
+        type: string
+        required: true
+        description: Which balance this is.
+        codes:
+          - { value: SETTLED, meaning: "settled cash" }
+          - { value: TRADE_DATE, meaning: "cash including unsettled trades" }
+          - { value: MONEY_MARKET, meaning: "cash swept to a money market fund" }
+          - { value: MARGIN, meaning: "margin balance" }
+      - { name: AS_OF_DATE, type: date, required: true, description: "Business date the balance describes." }
+      - { name: AMOUNT, type: decimal, precision: 28, scale: 4, required: true, description: "Balance; negative when the account owes cash." }
+
+  - name: Exception
+    term: Exception
+    table: EXCEPTION
+    key: [EXCEPTION_ID]
+    columns:
+      - { name: EXCEPTION_ID, type: string, required: true, description: "Platform identifier of the exception." }
+      - { name: REJECTION_CODE, type: string, required: true, description: "Code from the rejection taxonomy that classifies the exception." }
+      - name: LEVEL
+        type: string
+        required: true
+        description: How far the rejection reaches.
+        codes:
+          - { value: FILE, meaning: "the whole file was rejected" }
+          - { value: RECORD, meaning: "one record or pair was rejected" }
+          - { value: FIELD, meaning: "one value was rejected; the record may still have loaded" }
+      - { name: ENTITY, type: string, description: "Canonical entity the rejected record was meant for; null for file-level exceptions." }
+      - { name: CUSTODIAN_ID, type: string, description: "Custodian whose data raised the exception." }
+      - { name: FIELD_NAME, type: string, description: "Source field at fault, for field-level exceptions." }
+      - { name: RAW_VALUE, type: string, pii: raw_record, description: "Value as received, for field-level exceptions." }
+      - { name: MESSAGE, type: string, required: true, description: "What was wrong, as the rule that rejected it states it." }
+      - { name: RECORD_KEY, type: string, description: "Reconciliation identity of the rejected record, as text, when it could be read." }
+      - { name: RAISED_AT, type: timestamp, required: true, description: "When the exception was raised." }
+      - name: STATUS
+        type: string
+        required: true
+        description: Where the exception is in its resolution.
+        codes:
+          - { value: OPEN, meaning: "waiting for triage" }
+          - { value: RESOLVED, meaning: "resolved by a person" }
+          - { value: AUTO_RESOLVED, meaning: "resolved by a whitelisted rule, with audit" }
+          - { value: DISMISSED, meaning: "closed without a change" }
+      - { name: RESOLUTION, type: string, description: "What was done to resolve it." }
+      - { name: RESOLVED_BY, type: string, description: "Person or rule that resolved it." }
+      - { name: RESOLVED_AT, type: timestamp, description: "When it was resolved." }

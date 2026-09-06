@@ -63,6 +63,12 @@ jobs:
       - name: Check release bundles
         run: astra-data --format github bundles check releases
 
+      - name: Validate the domain packs
+        run: astra-spec --format github cdm validate
+
+      - name: Check that the canonical model DDL is rendered and current
+        run: astra-spec --format github cdm render --check
+
   core:
     name: astra-core tests
     runs-on: ubuntu-latest

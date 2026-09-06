@@ -1,0 +1,117 @@
+# Glossary of the custodial domain pack. Entity terms define the canonical
+# model's tables: an entity in cdm/<version>.yaml names its term here, and the
+# term's definition is the table's definition. Concept terms define the words
+# the pack uses around the entities. S8.2 publishes these terms to the
+# client's governance tool.
+glossary_version: 0
+domain: custodial
+
+terms:
+  - term: Account
+    kind: entity
+    definition: >-
+      A custodial account: the container in which a custodian holds a client's securities
+      and cash, identified by the custodian and the account number the custodian assigns.
+      One account belongs to one firm.
+    also: [custodial account, brokerage account]
+
+  - term: Security
+    kind: entity
+    definition: >-
+      A financial instrument that can be held or traded: an equity, fund, bond, option or
+      cash equivalent, identified by the security master's security id and carrying the
+      market identifiers (CUSIP, ISIN, SEDOL, ticker) used to resolve custodian records.
+    also: [instrument, asset]
+
+  - term: Position
+    kind: entity
+    definition: >-
+      The quantity of one security held in one account as of one business date, with the
+      price and market value the custodian reported. A position is a daily snapshot, not a
+      running balance.
+    also: [holding]
+
+  - term: Lot
+    kind: entity
+    definition: >-
+      A tax lot: the part of a position acquired on one date at one cost, kept separately so
+      gains, losses and holding periods can be computed when it is sold.
+    also: [tax lot, cost basis lot]
+
+  - term: Transaction
+    kind: entity
+    definition: >-
+      One event that changes an account's holdings or cash: a buy, sell, dividend, fee,
+      transfer or adjustment. A custodian record that represents several events, such as a
+      dividend reinvestment, becomes several transactions, each traceable to the record.
+      A cancel or correction links to the transaction it acts on.
+    also: [activity, trade]
+
+  - term: Price
+    kind: entity
+    definition: >-
+      The value of one security on one date from one source, in the security's currency,
+      used to value positions and to check the market values custodians report.
+
+  - term: Cash Balance
+    kind: entity
+    definition: >-
+      The cash held in one account in one currency as of one business date, by balance
+      type: settled, trade date, money market or margin.
+    also: [cash position, balance]
+
+  - term: Firm
+    kind: entity
+    definition: >-
+      The advisory firm or broker-dealer that owns the relationship with an account's holder
+      and under which the platform manages the account.
+    also: [advisor firm, client firm]
+
+  - term: Exception
+    kind: entity
+    definition: >-
+      A record the factory could not accept or resolve, with the rejection code that
+      classifies it, where it came from and its resolution status. Every rejected file,
+      record, pair or value is an exception.
+    also: [rejection, error row]
+
+  - term: Custodian
+    kind: concept
+    definition: >-
+      The institution that holds client assets and sends the files the factory ingests,
+      identified by the custodian id used across specs, configs, alerts and canonical rows.
+
+  - term: Business Date
+    kind: concept
+    definition: >-
+      The date a custodian's snapshot describes, which is not the date the file arrived.
+      Positions, lots and cash balances carry it as the as-of date.
+    also: [as-of date, effective date]
+
+  - term: Reconciliation Identity
+    kind: concept
+    definition: >-
+      The columns by which the factory decides that two records describe the same thing:
+      the key of each entity. Custodian id and account number identify an account, the
+      security master id identifies a security, and their combination with the business
+      date identifies a position or a balance.
+
+  - term: Rejection Code
+    kind: concept
+    definition: >-
+      A code from the pack's rejection taxonomy that classifies why a record was rejected,
+      with its severity and owner. Every exception carries one.
+
+  - term: Lineage
+    kind: concept
+    definition: >-
+      The columns every canonical table carries that say which source system, file, line
+      and config version produced a row, and when it was loaded and last changed.
+
+  - term: Resolution
+    kind: concept
+    definition: >-
+      Replacing the identifiers a custodian sends with the platform's own: the account id
+      from the account cross-reference, the security id from the security master, the
+      canonical transaction type from the custodian's transaction code. A record that
+      cannot be resolved becomes an exception.

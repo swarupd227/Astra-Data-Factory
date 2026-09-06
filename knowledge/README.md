@@ -1,6 +1,6 @@
 # astra-knowledge
 
-The knowledge plane of Astra Data Factory (product spec Section 5): what the factory knows. Today it holds the spec registry (S2.1.1); the pattern library, domain packs and the rule catalog (E2) join it here. It depends on `astra-core` and on nothing above it; `astra-data` (generation) depends on it.
+The knowledge plane of Astra Data Factory (product spec Section 5): what the factory knows. It holds the spec registry, the pattern library and the domain packs; the rule catalog (F2.4) joins them here. It depends on `astra-core` and on nothing above it; `astra-data` (generation) depends on it.
 
 ```bash
 cd knowledge
@@ -136,6 +136,17 @@ One function, `patterns.numerics.signed_implied_decimal(digits, sign, scale, con
 
 `sign_style: leading` handles a sign character at the start of the digits instead. The same rules ship for Snowflake as `CONTROL.IMPLIED_DECIMAL`, `CONTROL.SIGNED_IMPLIED_DECIMAL` and `CONTROL.SIGNED_IMPLIED_DECIMAL_PROBLEM` (`infra/terraform/foundation/numerics.tf`), so rendered parse code and the reference implementation use one definition.
 
+## Domain packs and the canonical data model
+
+A domain pack is a directory under `domains/` (product spec Section 4): `glossary.yaml` and `cdm/<major>.<minor>.yaml`, one file per canonical model version. `astra_knowledge.cdm` loads and validates it, classifies the changes between versions, and renders Snowflake managed Iceberg DDL with key and reference tests. See [domains/custodial/README.md](../domains/custodial/README.md) for the custodial model and the versioning rule; the design is [ADR 0013](../docs/adr/0013-canonical-data-model.md).
+
+| Command | What it does |
+|---|---|
+| `astra-spec cdm validate` | Every pack: glossary shape, model shape, entity terms against the glossary, keys and references, and the versioning rule between consecutive versions |
+| `astra-spec cdm show --domain custodial [--version 1.0]` | Entities with keys, references, definitions and columns |
+| `astra-spec cdm diff --domain custodial --from 1.0 --to 2.0` | Every change between two versions, classified breaking or additive |
+| `astra-spec cdm render [--check]` | Writes `cdm/rendered/<version>/ddl.sql` and `tests/*.sql`; with `--check`, fails when they are stale (CI runs this) |
+
 ## What is checked
 
 Per file: schema shape; version equals the file name and id the directory; a valid effective date; a fixed-width file has a record length and every field a position within it; no two fields overlap; the picture's width equals the position length; the declared type fits the picture; dates and times have a format; codes are unique; a sign field names a field of the same record; several detail record types have names and match rules; every citation has a page or a line.
@@ -149,6 +160,9 @@ src/astra_knowledge/
   schemas/source-spec-v0.schema.json   the Source Spec schema, versioned by spec_version
   picture.py                           COBOL-style pictures: width, digits, scale, sign
   registry.py                          loading, checks, resolution
+  patterns/                            the pattern library: reference implementations and their result shape
+  schemas/cdm-v0.schema.json           canonical data model versions; glossary-v0.schema.json the pack glossary
+  cdm.py                               domain packs: loading, validation, version diff, DDL and test rendering
   cli.py
 tests/                                 run against the shipped registry and temporary variants of it
 ```

@@ -11,6 +11,7 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | `core` | shared | `astra-core`: line-aware YAML, problem reporting, schema error wording, Snowflake connection. Every plane depends on it. |
 | `specs` | Knowledge (E2) | The spec registry: one directory per layout, one file per version, validated on every pull request |
 | `knowledge` | Knowledge (E2) | `astra-spec`: the registry, resolution of the version in force, and later patterns, domain packs and the rule catalog |
+| `domains` | Knowledge (E2) | Domain packs: glossary, canonical data model versions with rendered DDL and key tests, and later the rejection taxonomy and reference-data patterns |
 | `configs` | Knowledge (E2) | Source configs, one YAML file per source, validated against the schema and the spec registry on every pull request |
 | `releases` | Generation (E3) | Release bundles rendered from configs; deployed by the pipeline |
 | `generation` | Generation (E3) | `astra-data`: config validation, bundle deploy and generated tests. The compiler and renderers grow here. |

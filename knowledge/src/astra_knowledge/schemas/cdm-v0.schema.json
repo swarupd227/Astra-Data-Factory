@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/cdm-v0.schema.json",
+  "title": "Canonical data model, file version 0",
+  "description": "One version of a domain pack's canonical data model (product spec Section 4): entities, their keys and columns, and the lineage columns every table carries. Definitions come from the pack's glossary through each entity's term.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cdm_version", "model", "lineage", "entities"],
+  "properties": {
+    "cdm_version": { "const": 0 },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "version", "schema", "description"],
+      "properties": {
+        "domain": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+        "version": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*\\.(0|[1-9][0-9]*)$",
+          "description": "MAJOR.MINOR. A breaking change needs a new MAJOR and a migration note; an additive change needs a new MINOR."
+        },
+        "schema": { "$ref": "#/$defs/identifier", "description": "Target schema the tables are created in." },
+        "description": { "type": "string", "minLength": 1 },
+        "migration": {
+          "type": "string",
+          "pattern": "^migrations/[1-9][0-9]*\\.(0|[1-9][0-9]*)\\.md$",
+          "description": "Migration note for this version, relative to the cdm directory. Required when the major version changes."
+        }
+      }
+    },
+    "lineage": {
+      "type": "array",
+      "description": "Columns appended to every entity's table: where a row came from and when it was loaded.",
+      "items": { "$ref": "#/$defs/column" }
+    },
+    "entities": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/entity" }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,254}$" },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "term", "table", "key", "columns"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Z][A-Za-z]*( [A-Z][A-Za-z]*)*$" },
+        "term": { "type": "string", "minLength": 1, "description": "Glossary term whose definition defines this entity." },
+        "table": { "$ref": "#/$defs/identifier" },
+        "key": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" },
+          "description": "Columns that identify one row: the reconciliation identity."
+        },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/column" }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["entity", "columns"],
+            "properties": {
+              "entity": { "type": "string" },
+              "columns": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/identifier" } },
+              "optional": { "type": "boolean", "default": false, "description": "The reference may be null; rows with a value must match." }
+            }
+          }
+        }
+      }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "description"],
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "type": { "enum": ["string", "integer", "decimal", "date", "timestamp", "boolean"] },
+        "precision": { "type": "integer", "minimum": 1, "maximum": 38 },
+        "scale": { "type": "integer", "minimum": 0, "maximum": 37 },
+        "required": { "type": "boolean", "default": false },
+        "description": { "type": "string", "minLength": 1 },
+        "pii": { "enum": ["raw_record", "name", "account_number", "tax_id", "email", "phone", "address", "date_of_birth", "financial"], "description": "PII category, one of the foundation PII tag values (ADR 0008)." },
+        "codes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "meaning"],
+            "properties": {
+              "value": { "type": "string", "minLength": 1 },
+              "meaning": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "decimal" } } },
+          "then": { "required": ["precision", "scale"] },
+          "else": { "not": { "anyOf": [{ "required": ["precision"] }, { "required": ["scale"] }] } }
+        },
+        {
+          "if": { "required": ["codes"] },
+          "then": { "properties": { "type": { "const": "string" } } }
+        }
+      ]
+    }
+  }
+}
