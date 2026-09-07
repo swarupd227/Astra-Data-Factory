@@ -85,6 +85,9 @@ jobs:
       - name: Check that the reference-data bundles are rendered and current
         run: astra-data --format github reference render --check
 
+      - name: Check that the Gold bundles are rendered and current
+        run: astra-data --format github gold render --check
+
   core:
     name: astra-core tests
     runs-on: ubuntu-latest

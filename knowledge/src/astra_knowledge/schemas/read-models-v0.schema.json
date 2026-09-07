@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/read-models-v0.schema.json",
+  "title": "Gold read models, file version 0",
+  "description": "The consumer-shaped Gold tables a domain pack publishes from its canonical model: which entity each reads, which columns it exposes under which names, and which columns name the custodian and the business date so that a watermark can say when a day is complete.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["read_models_version", "domain", "model_version", "read_models"],
+  "properties": {
+    "read_models_version": { "const": 0 },
+    "domain": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "model_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "description": "The canonical model version the read models read. A new model version does not change Gold until the read models move to it." },
+    "read_models": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "table", "entity", "description", "custodian", "columns"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+          "table": { "$ref": "#/$defs/identifier", "description": "Gold table name." },
+          "entity": { "type": "string", "minLength": 1, "description": "Canonical entity the read model reads, by name." },
+          "description": { "type": "string", "minLength": 20 },
+          "custodian": { "$ref": "#/$defs/identifier", "description": "Gold column that names the custodian; must be one of the columns, from a string column of the entity." },
+          "business_date": { "$ref": "#/$defs/identifier", "description": "Gold column that names the business date the row belongs to; the watermark's grain. Omit for a snapshot the custodian publishes whole." },
+          "columns": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name"],
+              "properties": {
+                "name": { "$ref": "#/$defs/identifier", "description": "Column name as the consumer reads it." },
+                "source": { "$ref": "#/$defs/identifier", "description": "Entity column it carries; defaults to the same name." },
+                "expression": { "type": "string", "minLength": 1, "description": "SQL over the entity's columns, when the consumer column is derived; needs a type." },
+                "type": { "enum": ["string", "integer", "decimal", "date", "timestamp", "boolean"] },
+                "precision": { "type": "integer", "minimum": 1, "maximum": 38 },
+                "scale": { "type": "integer", "minimum": 0, "maximum": 37 },
+                "description": { "type": "string", "minLength": 1 }
+              },
+              "allOf": [
+                { "if": { "properties": { "type": { "const": "decimal" } }, "required": ["type"] }, "then": { "required": ["precision", "scale"] } },
+                { "if": { "required": ["expression"] }, "then": { "required": ["type", "description"] } },
+                { "not": { "required": ["source", "expression"] } }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
+  }
+}

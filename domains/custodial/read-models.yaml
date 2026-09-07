@@ -1,0 +1,105 @@
+# Gold read models of the custodial pack: the tables a consumer reads, in
+# the consumer's shape, published per custodian and business date from the
+# canonical model once the custodian's day is complete. A watermark row per
+# custodian and business date is written after the tables, and the
+# <TABLE>_PUBLISHED views read only days with a watermark, so a consumer
+# never sees a half day (ADR 0026).
+#
+# Every column carries a column of the entity under the consumer's name, or
+# is an expression over the entity's columns with its own type. `custodian`
+# and `business_date` name the Gold columns the watermark keys on; a read
+# model without a business date is a snapshot published whole for the
+# custodian on every publish.
+#
+# The shapes below are the canonical shapes; a client instance replaces
+# them with the consumer's own (for Envestnet, the UMP read model, S7.2.1).
+read_models_version: 0
+domain: custodial
+model_version: "1.0"
+
+read_models:
+  - id: positions
+    table: POSITIONS
+    entity: Position
+    description: >-
+      One row per custodian, account, security and business date: the holding as the custodian
+      reported it, valued.
+    custodian: CUSTODIAN
+    business_date: AS_OF_DATE
+    columns:
+      - { name: CUSTODIAN, source: CUSTODIAN_ID }
+      - { name: ACCOUNT_NUMBER }
+      - { name: AS_OF_DATE }
+      - { name: SECURITY_ID }
+      - { name: CUSTODIAN_SECURITY_ID }
+      - { name: POSITION_TYPE }
+      - { name: QUANTITY }
+      - { name: PRICE }
+      - { name: MARKET_VALUE, expression: "COALESCE(MARKET_VALUE, QUANTITY * PRICE)", type: decimal, precision: 28, scale: 4, description: "Market value as the custodian reported it, or quantity times price when it reported none." }
+      - { name: COST_BASIS }
+      - { name: ACCRUED_INTEREST }
+      - { name: CURRENCY }
+
+  - id: transactions
+    table: TRANSACTIONS
+    entity: Transaction
+    description: >-
+      One row per custodian and canonical transaction, keyed to the trade date the consumer
+      reports by.
+    custodian: CUSTODIAN
+    business_date: TRADE_DATE
+    columns:
+      - { name: CUSTODIAN, source: CUSTODIAN_ID }
+      - { name: TRANSACTION_ID }
+      - { name: SOURCE_TRANSACTION_ID }
+      - { name: ACCOUNT_NUMBER }
+      - { name: SECURITY_ID }
+      - { name: CUSTODIAN_SECURITY_ID }
+      - { name: TRANSACTION_TYPE }
+      - { name: CUSTODIAN_TRANSACTION_CODE }
+      - { name: TRADE_DATE }
+      - { name: SETTLE_DATE }
+      - { name: QUANTITY }
+      - { name: PRICE }
+      - { name: GROSS_AMOUNT }
+      - { name: FEES }
+      - { name: NET_AMOUNT }
+      - { name: CURRENCY }
+      - { name: DESCRIPTION }
+      - { name: STATUS }
+
+  - id: cash_balances
+    table: CASH_BALANCES
+    entity: Cash Balance
+    description: >-
+      One row per custodian, account, currency, balance type and business date.
+    custodian: CUSTODIAN
+    business_date: AS_OF_DATE
+    columns:
+      - { name: CUSTODIAN, source: CUSTODIAN_ID }
+      - { name: ACCOUNT_NUMBER }
+      - { name: CURRENCY }
+      - { name: BALANCE_TYPE }
+      - { name: AS_OF_DATE }
+      - { name: AMOUNT }
+
+  - id: accounts
+    table: ACCOUNTS
+    entity: Account
+    description: >-
+      The custodian's accounts as currently known: a snapshot published whole with every
+      publish, not keyed to a business date.
+    custodian: CUSTODIAN
+    columns:
+      - { name: CUSTODIAN, source: CUSTODIAN_ID }
+      - { name: ACCOUNT_NUMBER }
+      - { name: ACCOUNT_ID }
+      - { name: FIRM_ID }
+      - { name: ACCOUNT_NAME }
+      - { name: ACCOUNT_TYPE }
+      - { name: REGISTRATION_TYPE }
+      - { name: TAX_STATUS }
+      - { name: BASE_CURRENCY }
+      - { name: OPENED_ON }
+      - { name: CLOSED_ON }
+      - { name: STATUS }

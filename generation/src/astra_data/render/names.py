@@ -50,6 +50,11 @@ def gate_task_name(compiled: CompiledConfig) -> str:
     return f"{compiled.source['custodian'].upper()}_GATE"
 
 
+def publish_task_name(compiled: CompiledConfig) -> str:
+    """The last task of the custodian's DAG: publishes Gold and the watermark after every source has processed (ADR 0026)."""
+    return f"{compiled.source['custodian'].upper()}_PUBLISH"
+
+
 def record_table(compiled: CompiledConfig, record_label: str) -> str:
     return f"{source_name(compiled)}_{record_label.upper()}"
 

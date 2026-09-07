@@ -7,8 +7,11 @@ pattern of the custodian (CONTROL.CUSTODIAN_FILES, synced from the same
 delivery block) has a loaded file for a business date and a file arrived
 since that date's last run. The source's process task runs after the gate,
 only then. A file that completes the set after the cutoff starts the DAG on
-arrival, so the late alert is followed by a run. Each custodian has its own
-gate and its own DAG; nothing in one references another.
+arrival, so the late alert is followed by a run. The DAG ends in
+<CUSTODIAN>_PUBLISH, after every source's process task, which publishes
+the Gold read models for the custodian and writes the watermark last
+(ADR 0026). Each custodian has its own gate and its own DAG; nothing in
+one references another.
 
 Every rendered source is in a DAG: a config without a delivery block
 cannot be rendered at all, since the pipe needs its patterns (ADR 0019).
@@ -17,7 +20,7 @@ cannot be rendered at all, since the pipe needs its patterns (ADR 0019).
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import BRONZE, CONTROL, WAREHOUSE_BY_TIER, gate_task_name, lit, procedure, q, task_name
+from astra_data.render.names import BRONZE, CONTROL, WAREHOUSE_BY_TIER, gate_task_name, lit, procedure, publish_task_name, q, task_name
 
 # Order of pipeline steps within the manifest, by the suffix of the file name.
 STEP_ORDER = {"pipe.sql": 0, "lines.sql": 1, "parse.sql": 2, "intake.sql": 3, "merge.sql": 4, "resolve.sql": 5, "process.sql": 6, "tasks.sql": 7}
@@ -43,6 +46,21 @@ def render_gate(compiled: CompiledConfig) -> list[str]:
     ]
 
 
+def render_publish(compiled: CompiledConfig) -> list[str]:
+    """The custodian's publish task, after this source's process task; created once, and every source adds itself as a predecessor."""
+    custodian = compiled.source["custodian"]
+    tier = compiled.source["tier"]
+    publish = f"{BRONZE}.{q(publish_task_name(compiled))}"
+    return [
+        f"CREATE TASK IF NOT EXISTS {publish}",
+        f"  WAREHOUSE = {WAREHOUSE_BY_TIER[tier]}",
+        f"  COMMENT = {lit(f'Publishes the Gold read models of custodian {custodian} and writes the watermark last, after every source of its DAG has processed.')}",
+        "AS",
+        f"  CALL {CONTROL}.\"PUBLISH_GOLD\"({lit(custodian)});",
+        f"ALTER TASK {publish} ADD AFTER {BRONZE}.{q(task_name(compiled))};",
+    ]
+
+
 def render_tasks(compiled: CompiledConfig) -> str:
     source = compiled.id
     tier = compiled.source["tier"]
@@ -57,8 +75,11 @@ def render_tasks(compiled: CompiledConfig) -> str:
             f"-- asks CONTROL.CUSTODIAN_GATE whether a business date's expected file set ({patterns}) is complete and a file",
             "-- arrived since that date's last run; the process task below runs after the gate only when it answers 'run'. A late",
             "-- file after the cutoff completes the set and starts the DAG on arrival; a re-delivery starts it again (ADR 0024).",
-            "-- The gate is created once and not replaced, so the other sources of the custodian stay attached; the DAG is suspended",
-            "-- while this task is attached and every task of it is resumed at the end. Nothing here refers to another custodian.",
+            f"-- The DAG ends in {publish_task_name(compiled)}, after every source's process task: it publishes the Gold read models for the",
+            "-- custodian and writes the watermark last (CONTROL.PUBLISH_GOLD, ADR 0026), so a consumer never reads a half day.",
+            "-- The gate and the publish task are created once and not replaced, so the other sources of the custodian stay attached;",
+            "-- the DAG is suspended while this task is attached and every task of it is resumed at the end. Nothing here refers to",
+            "-- another custodian.",
             f"-- Named {task_name(compiled)} so a failure is attributed to custodian {custodian} by CONTROL.DETECT_TASK_FAILURES.",
             "-- Rendered by astra-data render.",
             *render_gate(compiled),
@@ -69,6 +90,7 @@ def render_tasks(compiled: CompiledConfig) -> str:
             f"  COMMENT = {lit(f'Processes source {source} ({compiled.spec.label}) when the gate of custodian {custodian} starts a run; {tier} tier warehouse.')}",
             "AS",
             f"  {process}",
+            *render_publish(compiled),
             f"SELECT SYSTEM$TASK_DEPENDENTS_ENABLE('{gate}');",
             "",
         ]

@@ -1,0 +1,11 @@
+# Gold read models and the watermark of the custodial domain pack. Rendered by astra-data gold render from
+# domains/custodial/read-models.yaml; the version is a digest of the rendered files. Do not edit.
+bundle: custodial-gold
+version: "ac72da1f221a"
+source: custodial_gold
+steps:
+  - ddl/gold_tables.sql
+  - pipeline/publish.sql
+  - pipeline/published_views.sql
+tests:
+  - tests/*.sql

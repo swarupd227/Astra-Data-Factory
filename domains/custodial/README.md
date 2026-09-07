@@ -8,6 +8,7 @@ domains/custodial/
   rejections.yaml          the rejection taxonomy: every code with level, severity, owner, resolution
   loader-rejections.csv    the Loader Rejections reference (client material; not yet added), for parity
   reference-data.yaml      the reference-data feeds replicated into REFERENCE: security master, account cross-reference
+  read-models.yaml         the Gold read models: consumer-shaped tables over the canonical model, published per custodian and business date behind a watermark
   cdm/<major>.<minor>.yaml one file per model version
   cdm/migrations/<v>.md    migration note, required for every new major version
   cdm/rendered/<v>/        DDL and key tests rendered from the model (checked in CI)

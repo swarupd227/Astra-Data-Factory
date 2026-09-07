@@ -339,7 +339,9 @@ def cmd_cdm_validate(args: argparse.Namespace) -> int:
     terms = sum(len(p.glossary.terms) for p in packs)
     codes = sum(len(p.rejections.codes) for p in packs)
     parity = "".join(f"; Loader parity checked against {_rel(p.loader_reference.path, Path(args.root))}" for p in packs if p.loader_reference)
-    _summary(f"checked {_plural(versions, 'model version')}, {_plural(terms, 'glossary term')} and {_plural(codes, 'rejection code')} across {_plural(len(packs), 'domain pack')}: no problems{parity}", args.format, CDM_TITLE)
+    read_models = sum(len(p.read_models.models) for p in packs if p.read_models)
+    gold = f", {_plural(read_models, 'Gold read model')}" if read_models else ""
+    _summary(f"checked {_plural(versions, 'model version')}, {_plural(terms, 'glossary term')}, {_plural(codes, 'rejection code')}{gold} across {_plural(len(packs), 'domain pack')}: no problems{parity}", args.format, CDM_TITLE)
     return 0
 
 

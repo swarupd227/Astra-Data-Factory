@@ -64,8 +64,19 @@ def test_the_process_task_runs_after_the_gate_only_when_it_says_run(tasks):
     assert "WHEN SYSTEM$GET_PREDECESSOR_RETURN_VALUE('PERSHING_GATE') = 'run'" in process
     assert "SCHEDULE" not in process  # a child task has no schedule of its own
     assert process.endswith('CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"()')
-    assert statements[3] == "SELECT SYSTEM$TASK_DEPENDENTS_ENABLE('{{ DATABASE }}.\"BRONZE\".\"PERSHING_GATE\"')"
-    assert len(statements) == 4
+    assert statements[-1] == "SELECT SYSTEM$TASK_DEPENDENTS_ENABLE('{{ DATABASE }}.\"BRONZE\".\"PERSHING_GATE\"')"
+    assert len(statements) == 6
+
+
+def test_the_dag_ends_in_the_custodians_publish_task(tasks):
+    statements = _statements(tasks)
+    publish = statements[3]
+    assert publish.startswith('CREATE TASK IF NOT EXISTS {{ DATABASE }}."BRONZE"."PERSHING_PUBLISH"')  # created once; every source attaches itself
+    assert "SCHEDULE" not in publish and "AFTER" not in publish and "WAREHOUSE = {{ WAREHOUSE_MEDIUM }}" in publish
+    assert publish.endswith("CALL {{ DATABASE }}.\"CONTROL\".\"PUBLISH_GOLD\"('pershing')")
+    assert statements[4] == 'ALTER TASK {{ DATABASE }}."BRONZE"."PERSHING_PUBLISH" ADD AFTER {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"'
+    assert tasks.index('CREATE TASK IF NOT EXISTS {{ DATABASE }}."BRONZE"."PERSHING_PUBLISH"') > tasks.index('CREATE OR REPLACE TASK {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"')
+    assert tasks.index("ADD AFTER") < tasks.index("SYSTEM$TASK_DEPENDENTS_ENABLE")
 
 
 def test_the_dag_is_described_in_terms_of_the_expected_files_and_late_arrivals(tasks):
@@ -92,6 +103,7 @@ def test_one_custodians_dag_shares_nothing_with_another(inputs, tmp_path):
     assert "WHEN SYSTEM$GET_PREDECESSOR_RETURN_VALUE('EXAMPLE_CUSTODIAN_GATE') = 'run'" in sql
     assert 'AFTER {{ DATABASE }}."BRONZE"."EXAMPLE_CUSTODIAN_GATE"' in sql
     assert "pershing" not in sql.lower()  # no task, gate or call of another custodian
+    assert 'ALTER TASK {{ DATABASE }}."BRONZE"."EXAMPLE_CUSTODIAN_PUBLISH" ADD AFTER {{ DATABASE }}."BRONZE"."EXAMPLE_CUSTODIAN_EXAMPLE_TRANSACTIONS_PROCESS"' in sql
     assert "ALLOW_OVERLAPPING_EXECUTION = FALSE" in sql  # a slow run of this DAG only holds this DAG back
     assert "SELECT SYSTEM$TASK_DEPENDENTS_ENABLE('{{ DATABASE }}.\"BRONZE\".\"EXAMPLE_CUSTODIAN_GATE\"');" in sql
 

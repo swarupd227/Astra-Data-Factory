@@ -18,6 +18,7 @@ from astra_data.bundle import BundleError, DeployError, Target, check_bundles, d
 from astra_data.compiler import compile_paths
 from astra_data.render import bundle_name as release_bundle_name, check_bundle as check_release_bundle, write_bundle as write_release_bundle
 from astra_data.custodians import custodians_from_configs, sync, sync_statements
+from astra_data.gold import bundle_name as gold_bundle_name, check_bundle as check_gold_bundle, packs_with_read_models, write_bundle as write_gold_bundle
 from astra_data.reference_data import bundle_name, check_bundle, packs_with_reference_data, sync as sync_reference_feeds, sync_statements as reference_feed_statements, write_bundle
 from astra_data.rejections import sync as sync_rejections, sync_statements as rejection_statements, taxonomies_from_packs
 from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExecutor, connect
@@ -349,6 +350,30 @@ def cmd_reference_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gold_render(args: argparse.Namespace) -> int:
+    packs, problems = packs_with_read_models(args.domains, root=Path(args.root), domain=args.domain)
+    if problems:
+        _print_problems(problems, args.format)
+        return 1
+    if not packs:
+        _summary("no domain pack declares Gold read models", args.format)
+        return 0
+    releases = Path(args.releases)
+    if args.check:
+        problems = [p for pack in packs for p in check_gold_bundle(pack, releases, Path(args.root))]
+        if problems:
+            _print_problems(problems, args.format)
+            _summary(f"{len(problems)} Gold bundle file{'s' if len(problems) != 1 else ''} out of date; run astra-data gold render and commit the result", args.format)
+            return 1
+        _summary(f"Gold bundles are current for {len(packs)} domain pack{'s' if len(packs) != 1 else ''}", args.format)
+        return 0
+    for pack in packs:
+        root = write_gold_bundle(pack, releases)
+        models = len(pack.read_models.models)
+        _summary(f"rendered {gold_bundle_name(pack)}: {models} read model{'s' if models != 1 else ''} -> {_rel(root, Path(args.root))}", args.format)
+    return 0
+
+
 def cmd_reference_sync(args: argparse.Namespace) -> int:
     packs, problems = packs_with_reference_data(args.domains, root=Path(args.root), domain=args.domain)
     if problems:
@@ -467,6 +492,15 @@ def build_parser() -> argparse.ArgumentParser:
     rs.add_argument("--domain", help="one domain pack (default: all)")
     rs.add_argument("--dry-run", action="store_true", help="print the SQL instead of running it")
     rs.set_defaults(func=cmd_reference_sync)
+
+    gd = sub.add_parser("gold", help="Gold read models and the watermark: render each domain pack's bundle")
+    gdsub = gd.add_subparsers(dest="gold_command", required=True)
+    gr = gdsub.add_parser("render", help="write releases/<pack>-gold/ from the pack's read models; --check fails when it is stale")
+    gr.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
+    gr.add_argument("--domain", help="one domain pack (default: all)")
+    gr.add_argument("--releases", default="releases", help="bundles directory (default: releases)")
+    gr.add_argument("--check", action="store_true")
+    gr.set_defaults(func=cmd_gold_render)
 
     return parser
 

@@ -1,0 +1,6 @@
+-- TRANSACTIONS: every custodian and business date in Gold has a watermark row. Returns days without one.
+SELECT g."CUSTODIAN", g."TRADE_DATE", COUNT(*) AS ROW_COUNT
+FROM {{ DATABASE }}."GOLD"."TRANSACTIONS" g
+LEFT JOIN {{ DATABASE }}."GOLD"."WATERMARK" w ON w."CUSTODIAN_ID" = g."CUSTODIAN" AND w."BUSINESS_DATE" = g."TRADE_DATE"
+WHERE w."CUSTODIAN_ID" IS NULL
+GROUP BY g."CUSTODIAN", g."TRADE_DATE";

@@ -273,7 +273,7 @@ def test_cli_lists_codes_and_filters_by_level_and_owner(capsys):
 def test_cli_validate_counts_rejection_codes(capsys):
     assert main(["--root", str(REPO), "--domains", str(DOMAINS), "cdm", "validate"]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"checked 1 model version, 15 glossary terms and \d\d rejection codes across 1 domain pack: no problems", out), out
+    assert re.search(r"checked 1 model version, 15 glossary terms, \d\d rejection codes, 4 Gold read models across 1 domain pack: no problems", out), out
 
 
 def test_cli_parity_without_a_reference_says_where_to_put_it(tmp_path, capsys):

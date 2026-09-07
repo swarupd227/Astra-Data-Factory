@@ -14,7 +14,7 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | `domains` | Knowledge (E2) | Domain packs: glossary, canonical data model versions with rendered DDL and key tests, the rejection taxonomy and the reference-data feeds |
 | `rules` | Knowledge (E2) | The rule catalog: one file per business rule with citation, class, owner, status and its history; configs reference rules by id |
 | `configs` | Knowledge (E2) | Source configs, one YAML file per source, validated against the schema, the spec registry and the rule catalog on every pull request |
-| `releases` | Generation (E3) | Release bundles rendered from configs and domain packs (reference-data replication); deployed by the pipeline |
+| `releases` | Generation (E3) | Release bundles rendered from configs and domain packs (reference-data replication, Gold read models and the watermark); deployed by the pipeline |
 | `generation` | Generation (E3) | `astra-data`: config validation, bundle deploy and generated tests. The compiler and renderers grow here. |
 | `verification` | Verification (E4) | `astra-verify`: ephemeral sandboxes per task. Dry-runs, golden replay and parity grow here. |
 | `infra/terraform/foundation` | Control (E1) | Per environment: Snowflake database, schemas, roles, tier-sized warehouses, Iceberg bucket and external volume, Open Catalog sync, landing zone with Snowpipe and file load log |

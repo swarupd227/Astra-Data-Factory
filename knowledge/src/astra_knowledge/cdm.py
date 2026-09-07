@@ -31,6 +31,7 @@ from astra_core.schema import describe_error, error_line, load_validator, sorted
 from astra_core.yamlsource import SourceError, line_of, load
 
 from astra_knowledge.columns import SQL_TYPES, Code, Column, Lookup, column_from, column_problems
+from astra_knowledge.read_models import READ_MODELS_FILE, ReadModels, load_read_models, resolve_read_models
 from astra_knowledge.reference_data import REFERENCE_DATA_FILE, ReferenceData, load_reference_data, reference_data_problems
 from astra_knowledge.rejections import LOADER_REFERENCE_FILE, REJECTIONS_FILE, LoaderReference, Taxonomy, load_loader_reference, load_taxonomy, parity, parity_problems
 
@@ -127,6 +128,7 @@ class DomainPack:
     rejections: Taxonomy
     loader_reference: LoaderReference | None = None
     reference_data: ReferenceData | None = None
+    read_models: ReadModels | None = None  # Gold read models over the model version they pin
 
     @property
     def latest(self) -> Model:
@@ -354,7 +356,23 @@ def load_pack(root: Path, repo_root: Path | None = None) -> tuple[DomainPack | N
     problems.extend(_pack_problems(root, glossary, models, taxonomy, reference, reference_data, repo_root))
     if problems:
         return None, problems
-    return DomainPack(root.name, root, glossary, tuple(models), taxonomy, reference, reference_data), []
+
+    # The Gold read models come last: they read one model version, and only a pack that holds together has one to read.
+    read_models: ReadModels | None = None
+    read_models_path = root / READ_MODELS_FILE
+    if read_models_path.is_file():
+        raw, problems = load_read_models(read_models_path, repo_root)
+        if raw is None:
+            return None, problems
+        if raw["domain"] != root.name:
+            return None, [Problem(display_path(read_models_path, repo_root), None, f"read models domain '{raw['domain']}' must match the pack directory '{root.name}'")]
+        pinned = next((m for m in models if m.version == raw["model_version"]), None)
+        if pinned is None:
+            return None, [Problem(display_path(read_models_path, repo_root), None, f"read models read model version {raw['model_version']}, which the pack does not have; versions are {', '.join(m.version for m in models)}")]
+        read_models, problems = resolve_read_models(raw, pinned, repo_root)
+        if read_models is None:
+            return None, problems
+    return DomainPack(root.name, root, glossary, tuple(models), taxonomy, reference, reference_data, read_models), []
 
 
 def _version_key(name: str) -> tuple[int, int]:
