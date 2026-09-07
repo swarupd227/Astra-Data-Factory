@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import custodian_folder, file_metadata_table, files_table, parse_problems_table, pipe_name, raw_lines_table, record_table, sql_type, task_name
+from astra_data.render.names import custodian_folder, exceptions_table, file_metadata_table, files_table, parse_problems_table, pipe_name, raw_lines_table, record_table, silver_table, sql_type, task_name
 
 
 def _position(field) -> str:
@@ -67,7 +67,11 @@ def render_doc(compiled: CompiledConfig) -> str:
     out.append(f"Lines with a record-level problem (an unknown record type, a line longer than the record length) are excluded from the record tables and counted per file as `EXCLUDED_ROWS` on `BRONZE.{file_metadata_table(compiled)}`; every problem is a row of `BRONZE.{parse_problems_table(compiled)}` with its rejection code. A field-level problem leaves the value NULL and keeps the row.")
     out.append("")
     if spec.merge:
-        out.append(f"Merge: `{spec.merge.mode_field}` in the header says refresh or update ({', '.join(f'{k} = {v}' for k, v in spec.merge.modes.items())}); scope {', '.join(spec.merge.scope)}; keys {', '.join(spec.merge.keys)}.")
+        out.append(f"Merge: `{spec.merge.mode_field}` in the header says refresh or update ({', '.join(f'{k} = {v}' for k, v in spec.merge.modes.items())}); scope {', '.join(spec.merge.scope) or 'the whole source'}; keys {', '.join(spec.merge.keys)}.")
+        out.append("")
+        out.append(f"## Silver")
+        out.append("")
+        out.append(f"`SILVER.{silver_table(compiled)}` holds one active row per scope and key. A refresh file replaces its scope as of the file's business date: rows in the file are inserted or updated, rows not in the file are retired (`RETIRED_AT`, `RETIRED_BY_FILE`); an update file merges on keys and carries every other row forward. Files are merged in arrival order once their parse is complete. A file whose header declares no known mode, or whose business date is earlier than what Silver holds for its scope, is rejected whole. Unpaired records, blank keys and duplicate keys within a file are exceptions in `EXCEPTIONS.{exceptions_table(compiled)}`; the first row for a key is kept. Every merge is logged in `CONTROL.MERGE_LOG`.")
         out.append("")
 
     out.append("## Mappings")
@@ -115,7 +119,7 @@ def render_doc(compiled: CompiledConfig) -> str:
 
     out.append("## Pipeline")
     out.append("")
-    out.append(f"Pipe `BRONZE.{pipe_name(compiled)}` loads every file under `{custodian_folder(compiled)}` of the landing prefix that matches the delivery patterns into `BRONZE.{raw_lines_table(compiled)}` on arrival, one row per line. Dynamic tables parse the lines with a target lag of {compiled.target_lag_minutes} minutes. Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` every {compiled.target_lag_minutes} minutes on the {src['tier']} tier warehouse. Stages: intake (register landed files as pending). Merge and resolution stages are added by their releases.")
+    out.append(f"Pipe `BRONZE.{pipe_name(compiled)}` loads every file under `{custodian_folder(compiled)}` of the landing prefix that matches the delivery patterns into `BRONZE.{raw_lines_table(compiled)}` on arrival, one row per line. Dynamic tables parse the lines with a target lag of {compiled.target_lag_minutes} minutes. Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` every {compiled.target_lag_minutes} minutes on the {src['tier']} tier warehouse. Stages: intake (register landed files as pending), merge (pending files into Silver in arrival order). Resolution is added by its release.")
     out.append("")
     return "\n".join(out)
 

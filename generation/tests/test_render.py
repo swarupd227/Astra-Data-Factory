@@ -52,10 +52,12 @@ def test_the_bundle_has_every_artifact_kind(compiled):
         "manifest.yaml",
         "PROVENANCE.json",
         "ddl/bronze_pershing_position.sql",
+        "ddl/silver_pershing_position.sql",
         "pipeline/pershing_position_pipe.sql",
         "pipeline/pershing_position_lines.sql",
         "pipeline/pershing_position_parse.sql",
         "pipeline/pershing_position_intake.sql",
+        "pipeline/pershing_position_merge.sql",
         "pipeline/pershing_position_process.sql",
         "pipeline/pershing_position_tasks.sql",
         "dq/dmf_pershing_position.sql",
@@ -63,6 +65,9 @@ def test_the_bundle_has_every_artifact_kind(compiled):
         "tests/pershing_position_files_parse_complete.sql",
         "tests/pershing_position_files_registered_once.sql",
         "tests/pershing_position_problem_codes_known.sql",
+        "tests/pershing_position_silver_active_keys_unique.sql",
+        "tests/pershing_position_exception_codes_known.sql",
+        "tests/pershing_position_files_merged_once_logged.sql",
         "tests/pershing_position_detail_keys_unique_per_file.sql",
         "tests/pershing_position_detail_lines_traceable.sql",
         "docs/pershing_position.md",
@@ -70,7 +75,7 @@ def test_the_bundle_has_every_artifact_kind(compiled):
     }
     manifest = files["manifest.yaml"]
     assert "bundle: pershing-position" in manifest and "source: pershing_position" in manifest and re.search(r'version: "[0-9a-f]{12}"', manifest)
-    assert manifest.index("ddl/bronze_pershing_position.sql") < manifest.index("pipeline/pershing_position_pipe.sql") < manifest.index("pipeline/pershing_position_lines.sql") < manifest.index("pipeline/pershing_position_parse.sql") < manifest.index("pipeline/pershing_position_intake.sql") < manifest.index("pipeline/pershing_position_process.sql") < manifest.index("pipeline/pershing_position_tasks.sql") < manifest.index("dq/dmf_pershing_position.sql")
+    assert manifest.index("ddl/bronze_pershing_position.sql") < manifest.index("ddl/silver_pershing_position.sql") < manifest.index("pipeline/pershing_position_pipe.sql") < manifest.index("pipeline/pershing_position_lines.sql") < manifest.index("pipeline/pershing_position_parse.sql") < manifest.index("pipeline/pershing_position_intake.sql") < manifest.index("pipeline/pershing_position_merge.sql") < manifest.index("pipeline/pershing_position_process.sql") < manifest.index("pipeline/pershing_position_tasks.sql") < manifest.index("dq/dmf_pershing_position.sql")
     for name, text in files.items():
         if name.endswith(".sql"):
             assert set(re.findall(r"\{\{\s*([A-Z_]+)\s*\}\}", text)) <= {"DATABASE", "WAREHOUSE_SIMPLE", "WAREHOUSE_MEDIUM", "WAREHOUSE_COMPLEX"}, name
@@ -122,6 +127,8 @@ def test_pipeline_scopes_lines_registers_files_and_runs_stages(compiled):
     process = files["pipeline/pershing_position_process.sql"]
     assert 'CREATE OR REPLACE PROCEDURE {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"()' in process
     assert 'CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_INTAKE"(:run_id);' in process and "run_id STRING DEFAULT UUID_STRING()" in process
+    assert process.index('"PERSHING_POSITION_INTAKE"(:run_id)') < process.index('CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_MERGE"(:run_id);')
+    assert 'l."ROW_COUNT"' in intake
 
     tasks = files["pipeline/pershing_position_tasks.sql"]
     assert 'CREATE OR REPLACE TASK {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"' in tasks
@@ -184,7 +191,9 @@ def test_atlan_payload_carries_assets_lineage_and_glossary_terms(compiled):
     assert silver["attributes"]["meanings"][0]["termName"] == "Position" and silver["attributes"]["certificateStatus"] == "VERIFIED"
     pii = [c for c in by_type["Column"] if c.get("classifications")]
     assert any(c["attributes"]["name"] == "ACCOUNT_NUMBER" and c["classifications"][0]["attributes"]["category"] == "account_number" for c in pii)
-    (process,) = by_type["Process"]
+    process = next(p for p in by_type["Process"] if "->" in p["attributes"]["name"])
+    merge_process = next(p for p in by_type["Process"] if p["attributes"]["name"].endswith("into Silver"))
+    assert merge_process["attributes"]["outputs"][0]["uniqueAttributes"]["qualifiedName"].endswith("/SILVER/PERSHING_POSITION_DETAIL")
     assert process["attributes"]["inputs"][0]["uniqueAttributes"]["qualifiedName"].endswith("/BRONZE/PERSHING_POSITION_DETAIL")
     assert process["attributes"]["outputs"][0]["uniqueAttributes"]["qualifiedName"].endswith("/SILVER/POSITION")
     assert "POSITION.QUANTITY <- detail.quantity via signed_implied_decimal(13, 5)" in process["attributes"]["description"]
@@ -208,20 +217,22 @@ def test_the_written_bundle_passes_the_bundle_contract_and_deploys(compiled, tmp
     bundle = load_bundle(root, tmp_path)
     assert [bundle.relative(s) for s in bundle.steps] == [
         "ddl/bronze_pershing_position.sql",
+        "ddl/silver_pershing_position.sql",
         "pipeline/pershing_position_pipe.sql",
         "pipeline/pershing_position_lines.sql",
         "pipeline/pershing_position_parse.sql",
         "pipeline/pershing_position_intake.sql",
+        "pipeline/pershing_position_merge.sql",
         "pipeline/pershing_position_process.sql",
         "pipeline/pershing_position_tasks.sql",
         "dq/dmf_pershing_position.sql",
     ]
     executor = FakeExecutor()
     result = deploy(bundle, Target("dev"), executor)
-    assert len(result.steps) == 8 and "{{" not in "".join(executor.scripts) and 'ASTRA_DEV."BRONZE"' in executor.scripts[0] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[3] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[6]
-    assert "FROM @ASTRA_DEV.\"BRONZE\".\"LANDING\"/pershing/" in executor.scripts[1] and "FORMAT_NAME = 'ASTRA_DEV.BRONZE.RAW_LINES'" in executor.scripts[1]
+    assert len(result.steps) == 10 and "{{" not in "".join(executor.scripts) and 'ASTRA_DEV."BRONZE"' in executor.scripts[0] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[4] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[8]
+    assert "FROM @ASTRA_DEV.\"BRONZE\".\"LANDING\"/pershing/" in executor.scripts[2] and "FORMAT_NAME = 'ASTRA_DEV.BRONZE.RAW_LINES'" in executor.scripts[2]
     results = run_tests(bundle, Target("dev"), executor)
-    assert len(results) == 6 and all(r.passed for r in results)
+    assert len(results) == 9 and all(r.passed for r in results)
 
 
 def test_write_removes_stale_files_and_check_reports_drift(compiled, tmp_path):
@@ -274,7 +285,7 @@ def test_cli_render_writes_and_checks(tmp_path, capsys):
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 1
     assert "not rendered for pershing_position" in capsys.readouterr().out
     assert main([*_args(root, out), str(root / "configs")]) == 0
-    assert "rendered pershing-position: 18 files -> releases/pershing-position" in capsys.readouterr().out
+    assert "rendered pershing-position: 23 files -> releases/pershing-position" in capsys.readouterr().out
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 0
     assert "release bundles are current for 1 config" in capsys.readouterr().out
     assert main(["--root", str(root), "bundles", "check", str(out)]) == 0

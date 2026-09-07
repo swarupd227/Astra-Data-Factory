@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import custodian_folder, file_metadata_table, files_table, parse_problems_table, raw_lines_table, record_table, sql_type
+from astra_data.render.names import custodian_folder, exceptions_table, file_metadata_table, files_table, logical_columns, parse_problems_table, raw_lines_table, record_table, silver_table, sql_type
 
 CONNECTION = "{{ ATLAN_CONNECTION }}"
 DATABASE = "{{ DATABASE }}"
@@ -70,6 +70,27 @@ def render_payload(compiled: CompiledConfig) -> dict:
     entities.append(_table("BRONZE", files_table(compiled), f"Source {compiled.id}: landed files and their pipeline status.", owner))
     entities.append(_table("BRONZE", parse_problems_table(compiled), f"Source {compiled.id}: parse problems with their rejection codes.", owner))
     entities.append(_table("BRONZE", file_metadata_table(compiled), f"Source {compiled.id}: per-file counts, excluded rows and header and trailer values.", owner))
+    if spec.merge:
+        label = spec.merge.record or spec.logical_records()[0]
+        entities.append(_table("SILVER", silver_table(compiled), f"Source {compiled.id}: logical record {label} merged by mode ({spec.merge.mode_field}); one active row per scope and key.", owner))
+        for order, column in enumerate(logical_columns(spec, label), start=1):
+            f = column.field
+            entities.append(_column("SILVER", silver_table(compiled), column.name, order, sql_type(f), f.description or f"{f.name} of the {column.record} record"))
+        entities.append(_table("EXCEPTIONS", exceptions_table(compiled), f"Source {compiled.id}: exceptions raised by the pipeline stages, with rejection codes.", owner))
+        entities.append(
+            {
+                "typeName": "Process",
+                "attributes": {
+                    "qualifiedName": f"{CONNECTION}/{DATABASE}/process/{compiled.id}/merge",
+                    "name": f"{compiled.id}: merge {label} into Silver",
+                    "description": f"Refresh replaces the scope ({', '.join(spec.merge.scope) or 'whole source'}), update merges on keys ({', '.join(spec.merge.keys)}); exceptions to EXCEPTIONS.{exceptions_table(compiled)}.",
+                    "inputs": [{"typeName": "Table", "uniqueAttributes": {"qualifiedName": _table_qn("BRONZE", record_table(compiled, r))}} for r in (next((p.records for p in spec.pairings if p.name == label), None) or [label])],
+                    "outputs": [{"typeName": "Table", "uniqueAttributes": {"qualifiedName": _table_qn("SILVER", silver_table(compiled))}}],
+                    "sql": f"releases/{compiled.id.replace('_', '-')}/pipeline/{compiled.id}_merge.sql",
+                    "ownerUsers": [owner],
+                },
+            }
+        )
 
     # Lineage: each Bronze logical record feeds the Silver entities its mappings land in.
     targets = {m.entity.table: m.entity for m in compiled.mappings}

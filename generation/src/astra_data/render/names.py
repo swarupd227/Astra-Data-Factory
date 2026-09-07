@@ -12,6 +12,7 @@ DB = "{{ DATABASE }}"
 BRONZE = f'{DB}."BRONZE"'
 CONTROL = f'{DB}."CONTROL"'
 SILVER = f'{DB}."SILVER"'
+EXCEPTIONS = f'{DB}."EXCEPTIONS"'
 
 WAREHOUSE_BY_TIER = {"simple": "{{ WAREHOUSE_SIMPLE }}", "medium": "{{ WAREHOUSE_MEDIUM }}", "complex": "{{ WAREHOUSE_COMPLEX }}"}
 
@@ -74,6 +75,16 @@ def parse_problems_table(compiled: CompiledConfig) -> str:
 
 def file_metadata_table(compiled: CompiledConfig) -> str:
     return f"{source_name(compiled)}_FILE_METADATA"
+
+
+def silver_table(compiled: CompiledConfig) -> str:
+    """The source's logical record as merged into Silver."""
+    label = compiled.spec.merge.record if compiled.spec.merge and compiled.spec.merge.record else compiled.spec.logical_records()[0]
+    return f"{source_name(compiled)}_{label.upper()}"
+
+
+def exceptions_table(compiled: CompiledConfig) -> str:
+    return source_name(compiled)
 
 
 def pipe_name(compiled: CompiledConfig) -> str:

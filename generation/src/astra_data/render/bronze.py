@@ -70,6 +70,7 @@ def render_ddl(compiled: CompiledConfig) -> str:
                 '  "FILE_NAME"          STRING NOT NULL',
                 '  "FILE_HASH"          STRING COMMENT \'Content hash from CONTROL.FILE_LOAD_LOG\'',
                 '  "FILE_LAST_MODIFIED" TIMESTAMP_NTZ(6)',
+                '  "ROW_COUNT"          NUMBER(18,0) COMMENT \'Lines Snowpipe loaded, from CONTROL.FILE_LOAD_LOG; the merge waits until the parse has them all\'',
                 '  "FIRST_SEEN_AT"      TIMESTAMP_NTZ(6) NOT NULL COMMENT \'When intake registered the file\'',
                 '  "STATUS"             STRING NOT NULL COMMENT \'pending, merged or rejected\'',
                 '  "RUN_ID"             STRING COMMENT \'Pipeline run that last changed the status\'',
@@ -148,8 +149,8 @@ $$
 DECLARE
   registered INTEGER DEFAULT 0;
 BEGIN
-  INSERT INTO {files} ("FILE_NAME", "FILE_HASH", "FILE_LAST_MODIFIED", "FIRST_SEEN_AT", "STATUS", "RUN_ID", "STATUS_AT")
-  SELECT l."FILE_NAME", l."FILE_HASH", l."FILE_LAST_MODIFIED", SYSDATE(), 'pending', :RUN_ID, SYSDATE()
+  INSERT INTO {files} ("FILE_NAME", "FILE_HASH", "FILE_LAST_MODIFIED", "ROW_COUNT", "FIRST_SEEN_AT", "STATUS", "RUN_ID", "STATUS_AT")
+  SELECT l."FILE_NAME", l."FILE_HASH", l."FILE_LAST_MODIFIED", l."ROW_COUNT", SYSDATE(), 'pending', :RUN_ID, SYSDATE()
   FROM {CONTROL}."FILE_LOAD_LOG" l
   WHERE l."STATUS" = 'LOADED'
     AND {_file_filter(compiled, 'l."FILE_NAME"')}
@@ -183,7 +184,7 @@ $$;
 """
 
 
-STAGES = ["INTAKE"]
+STAGES = ["INTAKE", "MERGE"]
 
 
 def render(compiled: CompiledConfig) -> dict[str, str]:
