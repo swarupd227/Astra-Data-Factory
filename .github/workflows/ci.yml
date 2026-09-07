@@ -76,6 +76,27 @@ jobs:
       - name: Check release bundles
         run: astra-data --format github bundles check releases
 
+      # Generated tests run for real after every deploy (astra-data test in the deploy action); here every
+      # test of every bundle, committed or rendered above, must parse as one Snowflake SELECT.
+      - name: Generated tests parse as Snowflake SQL
+        run: |
+          astra-data --format github bundles lint releases
+          astra-data --format github bundles lint "$RUNNER_TEMP/releases"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.1"
+
+      # Each source bundle carries a Terraform root that reads its prerequisites from the foundation and
+      # fails its plan when one is missing; with mocked providers the plan must be clean and the module valid.
+      - name: Bundle Terraform is formatted, valid and its plan is clean
+        run: |
+          for dir in "$RUNNER_TEMP"/releases/*/terraform releases/*/terraform; do
+            [ -d "$dir" ] || continue
+            echo "== $dir"
+            (cd "$dir" && terraform fmt -check -diff && terraform init -input=false -backend=false > /dev/null && terraform validate && terraform test)
+          done
+
       - name: Validate the domain packs
         run: astra-spec --format github cdm validate
 

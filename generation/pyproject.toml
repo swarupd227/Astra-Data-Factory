@@ -16,8 +16,13 @@ dependencies = [
 deploy = [
   "snowflake-connector-python>=3.12",
 ]
+# `astra-data bundles lint` parses the generated tests with the Snowflake dialect.
+lint = [
+  "sqlglot>=25",
+]
 dev = [
   "pytest>=8",
+  "sqlglot>=25",
 ]
 
 [project.scripts]

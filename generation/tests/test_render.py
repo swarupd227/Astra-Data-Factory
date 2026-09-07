@@ -76,6 +76,10 @@ def test_the_bundle_has_every_artifact_kind(compiled):
         "tests/pershing_position_detail_lines_traceable.sql",
         "docs/pershing_position.md",
         "atlan/pershing_position.json",
+        "terraform/versions.tf",
+        "terraform/variables.tf",
+        "terraform/main.tf",
+        "terraform/tests/prerequisites.tftest.hcl",
     }
     manifest = files["manifest.yaml"]
     assert "bundle: pershing-position" in manifest and "source: pershing_position" in manifest and re.search(r'version: "[0-9a-f]{12}"', manifest)
@@ -293,7 +297,7 @@ def test_cli_render_writes_and_checks(tmp_path, capsys):
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 1
     assert "not rendered for pershing_position" in capsys.readouterr().out
     assert main([*_args(root, out), str(root / "configs")]) == 0
-    assert "rendered pershing-position: 27 files -> releases/pershing-position" in capsys.readouterr().out
+    assert "rendered pershing-position: 31 files -> releases/pershing-position" in capsys.readouterr().out
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 0
     assert "release bundles are current for 1 config" in capsys.readouterr().out
     assert main(["--root", str(root), "bundles", "check", str(out)]) == 0

@@ -64,7 +64,7 @@ def render_payload(compiled: CompiledConfig) -> dict:
         table = record_table(compiled, label)
         entities.append(_table("BRONZE", table, f"Source {compiled.id}: record {label} of spec {spec.label}, parsed by a dynamic table.", owner))
         for order, f in enumerate([f for f in record.fields if f.name != "filler"], start=1):
-            entities.append(_column("BRONZE", table, f.name.upper(), order, sql_type(f), f.description or f"{f.name} of the {label} record"))
+            entities.append(_column("BRONZE", table, f.name.upper(), order, sql_type(f), f.description or f"{f.name} of the {label} record", compiled.pii_fields.get((label, f.name))))
     entities.append(_table("BRONZE", raw_lines_table(compiled), f"Source {compiled.id}: raw lines as delivered, loaded by Snowpipe from {custodian_folder(compiled)}.", owner))
     entities.append(_column("BRONZE", raw_lines_table(compiled), "LINE", 3, "STRING", "The line as delivered, untouched.", "raw_record"))
     entities.append(_table("BRONZE", files_table(compiled), f"Source {compiled.id}: landed files and their pipeline status.", owner))
@@ -76,8 +76,10 @@ def render_payload(compiled: CompiledConfig) -> dict:
         entities.append(_table("SILVER", silver_table(compiled), f"Source {compiled.id}: logical record {label} merged by mode ({spec.merge.mode_field}); one active row per scope and key.", owner))
         for order, column in enumerate(logical_columns(spec, label), start=1):
             f = column.field
-            entities.append(_column("SILVER", silver_table(compiled), column.name, order, sql_type(f), f.description or f"{f.name} of the {column.record} record"))
+            entities.append(_column("SILVER", silver_table(compiled), column.name, order, sql_type(f), f.description or f"{f.name} of the {column.record} record", compiled.pii_fields.get((column.record, f.name))))
         entities.append(_table("EXCEPTIONS", exceptions_table(compiled), f"Source {compiled.id}: exceptions raised by the pipeline stages, with rejection codes.", owner))
+        entities.append(_column("EXCEPTIONS", exceptions_table(compiled), "PAYLOAD", 10, "STRING", "The full source record the exception is about, as JSON.", "raw_record"))
+        entities.append(_column("EXCEPTIONS", exceptions_table(compiled), "RAW_VALUE", 8, "STRING", "Value as received, for field-level exceptions.", "raw_record"))
         entities.append(
             {
                 "typeName": "Process",

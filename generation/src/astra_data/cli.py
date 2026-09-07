@@ -18,6 +18,7 @@ from astra_data.bundle import BundleError, DeployError, Target, check_bundles, d
 from astra_data.compiler import compile_paths
 from astra_data.render import bundle_name as release_bundle_name, check_bundle as check_release_bundle, write_bundle as write_release_bundle
 from astra_data.custodians import custodians_from_configs, sync, sync_statements
+from astra_data.lint import lint_bundles
 from astra_data.gold import bundle_name as gold_bundle_name, check_bundle as check_gold_bundle, packs_with_read_models, write_bundle as write_gold_bundle
 from astra_data.reference_data import bundle_name, check_bundle, packs_with_reference_data, sync as sync_reference_feeds, sync_statements as reference_feed_statements, write_bundle
 from astra_data.rejections import sync as sync_rejections, sync_statements as rejection_statements, taxonomies_from_packs
@@ -168,6 +169,17 @@ def cmd_render(args: argparse.Namespace) -> int:
         _summary(f"rendered {release_bundle_name(c)}: {files} files -> {_rel(bundle_root, root)}", args.format)
     if args.format == "json":
         print(json.dumps(rendered, indent=2))
+    return 0
+
+
+def cmd_bundles_lint(args: argparse.Namespace) -> int:
+    results, problems = lint_bundles(Path(args.releases), repo_root=Path(args.root))
+    if problems:
+        _print_problems(problems, args.format)
+        _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in generated tests", args.format)
+        return 1
+    tests = sum(r.tests for r in results)
+    _summary(f"{tests} generated test{'s' if tests != 1 else ''} in {len(results)} bundle{'s' if len(results) != 1 else ''} parse as one Snowflake SELECT each" if results else f"no release bundles under {args.releases}", args.format)
     return 0
 
 
@@ -441,6 +453,9 @@ def build_parser() -> argparse.ArgumentParser:
     bc = bsub.add_parser("check", help="check every bundle's manifest, files and placeholders without connecting anywhere")
     bc.add_argument("releases", nargs="?", default="releases")
     bc.set_defaults(func=cmd_bundles_check)
+    bl = bsub.add_parser("lint", help="check that every generated test of every bundle parses as one Snowflake SELECT (needs astra-data[lint])")
+    bl.add_argument("releases", nargs="?", default="releases")
+    bl.set_defaults(func=cmd_bundles_lint)
 
     for name, func, help_text in (
         ("deploy", cmd_deploy, "run every bundle's steps against an environment"),

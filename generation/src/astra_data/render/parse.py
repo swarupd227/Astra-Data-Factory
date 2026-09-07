@@ -246,6 +246,12 @@ def render_record(compiled: CompiledConfig, record: Record) -> str:
             *selects,
             f"FROM {BRONZE}.{q(classified_view(compiled))}",
             f"WHERE \"RECORD_TYPE\" = {lit(record.label)} AND NOT \"TOO_LONG\";",
+            *[
+                f"ALTER DYNAMIC TABLE {BRONZE}.{q(record_table(compiled, record.label))} MODIFY COLUMN {q(f.name.upper())} SET TAG {CONTROL}.\"PII\" = {lit(category)};"
+                for f in fields
+                for category in [compiled.pii_fields.get((record.label, f.name))]
+                if category
+            ],
             "",
         ]
     )

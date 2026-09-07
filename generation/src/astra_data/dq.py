@@ -61,6 +61,7 @@ class CompiledDqRule:
     minimum: Any = None
     maximum: Any = None
     condition: str | None = None
+    citation: str = ""  # where the check is stated: the config's citation, or the measured field's
 
     @property
     def system_function(self) -> str | None:
@@ -90,6 +91,7 @@ class CompiledDqRule:
             "min": self.minimum,
             "max": self.maximum,
             "condition": self.condition,
+            "citation": self.citation,
         }
 
 
@@ -113,6 +115,10 @@ def _compile_rule(raw: dict, i: int, data: LineDict, display: str, spec: SourceS
     level = raw["level"]
     common = dict(id=raw["id"], kind=kind, level=level, check=raw["check"], severity=raw.get("severity", "error"), owner=raw.get("owner"))
     before = len(problems)
+    stated = raw.get("citation")
+    if stated:
+        parts = [f"page {stated['page']}"] + ([f"line {stated['line']}"] if stated.get("line") else [])
+        common["citation"] = f"{stated['document']}, {', '.join(parts)}" if stated.get("document") else ", ".join(parts)
 
     if kind == "control_total":
         if level != "file":
@@ -152,6 +158,7 @@ def _compile_rule(raw: dict, i: int, data: LineDict, display: str, spec: SourceS
             columns = (DqColumn(f"TRAILER_{tf.name.upper()}", sql_type(tf)), DqColumn(f"{record.label.upper()}_{total_field.name.upper()}_TOTAL", total_type(total_field)))
         else:
             columns = (DqColumn(f"TRAILER_{tf.name.upper()}", sql_type(tf)), DqColumn(f"{record.label.upper()}_COUNT", "NUMBER(18,0)"))
+        common.setdefault("citation", _cite(tf, total_field))
         return CompiledDqRule(**common, table="metadata", record=record.label, columns=columns, aggregate=aggregate, trailer_field=tf.name, total_field=total_field.name if total_field else None)
 
     if level not in ROW_LEVELS:
@@ -191,6 +198,7 @@ def _compile_rule(raw: dict, i: int, data: LineDict, display: str, spec: SourceS
             problems.append(_problem(data, display, i, "kind", "a not_null rule needs field: the field that must be present"))
             return None
         col = column(name, "field")
+        common.setdefault("citation", _cite(types.get(name.upper())))
         return CompiledDqRule(**common, table=table, record=record_label, columns=(col,)) if col else None
 
     if kind == "unique":
@@ -199,6 +207,7 @@ def _compile_rule(raw: dict, i: int, data: LineDict, display: str, spec: SourceS
             problems.append(_problem(data, display, i, "kind", "a unique rule needs fields: the field or fields that identify a row"))
             return None
         cols = [column(n, "fields") for n in names]
+        common.setdefault("citation", _cite(*[types.get(n.upper()) for n in names]))
         return CompiledDqRule(**common, table=table, record=record_label, columns=tuple(cols)) if all(cols) else None
 
     if kind == "accepted_values":
@@ -208,6 +217,7 @@ def _compile_rule(raw: dict, i: int, data: LineDict, display: str, spec: SourceS
             problems.append(_problem(data, display, i, "kind", "an accepted_values rule needs field and values: the field and the values it may hold"))
             return None
         col = column(name, "field")
+        common.setdefault("citation", _cite(types.get(name.upper())))
         return CompiledDqRule(**common, table=table, record=record_label, columns=(col,), values=tuple(values)) if col else None
 
     if kind == "range":
@@ -225,6 +235,7 @@ def _compile_rule(raw: dict, i: int, data: LineDict, display: str, spec: SourceS
         if raw.get("min") is not None and raw.get("max") is not None and raw["min"] > raw["max"]:
             problems.append(_problem(data, display, i, "min", f"min {raw['min']} is greater than max {raw['max']}"))
             return None
+        common.setdefault("citation", _cite(f))
         return CompiledDqRule(**common, table=table, record=record_label, columns=(col,), minimum=raw.get("min"), maximum=raw.get("max"))
 
     if kind == "condition":
@@ -236,10 +247,20 @@ def _compile_rule(raw: dict, i: int, data: LineDict, display: str, spec: SourceS
         if not used:
             problems.append(_problem(data, display, i, "condition", f"condition names no column of {where}; its columns are {', '.join(available)}"))
             return None
+        common.setdefault("citation", _cite(*[types[c] for c in used]))
         return CompiledDqRule(**common, table=table, record=record_label, columns=tuple(available[c] for c in used), condition=condition)
 
     problems.append(_problem(data, display, i, "kind", f"kind '{kind}' is not one of {', '.join(KINDS)}"))
     return None
+
+
+def _cite(*fields) -> str:
+    """The citations of the fields a rule measures, distinct, in order; empty when none has one."""
+    seen: list[str] = []
+    for f in fields:
+        if f is not None and f.citation and f.citation.text() and f.citation.text() not in seen:
+            seen.append(f.citation.text())
+    return "; ".join(seen)
 
 
 def _named(raw: dict, key: str) -> str | None:

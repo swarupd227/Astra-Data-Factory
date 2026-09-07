@@ -561,7 +561,7 @@ def _column_comment(column: Column) -> str:
 
 def render_ddl(model: Model) -> str:
     """CREATE ICEBERG TABLE IF NOT EXISTS for every entity, in model order."""
-    source = model.path.as_posix()
+    source = model.path.resolve().as_posix()  # absolute, so the header reads the same from any working directory
     lines = [
         f"-- {model.label}: DDL for Snowflake managed Iceberg tables in schema {model.schema}.",
         f"-- Rendered by astra-spec cdm render from {source.split('/domains/')[-1] if '/domains/' in source else model.path.name}. Do not edit; change the model and re-render.",

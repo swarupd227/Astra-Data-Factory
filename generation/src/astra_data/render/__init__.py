@@ -8,6 +8,7 @@ One command renders every artifact for a config into `releases/<bundle>/`:
   pipeline/<source>_*.sql     the lines view, the intake procedure, the
                               process procedure that runs the stages, tasks
   dq/dmf_<source>.sql         data metric functions: the spec's measures and one per dq_rule
+  terraform/*.tf, tests/       the foundation prerequisites of the bundle as a Terraform root whose plan is clean when they exist
   tests/*.sql                 queries that return failing rows
   docs/<source>.md            the source, its layout, mappings and rules
   atlan/<source>.json         catalog assets and lineage for Atlan
@@ -29,7 +30,7 @@ from typing import Callable
 
 from astra_core.problems import Problem
 from astra_data.compiler import CompiledConfig
-from astra_data.render import atlan, bronze, docs, dq, merge, parse, resolve, tasks, tests
+from astra_data.render import atlan, bronze, docs, dq, merge, parse, resolve, tasks, terraform, tests
 from astra_data.render.names import bundle_name
 
 Renderer = Callable[[CompiledConfig], dict[str, str]]
@@ -46,6 +47,7 @@ def render_snowflake_iceberg(compiled: CompiledConfig) -> dict[str, str]:
     files.update(tests.render(compiled))
     files.update(docs.render(compiled))
     files.update(atlan.render(compiled))
+    files.update(terraform.render(compiled))
     return files
 
 

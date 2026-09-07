@@ -16,6 +16,10 @@ def _position(field) -> str:
     return ""
 
 
+def _cited(field) -> str:
+    return field.citation.text() if field.citation else ""
+
+
 def _orchestration(compiled: CompiledConfig) -> str:
     src = compiled.source
     return (
@@ -65,14 +69,20 @@ def render_doc(compiled: CompiledConfig) -> str:
         for f in record.fields:
             if f.name == "filler":
                 continue
-            cited = f"page {f.citation.page}" + (f", line {f.citation.line}" if getattr(f.citation, 'line', None) else "") if f.citation else ""
-            out.append(f"| `{f.name.upper()}` | {label}.{f.name} | {_position(f)} | {f.picture.text if f.picture else ''} | {sql_type(f)} | {'yes' if f.required else ''} | {cited} |")
+            out.append(f"| `{f.name.upper()}` | {label}.{f.name} | {_position(f)} | {f.picture.text if f.picture else ''} | {sql_type(f)} | {'yes' if f.required else ''} | {_cited(f)} |")
         out.append("")
     for kind in ("header", "trailer"):
         record = next((r for r in spec.records if r.type == kind), None)
         if record:
-            fields = ", ".join(f"`{kind.upper()}_{f.name.upper()}`" for f in record.fields if f.name not in ("filler", "record_type"))
-            out.append(f"{kind.capitalize()} values are kept per file on `BRONZE.{file_metadata_table(compiled)}`: {fields or 'none'}.")
+            out.append(f"### {record.label} ({kind}) → `BRONZE.{file_metadata_table(compiled)}` (one row per file)")
+            out.append("")
+            out.append("| Column | Source field | Position | Picture | Type | Required | Cited |")
+            out.append("|---|---|---|---|---|---|---|")
+            for f in record.fields:
+                if f.name == "filler":
+                    continue
+                column = "classifies the line" if f.name == "record_type" else f"`{kind.upper()}_{f.name.upper()}`"
+                out.append(f"| {column} | {record.label}.{f.name} | {_position(f)} | {f.picture.text if f.picture else ''} | {sql_type(f)} | {'yes' if f.required else ''} | {_cited(f)} |")
             out.append("")
     out.append(f"Lines with a record-level problem (an unknown record type, a line longer than the record length) are excluded from the record tables and counted per file as `EXCLUDED_ROWS` on `BRONZE.{file_metadata_table(compiled)}`; every problem is a row of `BRONZE.{parse_problems_table(compiled)}` with its rejection code. A field-level problem leaves the value NULL and keeps the row.")
     out.append("")
@@ -90,12 +100,16 @@ def render_doc(compiled: CompiledConfig) -> str:
 
     out.append("## Mappings")
     out.append("")
-    out.append("| Canonical column | Source | Transform | Rule |")
-    out.append("|---|---|---|---|")
+    out.append("| Canonical column | Source | Transform | Rule | PII | Cited |")
+    out.append("|---|---|---|---|---|---|")
     for m in compiled.mappings:
         origin = f"{m.record}.{m.source.name} ({m.source_type})" if m.source else f"constant `{m.constant}`"
-        out.append(f"| `{m.entity.table}.{m.column.name}` ({m.column.sql_type}) | {origin} | {m.transform.text if m.transform else ''} | {m.rule.id if m.rule else ''} |")
+        out.append(f"| `{m.entity.table}.{m.column.name}` ({m.column.sql_type}) | {origin} | {m.transform.text if m.transform else ''} | {m.rule.id if m.rule else ''} | {m.column.pii or ''} | {_cited(m.source) if m.source else ''} |")
     out.append("")
+    pii = compiled.pii_fields
+    if pii:
+        out.append("Source fields that map to a PII canonical column carry the same PII category on their Bronze and Silver columns, bound to the `CONTROL.PII` tag and registered in the catalog: " + ", ".join(f"`{record}.{field}` ({category})" for (record, field), category in sorted(pii.items())) + ". The raw line and every exception payload are `raw_record`.")
+        out.append("")
     res = compiled.resolution
     if res.any:
         out.append("## Resolution")
@@ -125,13 +139,13 @@ def render_doc(compiled: CompiledConfig) -> str:
     out.append("## Data quality")
     out.append("")
     if compiled.dq_rules:
-        out.append("| Rule | Kind | Level | Severity | Check | Metric | Measured on |")
-        out.append("|---|---|---|---|---|---|---|")
+        out.append("| Rule | Kind | Level | Severity | Check | Metric | Measured on | Cited |")
+        out.append("|---|---|---|---|---|---|---|---|")
         for d in compiled.dq_rules:
             table, _ = rule_table(compiled, d)
             metric = f"`SNOWFLAKE.CORE.{d.system_function}`" if d.system_function else f"`CONTROL.{dmf_name(compiled, d)}`"
             columns = ", ".join(c.name for c in d.columns)
-            out.append(f"| `{d.id}` | {d.kind} | {d.level} | {d.severity} | {d.check} | {metric} on ({columns}) | `{table.split('.', 1)[1].replace(chr(34), '')}` |")
+            out.append(f"| `{d.id}` | {d.kind} | {d.level} | {d.severity} | {d.check} | {metric} on ({columns}) | `{table.split('.', 1)[1].replace(chr(34), '')}` | {d.citation} |")
         out.append("")
         out.append("Each rule is one data metric function or one association, measured whenever its table changes; a custom function returns 0 when the rule holds, the gap for a control total and the failing rows otherwise. Rules at severity error also have a rendered test that lists what fails.")
         out.append("")
@@ -150,6 +164,11 @@ def render_doc(compiled: CompiledConfig) -> str:
         if compiled.alerts:
             out.append(f"Alerts: late = {compiled.alerts.get('late', 'error')}, task failure = {compiled.alerts.get('task_failure', 'error')}.")
             out.append("")
+
+    out.append("## Infrastructure")
+    out.append("")
+    out.append(f"The bundle's `terraform/` root reads what it needs from the foundation and fails its plan when something is missing: the {src['tier']} tier warehouse, the BRONZE, SILVER, EXCEPTIONS and CONTROL schemas, the `CONTROL.PII` tag and the landing bucket. A clean plan means the environment can hold the bundle; its outputs are the landing URL for custodian {src['custodian']}, the pipe, the warehouse and the tasks. The Snowflake objects themselves are deployed as the SQL steps of the manifest.")
+    out.append("")
 
     out.append("## Pipeline")
     out.append("")

@@ -88,6 +88,17 @@
           "min": { "type": ["number", "string"], "description": "range: lowest allowed value" },
           "max": { "type": ["number", "string"], "description": "range: highest allowed value" },
           "condition": { "type": "string", "minLength": 1, "description": "condition: SQL over the table's columns that every row must satisfy" },
+          "citation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["page"],
+            "properties": {
+              "document": { "type": "string", "minLength": 1, "description": "Document the check comes from; defaults to the spec's layout document" },
+              "page": { "type": "integer", "minimum": 1 },
+              "line": { "type": "integer", "minimum": 1 }
+            },
+            "description": "Where the check is stated; defaults to the citation of the field the rule measures"
+          },
           "severity": { "enum": ["info", "warning", "error"] },
           "owner": { "type": "string" }
         }

@@ -107,6 +107,10 @@ def render_ddl(compiled: CompiledConfig) -> str:
     lines.append(")")
     lines.append(f"BASE_LOCATION = 'silver/{silver_table(compiled).lower()}/'")
     lines.append(f"COMMENT = {lit(f'Source {source}: logical record {label} of {spec.label} merged by mode ({spec.merge.mode_field}: ' + ', '.join(f'{k} = {v}' for k, v in spec.merge.modes.items()) + f'); keys {keys}. Rendered by astra-data render.')};")
+    for c in columns:
+        category = compiled.pii_fields.get((c.record, c.field.name))
+        if category:
+            lines.append(f"ALTER ICEBERG TABLE {SILVER}.{q(silver_table(compiled))} MODIFY COLUMN {q(c.name)} SET TAG {CONTROL}.\"PII\" = {lit(category)};")
     lines.append("")
     lines.append(f"-- Exceptions of {source}: rows and files the pipeline could not merge, with their rejection code, in the")
     lines.append("-- shape of the canonical Exception entity plus the row as parsed (PAYLOAD). Rendered by astra-data render.")
@@ -143,6 +147,8 @@ def render_ddl(compiled: CompiledConfig) -> str:
     lines.append(")")
     lines.append(f"BASE_LOCATION = 'exceptions/{exceptions_table(compiled).lower()}/'")
     lines.append(f"COMMENT = {lit(f'Source {source}: exceptions raised by the pipeline stages, with rejection codes. Rendered by astra-data render.')};")
+    lines.append(f"ALTER ICEBERG TABLE {EXCEPTIONS}.{q(exceptions_table(compiled))} MODIFY COLUMN \"PAYLOAD\" SET TAG {CONTROL}.\"PII\" = 'raw_record';")
+    lines.append(f"ALTER ICEBERG TABLE {EXCEPTIONS}.{q(exceptions_table(compiled))} MODIFY COLUMN \"RAW_VALUE\" SET TAG {CONTROL}.\"PII\" = 'raw_record';")
     lines.append("")
     return "\n".join(lines)
 

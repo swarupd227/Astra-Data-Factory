@@ -179,6 +179,15 @@ class CompiledConfig:
         return int(self.processing.get("target_lag_minutes", self.DEFAULT_TARGET_LAG_MINUTES))
 
     @property
+    def pii_fields(self) -> dict[tuple[str, str], str]:
+        """PII category per (record, field) of the spec: a field mapped to a PII canonical column carries that category."""
+        found: dict[tuple[str, str], str] = {}
+        for m in self.mappings:
+            if m.source is not None and m.column.pii:
+                found.setdefault((m.record, m.source.name), m.column.pii)
+        return found
+
+    @property
     def target_entity(self) -> Entity | None:
         """The canonical entity the mappings land in; None when the config maps nothing."""
         return self.mappings[0].entity if self.mappings else None
