@@ -3,11 +3,13 @@
 Validation (astra_data.validate) checks the shape of a config and its
 references. The compiler goes further: it resolves every reference to the
 object it names (the spec version, the pattern, the target profile, the
-domain pack and its latest model, the catalog rules) and every mapping to
-a canonical column, a source field and a transform, and checks that the
-types agree. What comes out is the intermediate model the renderers
-(S3.1.2, S3.2.x) work from: nothing in it is a name that still has to be
-looked up, and its provenance records exactly which inputs produced it.
+domain pack and its latest model, the catalog rules, the reference-data
+feeds) and every mapping to a canonical column, a source field or a
+constant, and a transform, and checks that the types agree and that the
+target entity's key and required columns are all produced. What comes out
+is the intermediate model the renderers (S3.1.2, S3.2.x) work from:
+nothing in it is a name that still has to be looked up, and its
+provenance records exactly which inputs produced it.
 """
 
 from __future__ import annotations
@@ -15,11 +17,13 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Iterable
 
 from astra_knowledge.cdm import Column, DomainPack, Entity, Model
 from astra_knowledge.patterns import PATTERNS, Pattern, patterns_for
+from astra_knowledge.reference_data import Feed
 from astra_knowledge.registry import Field, Registry, SourceSpec
 from astra_knowledge.rules import Catalog, Rule
 
@@ -40,6 +44,12 @@ COMPATIBLE: dict[str, tuple[str, ...]] = {
     "boolean": ("boolean", "string"),
 }
 
+# Columns the resolution stage fills when the entity has them, without a mapping.
+STAGE_COLUMNS = ("CUSTODIAN_ID", "SOURCE_SYSTEM", "SOURCE_FILE", "SOURCE_LINE", "CONFIG_VERSION", "LOADED_AT", "UPDATED_AT")
+ACCOUNT_COLUMNS = ("ACCOUNT_ID", "FIRM_ID")
+SECURITY_COLUMNS = ("SECURITY_ID", "CUSTODIAN_SECURITY_ID")
+TRANSACTION_CODE_COLUMNS = ("TRANSACTION_TYPE", "CUSTODIAN_TRANSACTION_CODE")
+
 
 class CompileError(ValueError):
     """The config cannot be compiled. Carries the problems found."""
@@ -54,11 +64,12 @@ class CompiledMapping:
     entity: Entity
     column: Column
     record: str
-    source: Field
+    source: Field | None
     source_type: str
     result_type: str
     transform: TransformCall | None = None
     rule: Rule | None = None
+    constant: Any = None
 
     @property
     def target(self) -> str:
@@ -67,10 +78,71 @@ class CompiledMapping:
     def to_dict(self) -> dict:
         return {
             "target": {"entity": self.entity.name, "table": self.entity.table, "column": self.column.name, "type": self.column.sql_type, "required": self.column.required},
-            "source": {"record": self.record, "field": self.source.name, "type": self.source_type, "picture": self.source.picture.text if self.source.picture else None, "position": list(self.source.position) if self.source.position else None, "column": self.source.column},
+            "source": {"record": self.record, "field": self.source.name, "type": self.source_type, "picture": self.source.picture.text if self.source.picture else None, "position": list(self.source.position) if self.source.position else None, "column": self.source.column} if self.source else None,
+            "constant": self.constant if not isinstance(self.constant, (date, Decimal)) else str(self.constant),
             "transform": self.transform.to_dict() if self.transform else None,
             "result_type": self.result_type,
             "rule": self.rule.id if self.rule else None,
+        }
+
+
+@dataclass(frozen=True)
+class AccountResolution:
+    feed: Feed
+    source: Field
+    require_open: bool
+    not_found: str
+    closed: str
+
+
+@dataclass(frozen=True)
+class SecurityLookup:
+    identifier: str
+    source: Field
+
+
+@dataclass(frozen=True)
+class SecurityResolution:
+    feed: Feed
+    by: tuple[SecurityLookup, ...]
+    require_active: bool
+    not_found: str
+    ambiguous: str
+    inactive: str
+
+
+@dataclass(frozen=True)
+class TransactionCodeResolution:
+    source: Field
+    map: dict[str, str]
+    unmapped: str
+
+
+@dataclass(frozen=True)
+class PriceResolution:
+    when: str  # missing or always
+    lookback_days: int
+    price_type: str
+    missing: str
+
+
+@dataclass(frozen=True)
+class Resolution:
+    account: AccountResolution | None = None
+    security: SecurityResolution | None = None
+    transaction_code: TransactionCodeResolution | None = None
+    price: PriceResolution | None = None
+
+    @property
+    def any(self) -> bool:
+        return any((self.account, self.security, self.transaction_code, self.price))
+
+    def to_dict(self) -> dict:
+        return {
+            "account": {"feed": self.account.feed.id, "source": self.account.source.name, "require_open": self.account.require_open, "not_found": self.account.not_found, "closed": self.account.closed} if self.account else None,
+            "security": {"feed": self.security.feed.id, "by": [{"identifier": b.identifier, "source": b.source.name} for b in self.security.by], "require_active": self.security.require_active, "not_found": self.security.not_found, "ambiguous": self.security.ambiguous, "inactive": self.security.inactive} if self.security else None,
+            "transaction_code": {"source": self.transaction_code.source.name, "map": dict(self.transaction_code.map), "unmapped": self.transaction_code.unmapped} if self.transaction_code else None,
+            "price": {"when": self.price.when, "lookback_days": self.price.lookback_days, "price_type": self.price.price_type, "missing": self.price.missing} if self.price else None,
         }
 
 
@@ -88,7 +160,7 @@ class CompiledConfig:
     mappings: tuple[CompiledMapping, ...]
     rules: tuple[Rule, ...]
     dq_rules: tuple[dict, ...]
-    resolution: dict[str, Any]
+    resolution: Resolution
     delivery: dict[str, Any] | None
     alerts: dict[str, Any] | None
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -105,6 +177,11 @@ class CompiledConfig:
         """How stale the parsed tables may be, and how often the source is processed."""
         return int(self.processing.get("target_lag_minutes", self.DEFAULT_TARGET_LAG_MINUTES))
 
+    @property
+    def target_entity(self) -> Entity | None:
+        """The canonical entity the mappings land in; None when the config maps nothing."""
+        return self.mappings[0].entity if self.mappings else None
+
     def to_dict(self) -> dict:
         return {
             "source": dict(self.source),
@@ -117,7 +194,7 @@ class CompiledConfig:
             "mappings": [m.to_dict() for m in self.mappings],
             "rules": [{"id": r.id, "class": r.class_, "status": r.status, "citation": r.citation.text, "text": r.text} for r in self.rules],
             "dq_rules": [dict(d) for d in self.dq_rules],
-            "resolution": dict(self.resolution),
+            "resolution": self.resolution.to_dict(),
             "delivery": dict(self.delivery) if self.delivery else None,
             "alerts": dict(self.alerts) if self.alerts else None,
             "processing": {"target_lag_minutes": self.target_lag_minutes},
@@ -174,6 +251,10 @@ def compile_config(path: Path, *, registry: Registry, catalog: Catalog, packs: I
 
     model = pack.latest
     mappings = tuple(_mappings(data, display, spec, model, catalog, problems))
+    resolution = _resolution(data, display, spec, pack, model, problems)
+    if problems:
+        raise CompileError(dedupe(problems))
+    _coverage(data, display, model, mappings, resolution, problems)
     if problems:
         raise CompileError(dedupe(problems))
 
@@ -191,7 +272,7 @@ def compile_config(path: Path, *, registry: Registry, catalog: Catalog, packs: I
         mappings=mappings,
         rules=rules,
         dq_rules=tuple(dict(d) for d in data.get("dq_rules") or []),
-        resolution=dict(data.get("resolution") or {}),
+        resolution=resolution,
         delivery=dict(data["delivery"]) if data.get("delivery") else None,
         alerts=dict(data["alerts"]) if data.get("alerts") else None,
         processing=dict(data.get("processing") or {}),
@@ -229,9 +310,33 @@ def _pattern(data: LineDict, display: str, spec: SourceSpec, problems: list[Prob
     return pattern
 
 
+def _constant(column: Column, text: str) -> tuple[Any, str | None]:
+    """A constant typed by its target column, or a message saying why it cannot be."""
+    kind = column.type
+    try:
+        if kind == "string":
+            if column.codes and text not in [c.value for c in column.codes]:
+                return None, f"'{text}' is not one of the codes of {column.name}: {', '.join(c.value for c in column.codes)}"
+            return text, None
+        if kind == "integer":
+            return int(text), None
+        if kind == "decimal":
+            return Decimal(text), None
+        if kind == "date":
+            return date.fromisoformat(text), None
+        if kind == "boolean":
+            if text.lower() in ("true", "false"):
+                return text.lower() == "true", None
+            return None, f"'{text}' is not true or false"
+        return text, None
+    except (ValueError, InvalidOperation):
+        return None, f"'{text}' is not a {kind} for {column.name} ({column.sql_type})"
+
+
 def _mappings(data: LineDict, display: str, spec: SourceSpec, model: Model, catalog: Catalog, problems: list[Problem]) -> list[CompiledMapping]:
     logical = spec.logical_records()
     compiled: list[CompiledMapping] = []
+    entities: dict[str, int] = {}
     for i, mapping in enumerate(data.get("mappings") or []):
         where = ["mappings", i]
         entity_name, column_name = mapping["target"].split(".", 1)
@@ -242,6 +347,19 @@ def _mappings(data: LineDict, display: str, spec: SourceSpec, model: Model, cata
         column = entity.column(column_name.upper())
         if column is None:
             problems.append(Problem(display, line_of(data, where + ["target"]), f"mappings[{i}].target '{mapping['target']}': '{column_name}' is not a column of {entity.name}; columns are {', '.join(c.name.lower() for c in entity.columns)}"))
+            continue
+        entities.setdefault(entity.name, i)
+        if len(entities) > 1:
+            first = next(iter(entities))
+            problems.append(Problem(display, line_of(data, where + ["target"]), f"mappings[{i}].target '{mapping['target']}' lands in {entity.name}, but the mappings already land in {first}; a source maps into one canonical entity"))
+            continue
+
+        if "constant" in mapping:
+            value, message = _constant(column, str(mapping["constant"]))
+            if message:
+                problems.append(Problem(display, line_of(data, where + ["constant"]), f"mappings[{i}].constant: {message}"))
+                continue
+            compiled.append(CompiledMapping(entity, column, "", None, column.type, column.type, None, catalog.get(mapping["rule"]) if mapping.get("rule") else None, value))
             continue
 
         record = mapping.get("record")
@@ -276,6 +394,115 @@ def _mappings(data: LineDict, display: str, spec: SourceSpec, model: Model, cata
             continue
         compiled.append(CompiledMapping(entity, column, record, source, source.type, result_type, transform, catalog.get(mapping["rule"]) if mapping.get("rule") else None))
     return compiled
+
+
+def _source_field(data: LineDict, display: str, spec: SourceSpec, where: list, name: str, problems: list[Problem]) -> Field | None:
+    logical = spec.logical_records()
+    for label in logical:
+        found = _field_in(spec, label, name)
+        if found is not None:
+            return found
+    names = sorted({n for label in logical for n in spec.logical_fields(label)})
+    problems.append(Problem(display, line_of(data, where), f"{'.'.join(str(w) for w in where)} '{name}' is not a field of spec {spec.label}; fields are {', '.join(names)}"))
+    return None
+
+
+def _code(data: LineDict, display: str, pack: DomainPack, where: list, code: str, problems: list[Problem]) -> str:
+    if pack.rejections.code(code) is None:
+        problems.append(Problem(display, line_of(data, where), f"{'.'.join(str(w) for w in where)} '{code}' is not in the rejection taxonomy of {pack.name}"))
+    return code
+
+
+def _resolution(data: LineDict, display: str, spec: SourceSpec, pack: DomainPack, model: Model, problems: list[Problem]) -> Resolution:
+    raw = data.get("resolution") or {}
+    feeds = pack.reference_data.feeds if pack.reference_data else ()
+    account = security = transaction_code = price = None
+
+    if "account" in raw:
+        block = raw["account"]
+        feed_id = block.get("feed", "account_xref")
+        feed = next((f for f in feeds if f.id == feed_id), None)
+        source = _source_field(data, display, spec, ["resolution", "account", "source"], block["source"], problems)
+        if feed is None:
+            problems.append(Problem(display, line_of(data, ["resolution", "account"]), f"resolution.account.feed '{feed_id}' is not a reference-data feed of {pack.name}; feeds are {', '.join(f.id for f in feeds) or 'none'}"))
+        elif source is not None:
+            account = AccountResolution(
+                feed,
+                source,
+                bool(block.get("require_open", True)),
+                _code(data, display, pack, ["resolution", "account", "not_found"], block.get("not_found", feed.rejections.not_found), problems),
+                _code(data, display, pack, ["resolution", "account", "closed"], block.get("closed", "ACCOUNT_CLOSED"), problems),
+            )
+
+    if "security" in raw:
+        block = raw["security"]
+        feed_id = block.get("feed", "security_master")
+        feed = next((f for f in feeds if f.id == feed_id), None)
+        lookups: list[SecurityLookup] = []
+        if feed is None:
+            problems.append(Problem(display, line_of(data, ["resolution", "security"]), f"resolution.security.feed '{feed_id}' is not a reference-data feed of {pack.name}; feeds are {', '.join(f.id for f in feeds) or 'none'}"))
+        else:
+            for i, lookup in enumerate(block["by"]):
+                where = ["resolution", "security", "by", i]
+                if lookup["identifier"] not in feed.resolves.identifiers:
+                    problems.append(Problem(display, line_of(data, where + ["identifier"]), f"resolution.security.by[{i}].identifier '{lookup['identifier']}' is not an identifier of feed {feed.id}; identifiers are {', '.join(feed.resolves.identifiers)}"))
+                    continue
+                source = _source_field(data, display, spec, where + ["source"], lookup["source"], problems)
+                if source is not None:
+                    lookups.append(SecurityLookup(lookup["identifier"], source))
+            if lookups and not problems:
+                security = SecurityResolution(
+                    feed,
+                    tuple(lookups),
+                    bool(block.get("require_active", False)),
+                    _code(data, display, pack, ["resolution", "security", "not_found"], block.get("not_found", feed.rejections.not_found), problems),
+                    _code(data, display, pack, ["resolution", "security", "ambiguous"], block.get("ambiguous", feed.rejections.ambiguous), problems),
+                    _code(data, display, pack, ["resolution", "security", "inactive"], block.get("inactive", "SECURITY_INACTIVE"), problems),
+                )
+
+    if "transaction_code" in raw:
+        block = raw["transaction_code"]
+        source = _source_field(data, display, spec, ["resolution", "transaction_code", "source"], block["source"], problems)
+        transaction = model.entity("Transaction")
+        canonical = [c.value for c in transaction.column("TRANSACTION_TYPE").codes] if transaction and transaction.column("TRANSACTION_TYPE") else []
+        mapping = {str(k): str(v) for k, v in block["map"].items()}
+        for code, kind in mapping.items():
+            if canonical and kind not in canonical:
+                problems.append(Problem(display, line_of(data, ["resolution", "transaction_code", "map"]), f"resolution.transaction_code.map: custodian code '{code}' maps to '{kind}', which is not a canonical transaction type; types are {', '.join(canonical)}"))
+        if source is not None:
+            transaction_code = TransactionCodeResolution(source, mapping, _code(data, display, pack, ["resolution", "transaction_code", "unmapped"], block.get("unmapped", "TRANSACTION_CODE_UNMAPPED"), problems))
+
+    if "price" in raw:
+        block = raw["price"]
+        price = PriceResolution(block["when"], int(block.get("lookback_days", 5)), str(block.get("price_type", "CLOSE")), _code(data, display, pack, ["resolution", "price", "missing"], block.get("missing", "PRICE_MISSING"), problems))
+
+    return Resolution(account, security, transaction_code, price)
+
+
+def provided_columns(entity: Entity, model: Model, resolution: Resolution) -> set[str]:
+    """Columns of the entity the resolution stage fills without a mapping."""
+    names = {c.name for c in model.table_columns(entity)}
+    provided = {c for c in STAGE_COLUMNS if c in names}
+    if resolution.account:
+        provided |= {c for c in ACCOUNT_COLUMNS if c in names}
+    if resolution.security:
+        provided |= {c for c in SECURITY_COLUMNS if c in names}
+    if resolution.transaction_code:
+        provided |= {c for c in TRANSACTION_CODE_COLUMNS if c in names}
+    if resolution.price and "PRICE" in names:
+        provided.add("PRICE")
+    return provided
+
+
+def _coverage(data: LineDict, display: str, model: Model, mappings: tuple[CompiledMapping, ...], resolution: Resolution, problems: list[Problem]) -> None:
+    """Every key and required column of the target entity must come from a mapping, a constant, the resolution or the stage."""
+    if not mappings:
+        return
+    entity = mappings[0].entity
+    produced = {m.column.name for m in mappings} | provided_columns(entity, model, resolution)
+    needed = [c.name for c in model.table_columns(entity) if (c.required or c.name in entity.key) and c.name not in produced]
+    if needed:
+        problems.append(Problem(display, line_of(data, ["mappings"]), f"{entity.name} needs {', '.join(needed)}: map a source field or a constant to each, or configure the resolution that provides it"))
 
 
 def compile_paths(paths: Iterable[Path | str], *, registry: Registry, catalog: Catalog, packs: Iterable[DomainPack], root: Path | None = None) -> tuple[list[CompiledConfig], list[Problem]]:

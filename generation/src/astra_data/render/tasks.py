@@ -6,7 +6,7 @@ from astra_data.compiler import CompiledConfig
 from astra_data.render.names import BRONZE, WAREHOUSE_BY_TIER, procedure, q, task_name
 
 # Order of pipeline steps within the manifest, by the suffix of the file name.
-STEP_ORDER = {"pipe.sql": 0, "lines.sql": 1, "parse.sql": 2, "intake.sql": 3, "merge.sql": 4, "process.sql": 5, "tasks.sql": 6}
+STEP_ORDER = {"pipe.sql": 0, "lines.sql": 1, "parse.sql": 2, "intake.sql": 3, "merge.sql": 4, "resolve.sql": 5, "process.sql": 6, "tasks.sql": 7}
 
 
 def render_tasks(compiled: CompiledConfig) -> str:

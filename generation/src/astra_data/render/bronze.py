@@ -184,7 +184,7 @@ $$;
 """
 
 
-STAGES = ["INTAKE", "MERGE"]
+STAGES = ["INTAKE", "MERGE"]  # RESOLVE follows when the config maps into a canonical entity
 
 
 def render(compiled: CompiledConfig) -> dict[str, str]:
@@ -194,7 +194,7 @@ def render(compiled: CompiledConfig) -> dict[str, str]:
         f"pipeline/{source}_pipe.sql": render_pipe(compiled),
         f"pipeline/{source}_lines.sql": render_lines_view(compiled),
         f"pipeline/{source}_intake.sql": render_intake(compiled),
-        f"pipeline/{source}_process.sql": render_process(compiled, STAGES),
+        f"pipeline/{source}_process.sql": render_process(compiled, list(STAGES) + (["RESOLVE"] if compiled.mappings else [])),
     }
 
 

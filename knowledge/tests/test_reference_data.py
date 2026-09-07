@@ -47,7 +47,7 @@ def accounts(pack) -> Feed:
 def test_the_pack_declares_the_security_master_and_the_account_cross_reference(pack, securities, accounts):
     assert [f.id for f in pack.reference_data.feeds] == ["security_master", "account_xref"]
     assert (securities.system, securities.table, securities.key) == ("SOS", "SECURITY_MASTER", ("SECURITY_ID",))
-    assert securities.resolves.entity == "Security" and securities.resolves.identifiers == ("CUSIP", "ISIN", "SEDOL", "TICKER")
+    assert securities.resolves.entity == "Security" and securities.resolves.identifiers == ("CUSIP", "ISIN", "SEDOL", "TICKER", "OCC_SYMBOL")
     assert (securities.rejections.not_found, securities.rejections.ambiguous, securities.rejections.conflict) == ("SECURITY_NOT_FOUND", "SECURITY_AMBIGUOUS", "REFERENCE_DATA_CONFLICT")
     assert (accounts.system, accounts.table, accounts.key) == ("CAS", "ACCOUNT_XREF", ("CUSTODIAN_ID", "CUSTODIAN_ACCOUNT_NUMBER"))
     assert accounts.resolves.entity == "Account" and accounts.resolves.identifiers == ()
@@ -99,7 +99,7 @@ def test_a_pack_without_reference_data_is_allowed(tmp_path):
 
 
 def sec(security_id: str, cusip: str | None = None, isin: str | None = None, description: str = "Apple Inc", status: str = "ACTIVE", **extra) -> dict:
-    row = {"SECURITY_ID": security_id, "CUSIP": cusip, "ISIN": isin, "SEDOL": None, "TICKER": None, "DESCRIPTION": description, "ASSET_CLASS": "EQUITY", "SECURITY_TYPE": None, "ISSUER": None, "CURRENCY": "USD", "PRICE_FACTOR": Decimal("1"), "MATURITY_DATE": None, "STATUS": status, "SOURCE_UPDATED_AT": None}
+    row = {"SECURITY_ID": security_id, "CUSIP": cusip, "ISIN": isin, "SEDOL": None, "TICKER": None, "OCC_SYMBOL": None, "DESCRIPTION": description, "ASSET_CLASS": "EQUITY", "SECURITY_TYPE": None, "ISSUER": None, "CURRENCY": "USD", "PRICE_FACTOR": Decimal("1"), "MATURITY_DATE": None, "STATUS": status, "SOURCE_UPDATED_AT": None}
     row.update(extra)
     return row
 
@@ -193,7 +193,7 @@ def test_cli_lists_the_feeds(capsys):
     assert main(["--root", str(REPO), "--domains", str(DOMAINS), "reference", "list"]) == 0
     out = capsys.readouterr().out
     assert "security_master  Security master (SOS)  REFERENCE.SECURITY_MASTER  key SECURITY_ID" in out
-    assert "resolves Security by CUSIP, ISIN, SEDOL, TICKER; not found SECURITY_NOT_FOUND" in out
+    assert "resolves Security by CUSIP, ISIN, SEDOL, TICKER, OCC_SYMBOL; not found SECURITY_NOT_FOUND" in out
     assert "account_xref  Account cross-reference (CAS)  REFERENCE.ACCOUNT_XREF  key CUSTODIAN_ID, CUSTODIAN_ACCOUNT_NUMBER" in out
     assert "resolves Account by the key" in out and "runs 0 2 * * * America/New_York; expected at least every 26 hours" in out
 

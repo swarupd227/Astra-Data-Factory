@@ -8,6 +8,7 @@ CREATE ICEBERG TABLE IF NOT EXISTS {{ DATABASE }}."REFERENCE"."SECURITY_MASTER" 
   "ISIN"              STRING COMMENT 'ISIN, twelve characters.',
   "SEDOL"             STRING COMMENT 'SEDOL, seven characters.',
   "TICKER"            STRING COMMENT 'Exchange ticker.',
+  "OCC_SYMBOL"        STRING COMMENT 'OCC option symbol, for listed options.',
   "DESCRIPTION"       STRING NOT NULL COMMENT 'Name of the security.',
   "ASSET_CLASS"       STRING NOT NULL COMMENT 'Broad class of the security, in the security master''s vocabulary.',
   "SECURITY_TYPE"     STRING COMMENT 'Finer type within the asset class.',
@@ -21,7 +22,7 @@ CREATE ICEBERG TABLE IF NOT EXISTS {{ DATABASE }}."REFERENCE"."SECURITY_MASTER" 
   "RUN_ID"            STRING NOT NULL COMMENT 'Replication run that last wrote the row; see CONTROL.REFERENCE_DATA_RUNS.'
 )
 BASE_LOCATION = 'reference/security_master/'
-COMMENT = 'The platform''s security master: one row per security with the identifiers custodian records carry (CUSIP, ISIN, SEDOL, ticker), so that a custodian''s security resolves to the platform''s SECURITY_ID by join. Replica of SOS; every row references its replication run.';
+COMMENT = 'The platform''s security master: one row per security with the identifiers custodian records carry (CUSIP, ISIN, SEDOL, ticker, OCC option symbol), so that a custodian''s security resolves to the platform''s SECURITY_ID by join. Replica of SOS; every row references its replication run.';
 
 CREATE ICEBERG TABLE IF NOT EXISTS {{ DATABASE }}."REFERENCE"."SECURITY_MASTER_STAGING" (
   "SECURITY_ID"       STRING,
@@ -29,6 +30,7 @@ CREATE ICEBERG TABLE IF NOT EXISTS {{ DATABASE }}."REFERENCE"."SECURITY_MASTER_S
   "ISIN"              STRING,
   "SEDOL"             STRING,
   "TICKER"            STRING,
+  "OCC_SYMBOL"        STRING,
   "DESCRIPTION"       STRING,
   "ASSET_CLASS"       STRING,
   "SECURITY_TYPE"     STRING,

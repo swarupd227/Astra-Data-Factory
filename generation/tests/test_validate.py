@@ -68,10 +68,10 @@ def test_wrong_type_is_reported_in_words(tmp_path):
 
 def test_mapping_rule_must_be_listed_under_rules(tmp_path):
     unlisted = problems_for(tmp_path, VALID.replace("rule: pershing_gcus.quantity_sign", "rule: pershing_gcus.quantity_flip"))
-    assert unlisted[0].message == "mappings[1].rule 'pershing_gcus.quantity_flip' is not listed under rules; a config lists every rule it uses"
+    assert unlisted[0].message == "mappings[3].rule 'pershing_gcus.quantity_flip' is not listed under rules; a config lists every rule it uses"
     shape = problems_for(tmp_path, VALID.replace("  - pershing_gcus.quantity_sign\n", "  - quantity_sign\n").replace("rule: pershing_gcus.quantity_sign", "rule: quantity_sign"))
     assert [p.message for p in shape] == [
-        "mappings[1].rule: 'quantity_sign' must be a rule catalog id written as <group>.<name> (rules/<group>/<name>.yaml)",
+        "mappings[3].rule: 'quantity_sign' must be a rule catalog id written as <group>.<name> (rules/<group>/<name>.yaml)",
         "rules[0]: 'quantity_sign' must be a rule catalog id written as <group>.<name> (rules/<group>/<name>.yaml)",
     ]
 
@@ -109,7 +109,7 @@ def test_duplicate_ids_and_targets_are_rejected(tmp_path):
 
     dup_target = VALID.replace("  - target: position.quantity", "  - target: position.account_number\n    source: X\n  - target: position.quantity")
     problems = problems_for(tmp_path, dup_target)
-    assert any("mappings[1].target 'position.account_number' is mapped more than once" in p.message for p in problems)
+    assert any("mappings[3].target 'position.account_number' is mapped more than once" in p.message for p in problems)
 
 
 def test_file_name_must_match_source_id(tmp_path):

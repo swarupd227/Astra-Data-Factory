@@ -115,7 +115,7 @@ def render_payload(compiled: CompiledConfig) -> dict:
             entities.append(_column(compiled.model.schema, entity.table, column.name, order, column.sql_type, column.description, column.pii))
     for label in spec.logical_records():
         for entity in targets.values():
-            columns = [m for m in compiled.mappings if m.entity is entity and m.record == label]
+            columns = [m for m in compiled.mappings if m.entity is entity and (m.record == label or m.source is None)]
             if not columns:
                 continue
             entities.append(
@@ -124,7 +124,7 @@ def render_payload(compiled: CompiledConfig) -> dict:
                     "attributes": {
                         "qualifiedName": f"{CONNECTION}/{DATABASE}/process/{compiled.id}/{label}/{entity.table}",
                         "name": f"{compiled.id}: {label} -> {entity.table}",
-                        "description": "; ".join(f"{m.entity.table}.{m.column.name} <- {m.record}.{m.source.name}" + (f" via {m.transform.text}" if m.transform else "") for m in columns),
+                        "description": "; ".join((f"{m.entity.table}.{m.column.name} <- {m.record}.{m.source.name}" if m.source else f"{m.entity.table}.{m.column.name} <- constant {m.constant}") + (f" via {m.transform.text}" if m.transform else "") for m in columns),
                         "inputs": [{"typeName": "Table", "uniqueAttributes": {"qualifiedName": _table_qn("BRONZE", record_table(compiled, label))}}],
                         "outputs": [{"typeName": "Table", "uniqueAttributes": {"qualifiedName": _table_qn(compiled.model.schema, entity.table)}}],
                         "sql": f"releases/{compiled.id.replace('_', '-')}/pipeline/",

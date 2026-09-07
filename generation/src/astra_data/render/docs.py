@@ -79,8 +79,23 @@ def render_doc(compiled: CompiledConfig) -> str:
     out.append("| Canonical column | Source | Transform | Rule |")
     out.append("|---|---|---|---|")
     for m in compiled.mappings:
-        out.append(f"| `{m.entity.table}.{m.column.name}` ({m.column.sql_type}) | {m.record}.{m.source.name} ({m.source_type}) | {m.transform.text if m.transform else ''} | {m.rule.id if m.rule else ''} |")
+        origin = f"{m.record}.{m.source.name} ({m.source_type})" if m.source else f"constant `{m.constant}`"
+        out.append(f"| `{m.entity.table}.{m.column.name}` ({m.column.sql_type}) | {origin} | {m.transform.text if m.transform else ''} | {m.rule.id if m.rule else ''} |")
     out.append("")
+    res = compiled.resolution
+    if res.any:
+        out.append("## Resolution")
+        out.append("")
+        if res.account:
+            out.append(f"- Account: `{res.account.source.name}` joins `REFERENCE.{res.account.feed.table}`; no match raises `{res.account.not_found}`" + (f", a closed account `{res.account.closed}`" if res.account.require_open else "") + ".")
+        if res.security:
+            tried = ", ".join(f"{b.identifier} from `{b.source.name}`" for b in res.security.by)
+            out.append(f"- Security: {tried}, tried in that order against `REFERENCE.{res.security.feed.table}_IDENTIFIERS`; none raises `{res.security.not_found}`, several `{res.security.ambiguous}`, an inactive security `{res.security.inactive}`" + (" and holds the row" if res.security.require_active else " as a warning") + ".")
+        if res.transaction_code:
+            out.append(f"- Transaction code: `{res.transaction_code.source.name}` maps to the canonical type ({', '.join(f'{k} = {v}' for k, v in res.transaction_code.map.items())}); a code with no mapping raises `{res.transaction_code.unmapped}`.")
+        if res.price:
+            out.append(f"- Price: taken from `SILVER.PRICE` ({res.price.price_type}) within {res.price.lookback_days} days {'when the source has none' if res.price.when == 'missing' else 'always'}; none raises `{res.price.missing}`.")
+        out.append("")
 
     out.append("## Rules")
     out.append("")
@@ -119,7 +134,7 @@ def render_doc(compiled: CompiledConfig) -> str:
 
     out.append("## Pipeline")
     out.append("")
-    out.append(f"Pipe `BRONZE.{pipe_name(compiled)}` loads every file under `{custodian_folder(compiled)}` of the landing prefix that matches the delivery patterns into `BRONZE.{raw_lines_table(compiled)}` on arrival, one row per line. Dynamic tables parse the lines with a target lag of {compiled.target_lag_minutes} minutes. Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` every {compiled.target_lag_minutes} minutes on the {src['tier']} tier warehouse. Stages: intake (register landed files as pending), merge (pending files into Silver in arrival order). Resolution is added by its release.")
+    out.append(f"Pipe `BRONZE.{pipe_name(compiled)}` loads every file under `{custodian_folder(compiled)}` of the landing prefix that matches the delivery patterns into `BRONZE.{raw_lines_table(compiled)}` on arrival, one row per line. Dynamic tables parse the lines with a target lag of {compiled.target_lag_minutes} minutes. Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` every {compiled.target_lag_minutes} minutes on the {src['tier']} tier warehouse. Stages: intake (register landed files as pending), merge (pending files into Silver in arrival order), resolve (this run's rows into the canonical entity with platform identifiers; failures become exceptions with the configured codes).")
     out.append("")
     return "\n".join(out)
 

@@ -27,6 +27,8 @@ The schema is versioned by `config_version` and lives at `generation/src/astra_d
 
 `processing.target_lag_minutes` (default 15) is the TARGET_LAG of the parsed dynamic tables and the interval of the source's process task.
 
+A mapping carries either `source` (a field of the spec's logical record) or `constant` (a fixed value typed by the target column); a source maps into one canonical entity and must produce every key and required column of it, through mappings, constants, the resolution or the stage. `resolution` says how custodian identifiers become platform identifiers as set-based joins against the replicated reference data: `account` (the source field with the custodian's account number), `security` (identifiers tried in order, each with the source field that carries it), `transaction_code` (the custodian's code and its map to canonical types) and `price` (looked up from `SILVER.PRICE` when missing or always, within a lookback). Each names the rejection code its failure raises, defaulting to the taxonomy's (`ACCOUNT_NOT_FOUND`, `SECURITY_NOT_FOUND`, `SECURITY_AMBIGUOUS`, `TRANSACTION_CODE_UNMAPPED`, `PRICE_MISSING`); see [ADR 0022](../docs/adr/0022-resolution.md).
+
 `astra-data compile` goes further than validation: it resolves the spec version, the pattern, the target profile, the domain pack's latest canonical model and the catalog rules, and checks every mapping's target column, source field and transform for type agreement. Mappings name the spec's logical record with `record` when it has more than one; transforms come from the vocabulary in `generation/src/astra_data/transforms.py`. CI compiles every config.
 
 Files starting with `_` are ignored, so a draft can sit beside real configs without failing the build.

@@ -29,7 +29,7 @@ from typing import Callable
 
 from astra_core.problems import Problem
 from astra_data.compiler import CompiledConfig
-from astra_data.render import atlan, bronze, docs, dq, merge, parse, tasks, tests
+from astra_data.render import atlan, bronze, docs, dq, merge, parse, resolve, tasks, tests
 from astra_data.render.names import bundle_name
 
 Renderer = Callable[[CompiledConfig], dict[str, str]]
@@ -40,6 +40,7 @@ def render_snowflake_iceberg(compiled: CompiledConfig) -> dict[str, str]:
     files.update(bronze.render(compiled))
     files.update(parse.render(compiled))
     files.update(merge.render(compiled))
+    files.update(resolve.render(compiled))
     files.update(tasks.render(compiled))
     files.update(dq.render(compiled))
     files.update(tests.render(compiled))
@@ -62,7 +63,7 @@ def render_bundle(compiled: CompiledConfig) -> dict[str, str]:
     renderer = RENDERERS.get(compiled.profile.id)
     if renderer is None:
         raise RenderError([Problem(compiled.provenance["config"]["path"], None, f"no renderers for target profile '{compiled.profile.id}'; profiles with renderers are {', '.join(sorted(RENDERERS))}")])
-    problems = bronze.problems(compiled) + parse.problems(compiled) + merge.problems(compiled)
+    problems = bronze.problems(compiled) + parse.problems(compiled) + merge.problems(compiled) + resolve.problems(compiled)
     if problems:
         raise RenderError(problems)
     files = renderer(compiled)

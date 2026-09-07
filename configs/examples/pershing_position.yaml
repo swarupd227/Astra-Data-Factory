@@ -29,10 +29,35 @@ owner:
 mappings:
   - target: position.account_number
     source: account_number
+  - target: position.custodian_security_id
+    source: cusip
+  - target: position.as_of_date
+    source: as_of_date
   - target: position.quantity
     source: quantity
     transform: signed_implied_decimal(13, 5)
     rule: pershing_gcus.quantity_sign
+  - target: position.price
+    source: price
+    transform: implied_decimal(6)
+  - target: position.position_type
+    constant: LONG
+  - target: position.currency
+    constant: USD
+
+# Custodian identifiers become platform identifiers by joining the replicated
+# reference data (domains/custodial/reference-data.yaml); what cannot be
+# resolved becomes an exception with the code named here.
+resolution:
+  account:
+    source: account_number
+    require_open: true
+  security:
+    by:
+      - { identifier: CUSIP, source: cusip }
+  price:
+    when: missing
+    lookback_days: 5
 
 # Rule catalog entries this config depends on (rules/<group>/<name>.yaml).
 # The catalog holds the rule's text, citation, owner and status; a rejected

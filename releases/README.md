@@ -7,7 +7,7 @@ Release bundles: everything rendered for one source, committed as one reviewable
 ```
 releases/<bundle>/
   manifest.yaml
-  ddl/*.sql  pipeline/*.sql  dq/*.sql   # steps: Bronze and Silver DDL, pipe, lines view, parse dynamic tables, intake, merge, process, tasks, data metric functions
+  ddl/*.sql  pipeline/*.sql  dq/*.sql   # steps: Bronze and Silver DDL, pipe, lines view, parse dynamic tables, intake, merge, resolve, process, tasks, data metric functions
   tests/**/*.sql                         # generated tests
   docs/<source>.md                       # the source, its layout, mappings and rules
   atlan/<source>.json                    # catalog assets and lineage for Atlan

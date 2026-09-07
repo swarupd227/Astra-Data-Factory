@@ -79,7 +79,7 @@ def test_the_procedure_loads_the_newest_snapshot_computes_the_delta_and_records_
     sql = render_bundle(_pack())["pipeline/replicate_security_master.sql"]
     assert 'CREATE OR REPLACE PROCEDURE {{ DATABASE }}."REFERENCE"."REPLICATE_SECURITY_MASTER"(SNAPSHOT_DATE DATE)' in sql
     assert 'TRUNCATE TABLE {{ DATABASE }}."REFERENCE"."SECURITY_MASTER_STAGING";' in sql
-    assert 'FROM (SELECT $1::STRING, $2::STRING, $3::STRING, $4::STRING, $5::STRING, $6::STRING, $7::STRING, $8::STRING, $9::STRING, $10::STRING, $11::NUMBER(18,8), $12::DATE, $13::STRING, $14::TIMESTAMP_NTZ(6), METADATA$FILENAME, METADATA$FILE_ROW_NUMBER FROM @{{ DATABASE }}."REFERENCE"."LANDING"/security_master/)' in sql
+    assert 'FROM (SELECT $1::STRING, $2::STRING, $3::STRING, $4::STRING, $5::STRING, $6::STRING, $7::STRING, $8::STRING, $9::STRING, $10::STRING, $11::STRING, $12::NUMBER(18,8), $13::DATE, $14::STRING, $15::TIMESTAMP_NTZ(6), METADATA$FILENAME, METADATA$FILE_ROW_NUMBER FROM @{{ DATABASE }}."REFERENCE"."LANDING"/security_master/)' in sql
     assert "FILE_FORMAT = (FORMAT_NAME = '{{ DATABASE }}.REFERENCE.CSV')" in sql and "PATTERN = '.*[.]csv'" in sql
     assert "IF (files_loaded = 0) THEN" in sql and "'skipped'" in sql
     assert 'INSERT INTO {{ DATABASE }}."REFERENCE"."SECURITY_MASTER_CONFLICTS"' in sql and "HAVING COUNT(*) > 1 OR NOT (\"SECURITY_ID\" IS NOT NULL)" in sql

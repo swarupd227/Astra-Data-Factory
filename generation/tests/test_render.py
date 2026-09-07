@@ -58,6 +58,7 @@ def test_the_bundle_has_every_artifact_kind(compiled):
         "pipeline/pershing_position_parse.sql",
         "pipeline/pershing_position_intake.sql",
         "pipeline/pershing_position_merge.sql",
+        "pipeline/pershing_position_resolve.sql",
         "pipeline/pershing_position_process.sql",
         "pipeline/pershing_position_tasks.sql",
         "dq/dmf_pershing_position.sql",
@@ -75,7 +76,7 @@ def test_the_bundle_has_every_artifact_kind(compiled):
     }
     manifest = files["manifest.yaml"]
     assert "bundle: pershing-position" in manifest and "source: pershing_position" in manifest and re.search(r'version: "[0-9a-f]{12}"', manifest)
-    assert manifest.index("ddl/bronze_pershing_position.sql") < manifest.index("ddl/silver_pershing_position.sql") < manifest.index("pipeline/pershing_position_pipe.sql") < manifest.index("pipeline/pershing_position_lines.sql") < manifest.index("pipeline/pershing_position_parse.sql") < manifest.index("pipeline/pershing_position_intake.sql") < manifest.index("pipeline/pershing_position_merge.sql") < manifest.index("pipeline/pershing_position_process.sql") < manifest.index("pipeline/pershing_position_tasks.sql") < manifest.index("dq/dmf_pershing_position.sql")
+    assert manifest.index("ddl/bronze_pershing_position.sql") < manifest.index("ddl/silver_pershing_position.sql") < manifest.index("pipeline/pershing_position_pipe.sql") < manifest.index("pipeline/pershing_position_lines.sql") < manifest.index("pipeline/pershing_position_parse.sql") < manifest.index("pipeline/pershing_position_intake.sql") < manifest.index("pipeline/pershing_position_merge.sql") < manifest.index("pipeline/pershing_position_resolve.sql") < manifest.index("pipeline/pershing_position_process.sql") < manifest.index("pipeline/pershing_position_tasks.sql") < manifest.index("dq/dmf_pershing_position.sql")
     for name, text in files.items():
         if name.endswith(".sql"):
             assert set(re.findall(r"\{\{\s*([A-Z_]+)\s*\}\}", text)) <= {"DATABASE", "WAREHOUSE_SIMPLE", "WAREHOUSE_MEDIUM", "WAREHOUSE_COMPLEX"}, name
@@ -127,7 +128,7 @@ def test_pipeline_scopes_lines_registers_files_and_runs_stages(compiled):
     process = files["pipeline/pershing_position_process.sql"]
     assert 'CREATE OR REPLACE PROCEDURE {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"()' in process
     assert 'CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_INTAKE"(:run_id);' in process and "run_id STRING DEFAULT UUID_STRING()" in process
-    assert process.index('"PERSHING_POSITION_INTAKE"(:run_id)') < process.index('CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_MERGE"(:run_id);')
+    assert process.index('"PERSHING_POSITION_INTAKE"(:run_id)') < process.index('CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_MERGE"(:run_id);') < process.index('CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_RESOLVE"(:run_id);')
     assert 'l."ROW_COUNT"' in intake
 
     tasks = files["pipeline/pershing_position_tasks.sql"]
@@ -171,6 +172,7 @@ def test_docs_describe_layout_mappings_rules_and_delivery(compiled):
     assert "### detail → `BRONZE.PERSHING_POSITION_DETAIL` (dynamic table, target lag 10 minutes)" in doc
     assert "| `QUANTITY` | detail.quantity | 23-40 | 9(13)V9(5) | NUMBER(18,5) |  | page 13, line 2 |" in doc
     assert "| `POSITION.QUANTITY` (NUMBER(28,8)) | detail.quantity (decimal) | signed_implied_decimal(13, 5) | pershing_gcus.quantity_sign |" in doc
+    assert "| `POSITION.CURRENCY` (STRING) | constant `USD` |  |  |" in doc and "- Account: `account_number` joins `REFERENCE.ACCOUNT_XREF`; no match raises `ACCOUNT_NOT_FOUND`, a closed account `ACCOUNT_CLOSED`." in doc
     assert "| `pershing_gcus.quantity_sign` | normalisation | confirmed | spec pershing_gcus 2017-07-25 page 13 line 6 |" in doc
     assert "| `trailer_control_total` | file | error | trailer record count equals the number of detail records |" in doc
     assert "Cutoff 06:00 America/New_York on mon, tue, wed, thu, fri." in doc and "- `pershing/GCUS_%_POS_%.dat`: Positions" in doc
@@ -197,6 +199,7 @@ def test_atlan_payload_carries_assets_lineage_and_glossary_terms(compiled):
     assert process["attributes"]["inputs"][0]["uniqueAttributes"]["qualifiedName"].endswith("/BRONZE/PERSHING_POSITION_DETAIL")
     assert process["attributes"]["outputs"][0]["uniqueAttributes"]["qualifiedName"].endswith("/SILVER/POSITION")
     assert "POSITION.QUANTITY <- detail.quantity via signed_implied_decimal(13, 5)" in process["attributes"]["description"]
+    assert "POSITION.CURRENCY <- constant USD" in process["attributes"]["description"]
 
 
 def test_provenance_records_inputs_and_every_file_digest(compiled):
@@ -223,13 +226,14 @@ def test_the_written_bundle_passes_the_bundle_contract_and_deploys(compiled, tmp
         "pipeline/pershing_position_parse.sql",
         "pipeline/pershing_position_intake.sql",
         "pipeline/pershing_position_merge.sql",
+        "pipeline/pershing_position_resolve.sql",
         "pipeline/pershing_position_process.sql",
         "pipeline/pershing_position_tasks.sql",
         "dq/dmf_pershing_position.sql",
     ]
     executor = FakeExecutor()
     result = deploy(bundle, Target("dev"), executor)
-    assert len(result.steps) == 10 and "{{" not in "".join(executor.scripts) and 'ASTRA_DEV."BRONZE"' in executor.scripts[0] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[4] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[8]
+    assert len(result.steps) == 11 and "{{" not in "".join(executor.scripts) and 'ASTRA_DEV."BRONZE"' in executor.scripts[0] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[4] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[9]
     assert "FROM @ASTRA_DEV.\"BRONZE\".\"LANDING\"/pershing/" in executor.scripts[2] and "FORMAT_NAME = 'ASTRA_DEV.BRONZE.RAW_LINES'" in executor.scripts[2]
     results = run_tests(bundle, Target("dev"), executor)
     assert len(results) == 9 and all(r.passed for r in results)
@@ -285,7 +289,7 @@ def test_cli_render_writes_and_checks(tmp_path, capsys):
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 1
     assert "not rendered for pershing_position" in capsys.readouterr().out
     assert main([*_args(root, out), str(root / "configs")]) == 0
-    assert "rendered pershing-position: 23 files -> releases/pershing-position" in capsys.readouterr().out
+    assert "rendered pershing-position: 24 files -> releases/pershing-position" in capsys.readouterr().out
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 0
     assert "release bundles are current for 1 config" in capsys.readouterr().out
     assert main(["--root", str(root), "bundles", "check", str(out)]) == 0

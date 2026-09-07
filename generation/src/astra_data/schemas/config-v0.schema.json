@@ -51,10 +51,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target", "source"],
+        "required": ["target"],
+        "oneOf": [{ "required": ["source"] }, { "required": ["constant"] }],
         "properties": {
           "target": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$", "description": "entity.field in the canonical model" },
           "source": { "type": "string", "minLength": 1, "description": "Field name of the spec's logical record, as the spec names it" },
+          "constant": { "type": ["string", "number", "boolean"], "description": "A fixed value for the column, typed by the column (a code, a currency, a date written as YYYY-MM-DD)." },
           "record": { "$ref": "#/$defs/identifier", "description": "Logical record of the spec the field belongs to; required when the spec has more than one." },
           "transform": { "type": "string", "description": "A transform call, name(arguments), from the vocabulary the renderers implement (signed_implied_decimal, implied_decimal, negate, trim, upper, to_date, nullif)." },
           "rule": { "$ref": "#/$defs/rule_id", "description": "Rule catalog id that governs this mapping; must be listed under rules." }
@@ -84,7 +86,74 @@
     },
     "resolution": {
       "type": "object",
-      "description": "Resolution parameters (account, security, transaction code, price). Free-form in version 0."
+      "additionalProperties": false,
+      "description": "How custodian identifiers become platform identifiers, as set-based joins against the replicated reference data (ADR 0015), with the rejection code each failure raises. Codes default to the feed's; every code must be in the taxonomy.",
+      "properties": {
+        "account": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": {
+            "feed": { "$ref": "#/$defs/identifier", "description": "Reference-data feed with the account cross-reference (default account_xref)." },
+            "source": { "type": "string", "minLength": 1, "description": "Source field carrying the custodian's account number." },
+            "require_open": { "type": "boolean", "default": true, "description": "A closed account is an exception (closed code)." },
+            "not_found": { "$ref": "#/$defs/rejection_code" },
+            "closed": { "$ref": "#/$defs/rejection_code" }
+          }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["by"],
+          "properties": {
+            "feed": { "$ref": "#/$defs/identifier", "description": "Reference-data feed with the security master (default security_master)." },
+            "by": {
+              "type": "array",
+              "minItems": 1,
+              "description": "Identifiers tried in this order: the first with exactly one match resolves the security; several matches is ambiguous.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["identifier", "source"],
+                "properties": {
+                  "identifier": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "description": "An identifier of the feed: CUSIP, ISIN, SEDOL, TICKER, OCC_SYMBOL" },
+                  "source": { "type": "string", "minLength": 1, "description": "Source field carrying it" }
+                }
+              }
+            },
+            "require_active": { "type": "boolean", "default": false, "description": "An inactive security is an exception (inactive code) rather than a warning." },
+            "not_found": { "$ref": "#/$defs/rejection_code" },
+            "ambiguous": { "$ref": "#/$defs/rejection_code" },
+            "inactive": { "$ref": "#/$defs/rejection_code" }
+          }
+        },
+        "transaction_code": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "map"],
+          "properties": {
+            "source": { "type": "string", "minLength": 1, "description": "Source field carrying the custodian's transaction code." },
+            "map": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+              "description": "Custodian code to canonical transaction type (BUY, SELL, DIVIDEND, ...)."
+            },
+            "unmapped": { "$ref": "#/$defs/rejection_code", "description": "Raised for a code the map does not have (default TRANSACTION_CODE_UNMAPPED)." }
+          }
+        },
+        "price": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["when"],
+          "properties": {
+            "when": { "enum": ["missing", "always"], "description": "Take the price from SILVER.PRICE when the source has none, or always." },
+            "lookback_days": { "type": "integer", "minimum": 0, "maximum": 365, "default": 5 },
+            "price_type": { "type": "string", "minLength": 1, "default": "CLOSE" },
+            "missing": { "$ref": "#/$defs/rejection_code", "description": "Raised when no price is found within the lookback (default PRICE_MISSING)." }
+          }
+        }
+      }
     },
     "processing": {
       "type": "object",
@@ -137,6 +206,7 @@
   },
   "$defs": {
     "rule_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$", "description": "<group>.<name> of a rule catalog entry" },
+    "rejection_code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,62}$", "description": "A code of the domain pack's rejection taxonomy" },
     "identifier": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]{0,62}$"

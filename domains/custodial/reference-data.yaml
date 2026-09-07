@@ -17,7 +17,7 @@ feeds:
     system: SOS
     description: >-
       The platform's security master: one row per security with the identifiers custodian
-      records carry (CUSIP, ISIN, SEDOL, ticker), so that a custodian's security resolves to
+      records carry (CUSIP, ISIN, SEDOL, ticker, OCC option symbol), so that a custodian's security resolves to
       the platform's SECURITY_ID by join.
     table: SECURITY_MASTER
     key: [SECURITY_ID]
@@ -27,7 +27,7 @@ feeds:
     stale_severity: error
     resolves:
       entity: Security
-      identifiers: [CUSIP, ISIN, SEDOL, TICKER]
+      identifiers: [CUSIP, ISIN, SEDOL, TICKER, OCC_SYMBOL]
     rejections: { not_found: SECURITY_NOT_FOUND, ambiguous: SECURITY_AMBIGUOUS, conflict: REFERENCE_DATA_CONFLICT }
     columns:
       - { name: SECURITY_ID, type: string, required: true, description: "Security master identifier." }
@@ -35,6 +35,7 @@ feeds:
       - { name: ISIN, type: string, description: "ISIN, twelve characters." }
       - { name: SEDOL, type: string, description: "SEDOL, seven characters." }
       - { name: TICKER, type: string, description: "Exchange ticker." }
+      - { name: OCC_SYMBOL, type: string, description: "OCC option symbol, for listed options." }
       - { name: DESCRIPTION, type: string, required: true, description: "Name of the security." }
       - { name: ASSET_CLASS, type: string, required: true, description: "Broad class of the security, in the security master's vocabulary." }
       - { name: SECURITY_TYPE, type: string, description: "Finer type within the asset class." }
