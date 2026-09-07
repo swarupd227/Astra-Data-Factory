@@ -35,12 +35,14 @@ from astra_data.render.names import (
     exceptions_table,
     file_metadata_table,
     files_table,
+    lines_view,
     lit,
     logical_columns,
     parse_problems_table,
     procedure,
     q,
     record_table,
+    runs_table,
     silver_table,
     sql_type,
 )
@@ -115,16 +117,16 @@ def render_ddl(compiled: CompiledConfig) -> str:
                 '  "EXCEPTION_ID"   STRING NOT NULL',
                 '  "REJECTION_CODE" STRING NOT NULL COMMENT \'Code from the rejection taxonomy; see CONTROL.REJECTION_CODES\'',
                 '  "LEVEL"          STRING NOT NULL COMMENT \'file, record or field\'',
-                '  "STAGE"          STRING NOT NULL COMMENT \'Pipeline stage that raised it: merge, resolution, ...\'',
+                '  "STAGE"          STRING NOT NULL COMMENT \'Pipeline stage that raised it: parse, merge or resolution\'',
                 '  "ENTITY"         STRING COMMENT \'Canonical entity the rejected record was meant for, when known\'',
                 '  "CUSTODIAN_ID"   STRING NOT NULL',
                 '  "FIELD_NAME"     STRING COMMENT \'Source field at fault, for field-level exceptions\'',
                 '  "RAW_VALUE"      STRING COMMENT \'Value as received, for field-level exceptions\'',
                 '  "MESSAGE"        STRING NOT NULL',
                 '  "RECORD_KEY"     STRING COMMENT \'Reconciliation identity of the rejected record, as text\'',
-                '  "PAYLOAD"        STRING COMMENT \'The rejected row as parsed, as JSON; NULL for file-level exceptions\'',
+                '  "PAYLOAD"        STRING NOT NULL COMMENT \'The full source record, as JSON: the raw line for a parse problem, the parsed row for a merge or resolution exception, the file metadata for a file-level exception\'',
                 '  "RAISED_AT"      TIMESTAMP_NTZ(6) NOT NULL',
-                '  "STATUS"         STRING NOT NULL COMMENT \'OPEN, RESOLVED, AUTO_RESOLVED or DISMISSED\'',
+                '  "STATUS"         STRING NOT NULL COMMENT \'NEW when written; then RESOLVED, AUTO_RESOLVED or DISMISSED by triage\'',
                 '  "RESOLUTION"     STRING',
                 '  "RESOLVED_BY"    STRING',
                 '  "RESOLVED_AT"    TIMESTAMP_NTZ(6)',
@@ -148,12 +150,35 @@ def render_ddl(compiled: CompiledConfig) -> str:
 # -- the MERGE procedure -----------------------------------------------------
 
 
-def _exception_insert(compiled: CompiledConfig, code: str, level: str, message: str, *, line: str = "0", record_key: str = "NULL", payload: str = "NULL", field: str = "NULL") -> str:
+def _exception_insert(compiled: CompiledConfig, code: str, level: str, message: str, *, line: str = "0", record_key: str = "NULL", payload: str | None = None, field: str = "NULL") -> str:
+    """A file-level exception; its payload is the file's metadata row unless another payload is given."""
     custodian = lit(compiled.source["custodian"])
     config_version = lit(compiled.provenance["config"]["sha256"][:12])
+    metadata = f"{BRONZE}.{q(file_metadata_table(compiled))}"
+    payload = payload or f'(SELECT TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)) FROM {metadata} m WHERE m."FILE_NAME" = :file_name)'
     return (
         f'INSERT INTO {EXCEPTIONS}.{q(exceptions_table(compiled))} ("EXCEPTION_ID", "REJECTION_CODE", "LEVEL", "STAGE", "CUSTODIAN_ID", "FIELD_NAME", "MESSAGE", "RECORD_KEY", "PAYLOAD", "RAISED_AT", "STATUS", "SOURCE_SYSTEM", "SOURCE_FILE", "SOURCE_LINE", "CONFIG_VERSION", "RUN_ID", "LOADED_AT")\n'
-        f"    VALUES (UUID_STRING(), {lit(code)}, {lit(level)}, 'merge', {custodian}, {field}, {message}, {record_key}, {payload}, SYSDATE(), 'OPEN', {custodian}, :file_name, {line}, {config_version}, :RUN_ID, SYSDATE());"
+        f"    SELECT UUID_STRING(), {lit(code)}, {lit(level)}, 'merge', {custodian}, {field}, {message}, {record_key}, {payload}, SYSDATE(), 'NEW', {custodian}, :file_name, {line}, {config_version}, :RUN_ID, SYSDATE();"
+    )
+
+
+def _parse_exceptions(compiled: CompiledConfig) -> str:
+    """Route the file's parse problems to the exception store: the raw line is the payload, the file metadata for file-level ones."""
+    custodian = lit(compiled.source["custodian"])
+    config_version = lit(compiled.provenance["config"]["sha256"][:12])
+    problems = f"{BRONZE}.{q(parse_problems_table(compiled))}"
+    lines = f"{BRONZE}.{q(lines_view(compiled))}"
+    metadata = f"{BRONZE}.{q(file_metadata_table(compiled))}"
+    return (
+        f'INSERT INTO {EXCEPTIONS}.{q(exceptions_table(compiled))} ("EXCEPTION_ID", "REJECTION_CODE", "LEVEL", "STAGE", "CUSTODIAN_ID", "FIELD_NAME", "MESSAGE", "RECORD_KEY", "PAYLOAD", "RAISED_AT", "STATUS", "SOURCE_SYSTEM", "SOURCE_FILE", "SOURCE_LINE", "CONFIG_VERSION", "RUN_ID", "LOADED_AT")\n'
+        f"    SELECT UUID_STRING(), p.\"CODE\", p.\"LEVEL\", 'parse', {custodian}, p.\"FIELD\", p.\"MESSAGE\", NULL,\n"
+        f"           IFF(p.\"LEVEL\" = 'file',\n"
+        f"               (SELECT TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)) FROM {metadata} m WHERE m.\"FILE_NAME\" = :file_name),\n"
+        f"               TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL('FILE_NAME', l.\"FILE_NAME\", 'LINE_NUMBER', l.\"LINE_NUMBER\", 'RECORD', p.\"RECORD\", 'LINE', l.\"LINE\"))),\n"
+        f"           SYSDATE(), 'NEW', {custodian}, p.\"FILE_NAME\", p.\"LINE_NUMBER\", {config_version}, :RUN_ID, SYSDATE()\n"
+        f"    FROM {problems} p\n"
+        f"    LEFT JOIN {lines} l ON l.\"FILE_NAME\" = p.\"FILE_NAME\" AND l.\"LINE_NUMBER\" = p.\"LINE_NUMBER\"\n"
+        f"    WHERE p.\"FILE_NAME\" = :file_name;"
     )
 
 
@@ -163,7 +188,7 @@ def _row_exceptions(compiled: CompiledConfig, rows: str, code: str, level: str, 
     config_version = lit(compiled.provenance["config"]["sha256"][:12])
     return (
         f'INSERT INTO {EXCEPTIONS}.{q(exceptions_table(compiled))} ("EXCEPTION_ID", "REJECTION_CODE", "LEVEL", "STAGE", "CUSTODIAN_ID", "FIELD_NAME", "MESSAGE", "RECORD_KEY", "PAYLOAD", "RAISED_AT", "STATUS", "SOURCE_SYSTEM", "SOURCE_FILE", "SOURCE_LINE", "CONFIG_VERSION", "RUN_ID", "LOADED_AT")\n'
-        f"    SELECT UUID_STRING(), {lit(code)}, {lit(level)}, 'merge', {custodian}, {field}, {message}, {key_text}, TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)), SYSDATE(), 'OPEN', {custodian}, \"FILE_NAME\", \"LINE_NUMBER\", {config_version}, :RUN_ID, SYSDATE()\n"
+        f"    SELECT UUID_STRING(), {lit(code)}, {lit(level)}, 'merge', {custodian}, {field}, {message}, {key_text}, TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)), SYSDATE(), 'NEW', {custodian}, \"FILE_NAME\", \"LINE_NUMBER\", {config_version}, :RUN_ID, SYSDATE()\n"
         f"    FROM {rows} WHERE {condition};"
     )
 
@@ -211,7 +236,7 @@ def _rows_sql(compiled: CompiledConfig, label: str) -> tuple[str, list[str]]:
         exceptions.append(_row_exceptions(compiled, ranked, "PAIR_DUPLICATE", "record", lit(f"a second {record} record for the same keys in the file; the first is kept"), _key_text_sql(pairing.keys), '"NTH" > 1', record))
         others = [r for r in pairing.records if r != record]
         partner_missing = " OR ".join(f"NOT EXISTS (SELECT 1 FROM {BRONZE}.{q(record_table(compiled, o))} o WHERE o.\"FILE_NAME\" = :file_name AND " + " AND ".join(f"o.{q(k)} = x.{q(k)}" for k in keys) + ")" for o in others)
-        unpaired = f"(SELECT * FROM {table} x WHERE x.\"FILE_NAME\" = :file_name AND {key_not_null} AND ({partner_missing}))"
+        unpaired = f"(SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY {key_list} ORDER BY \"LINE_NUMBER\") AS \"NTH\" FROM {table} WHERE \"FILE_NAME\" = :file_name AND {key_not_null}) x WHERE x.\"NTH\" = 1 AND ({partner_missing}))"
         exceptions.append(_row_exceptions(compiled, unpaired, "PAIR_INCOMPLETE", "record", lit(f"{record} record whose partner record never appeared in the file"), _key_text_sql(pairing.keys), "TRUE", record))
     return rows_sql, exceptions
 
@@ -254,7 +279,7 @@ def render_merge(compiled: CompiledConfig) -> str:
         f"    IF ({r}_parsed <> {r}_expected) THEN CONTINUE; END IF;"
         for r in physical_records
     )
-    pairing_block = "\n".join(f"    {stmt}" for stmt in pairing_exceptions)
+    pairing_block = "\n".join(f"    {stmt}\n    rejected := rejected + SQLROWCOUNT;" for stmt in pairing_exceptions)
 
     return f"""-- Merge {source} into Silver: every pending file whose parse is complete, in arrival order, the way the pattern
 -- library's merge does (refresh replaces the scope, update merges on keys{'; records paired on ' + ', '.join(pairing.keys) if pairing else ''}).
@@ -270,6 +295,9 @@ DECLARE
   pending CURSOR FOR
     SELECT "FILE_NAME", "ROW_COUNT" FROM {files} WHERE "STATUS" = 'pending' ORDER BY "FILE_LAST_MODIFIED", "FILE_NAME";
   merged INTEGER DEFAULT 0;
+  rejected_files INTEGER DEFAULT 0;
+  rows_merged INTEGER DEFAULT 0;
+  rejected INTEGER DEFAULT 0;
 BEGIN
   FOR f IN pending DO
     LET file_name STRING := f."FILE_NAME";
@@ -281,7 +309,12 @@ BEGIN
     IF (line_count IS NULL OR row_count IS NULL OR line_count <> row_count) THEN CONTINUE; END IF;
 {parse_checks}
 
-    -- 2. The mode the header declares, the scope and the business date.
+    -- 2. Every parse problem of the file goes to the exception store with the source line as payload; the lines the
+    --    parse excluded are rejected rows of this run.
+    {_parse_exceptions(compiled)}
+    rejected := rejected + (SELECT COUNT(DISTINCT p."LINE_NUMBER") FROM {parse_problems} p WHERE p."FILE_NAME" = :file_name AND p."LEVEL" = 'record');
+
+    -- 3. The mode the header declares, the scope and the business date.
     LET mode_code STRING := (SELECT {q(_header_column(rule.mode_field))}::STRING FROM {metadata} WHERE "FILE_NAME" = :file_name);
     LET mode STRING := (SELECT CASE :mode_code {mode_cases} END);
     LET business_date DATE := (SELECT {q(_header_column(rule.business_date_field))} FROM {metadata} WHERE "FILE_NAME" = :file_name);
@@ -291,30 +324,34 @@ BEGIN
       LET message STRING := (SELECT IFF(:header_count = 0, 'the file has no header record, so the merge mode is unknown', 'merge mode ''' || COALESCE(:mode_code, 'NULL') || ''' in header field {rule.mode_field} is not one of {accepted}'));
       {_exception_insert(compiled, "MERGE_MODE_UNKNOWN", "file", ":message")}
       UPDATE {files} SET "STATUS" = 'rejected', "RUN_ID" = :RUN_ID, "STATUS_AT" = SYSDATE() WHERE "FILE_NAME" = :file_name;
+      rejected_files := rejected_files + 1;
       CONTINUE;
     END IF;
 
-    -- 3. Out of order: a business date earlier than what Silver already holds for the scope.
+    -- 4. Out of order: a business date earlier than what Silver already holds for the scope.
     LET latest DATE := (SELECT MAX(t."BUSINESS_DATE") FROM {silver} t WHERE t."RETIRED_AT" IS NULL AND {scope_match_t});
     IF (business_date IS NOT NULL AND latest IS NOT NULL AND business_date < latest) THEN
       LET message STRING := (SELECT 'business date ' || :business_date::STRING || ' is earlier than the ' || :latest::STRING || ' already in Silver for this scope; the file is out of order and was not merged');
       {_exception_insert(compiled, "MERGE_OUT_OF_ORDER", "file", ":message")}
       UPDATE {files} SET "STATUS" = 'rejected', "RUN_ID" = :RUN_ID, "STATUS_AT" = SYSDATE() WHERE "FILE_NAME" = :file_name;
+      rejected_files := rejected_files + 1;
       CONTINUE;
     END IF;
 
-    -- 4. The file's logical rows{', paired on ' + ', '.join(pairing.keys) if pairing else ''}.
+    -- 5. The file's logical rows{', paired on ' + ', '.join(pairing.keys) if pairing else ''}.
 {pairing_block}
     CREATE OR REPLACE TEMPORARY TABLE {rows} AS
     {rows_sql};
 
-    -- 5. Blank keys and duplicate keys within the file are exceptions; the first row for a key is kept.
+    -- 6. Blank keys and duplicate keys within the file are exceptions; the first row for a key is kept.
     {_row_exceptions(compiled, rows, "MERGE_KEY_BLANK", "record", lit("key field blank; the row cannot be merged"), _key_text_sql(rule.keys), key_blank, label)}
+    rejected := rejected + SQLROWCOUNT;
     DELETE FROM {rows} WHERE {key_blank};
     {_row_exceptions(compiled, f'(SELECT *, ROW_NUMBER() OVER (PARTITION BY {key_list} ORDER BY "LINE_NUMBER") AS "NTH" FROM {rows})', "MERGE_DUPLICATE_KEY", "record", lit("a second row for the same keys in the same file; the first is kept"), _key_text_sql(rule.keys), '"NTH" > 1', label)}
+    rejected := rejected + SQLROWCOUNT;
     DELETE FROM {rows} WHERE ("FILE_NAME", "LINE_NUMBER") IN (SELECT "FILE_NAME", "LINE_NUMBER" FROM (SELECT "FILE_NAME", "LINE_NUMBER", ROW_NUMBER() OVER (PARTITION BY {key_list} ORDER BY "LINE_NUMBER") AS "NTH" FROM {rows}) WHERE "NTH" > 1);
 
-    -- 6. Insert or update on scope and keys.
+    -- 7. Insert or update on scope and keys.
     LET updated NUMBER := (SELECT COUNT(*) FROM {rows} s JOIN {silver} t ON {key_join} WHERE t."RETIRED_AT" IS NULL AND {scope_match_t});
     LET inserted NUMBER := (SELECT COUNT(*) FROM {rows});
     inserted := inserted - updated;
@@ -324,7 +361,7 @@ BEGIN
     WHEN NOT MATCHED THEN INSERT ({column_list}{scope_column_list}, "BUSINESS_DATE", "FIRST_FILE", "LAST_FILE", "LAST_LINE", "FIRST_MERGED_AT", "LAST_MERGED_AT", "RUN_ID")
       VALUES ({", ".join(f's.{q(c.name)}' for c in columns)}{scope_inserts}, :business_date, :file_name, :file_name, s."LINE_NUMBER", SYSDATE(), SYSDATE(), :RUN_ID);
 
-    -- 7. A refresh retires every active row of the scope the file no longer carries; an update carries them forward.
+    -- 8. A refresh retires every active row of the scope the file no longer carries; an update carries them forward.
     LET retired NUMBER := 0;
     LET carried NUMBER := 0;
     IF (mode = 'refresh') THEN
@@ -335,12 +372,14 @@ BEGIN
       carried := (SELECT COUNT(*) FROM {silver} t WHERE t."RETIRED_AT" IS NULL AND {scope_match_t} AND NOT EXISTS (SELECT 1 FROM {rows} s WHERE {key_join}));
     END IF;
 
-    -- 8. The merge log and the file's status.
+    -- 9. The merge log and the file's status.
     INSERT INTO {merge_log} ("CUSTODIAN_ID", "SOURCE_ID", "SCOPE", "BUSINESS_DATE", "MODE", "FILE_NAME", "ROWS_INSERTED", "ROWS_UPDATED", "ROWS_CARRIED", "ROWS_RETIRED", "LOADED_AT")
     VALUES ({lit(compiled.source['custodian'])}, {lit(source)}, {scope_text}, :business_date, :mode, :file_name, :inserted, :updated, :carried, :retired, SYSDATE());
     UPDATE {files} SET "STATUS" = 'merged', "RUN_ID" = :RUN_ID, "STATUS_AT" = SYSDATE() WHERE "FILE_NAME" = :file_name;
     merged := merged + 1;
+    rows_merged := rows_merged + inserted + updated;
   END FOR;
+  UPDATE {BRONZE}.{q(runs_table(compiled))} SET "FILES_MERGED" = :merged, "FILES_REJECTED" = :rejected_files, "ROWS_MERGED" = :rows_merged, "ROWS_REJECTED" = "ROWS_REJECTED" + :rejected WHERE "RUN_ID" = :RUN_ID;
   RETURN merged;
 END;
 $$;

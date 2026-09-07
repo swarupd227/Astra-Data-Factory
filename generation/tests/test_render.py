@@ -68,6 +68,8 @@ def test_the_bundle_has_every_artifact_kind(compiled):
         "tests/pershing_position_problem_codes_known.sql",
         "tests/pershing_position_silver_active_keys_unique.sql",
         "tests/pershing_position_exception_codes_known.sql",
+        "tests/pershing_position_rejected_rows_equal_exceptions.sql",
+        "tests/pershing_position_exceptions_have_payload_and_start_new.sql",
         "tests/pershing_position_files_merged_once_logged.sql",
         "tests/pershing_position_detail_keys_unique_per_file.sql",
         "tests/pershing_position_detail_lines_traceable.sql",
@@ -97,7 +99,7 @@ def test_rendering_an_unchanged_config_is_byte_identical(compiled, tmp_path):
 def test_bronze_ddl_types_every_field_from_the_spec(compiled):
     ddl = render_bundle(compiled)["ddl/bronze_pershing_position.sql"]
     tables = re.findall(r'CREATE ICEBERG TABLE IF NOT EXISTS \{\{ DATABASE \}\}\."BRONZE"\."([A-Z_]+)"', ddl)
-    assert tables == ["PERSHING_POSITION_RAW_LINES", "PERSHING_POSITION_FILES"]
+    assert tables == ["PERSHING_POSITION_RAW_LINES", "PERSHING_POSITION_FILES", "PERSHING_POSITION_RUNS"]
     assert 'ALTER ICEBERG TABLE {{ DATABASE }}."BRONZE"."PERSHING_POSITION_RAW_LINES" MODIFY COLUMN "LINE" SET TAG {{ DATABASE }}."CONTROL"."PII" = \'raw_record\';' in ddl
     assert re.search(r'"FILE_CONTENT_KEY"\s+STRING', ddl) and re.search(r'"INGESTED_AT"\s+TIMESTAMP_NTZ\(6\) NOT NULL', ddl)
     assert '"STATUS"' in ddl and "'pending, merged or rejected'" in ddl
@@ -236,7 +238,7 @@ def test_the_written_bundle_passes_the_bundle_contract_and_deploys(compiled, tmp
     assert len(result.steps) == 11 and "{{" not in "".join(executor.scripts) and 'ASTRA_DEV."BRONZE"' in executor.scripts[0] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[4] and "ASTRA_DEV_WH_MEDIUM" in executor.scripts[9]
     assert "FROM @ASTRA_DEV.\"BRONZE\".\"LANDING\"/pershing/" in executor.scripts[2] and "FORMAT_NAME = 'ASTRA_DEV.BRONZE.RAW_LINES'" in executor.scripts[2]
     results = run_tests(bundle, Target("dev"), executor)
-    assert len(results) == 9 and all(r.passed for r in results)
+    assert len(results) == 11 and all(r.passed for r in results)
 
 
 def test_write_removes_stale_files_and_check_reports_drift(compiled, tmp_path):
@@ -289,7 +291,7 @@ def test_cli_render_writes_and_checks(tmp_path, capsys):
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 1
     assert "not rendered for pershing_position" in capsys.readouterr().out
     assert main([*_args(root, out), str(root / "configs")]) == 0
-    assert "rendered pershing-position: 24 files -> releases/pershing-position" in capsys.readouterr().out
+    assert "rendered pershing-position: 26 files -> releases/pershing-position" in capsys.readouterr().out
     assert main([*_args(root, out), "--check", str(root / "configs")]) == 0
     assert "release bundles are current for 1 config" in capsys.readouterr().out
     assert main(["--root", str(root), "bundles", "check", str(out)]) == 0

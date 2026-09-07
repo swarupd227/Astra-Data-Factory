@@ -206,7 +206,7 @@ CREATE ICEBERG TABLE IF NOT EXISTS {{ DATABASE }}."SILVER"."EXCEPTION" (
   "MESSAGE"        STRING NOT NULL COMMENT 'What was wrong, as the rule that rejected it states it.',
   "RECORD_KEY"     STRING COMMENT 'Reconciliation identity of the rejected record, as text, when it could be read.',
   "RAISED_AT"      TIMESTAMP_NTZ(6) NOT NULL COMMENT 'When the exception was raised.',
-  "STATUS"         STRING NOT NULL COMMENT 'Where the exception is in its resolution. Codes: OPEN = waiting for triage; RESOLVED = resolved by a person; AUTO_RESOLVED = resolved by a whitelisted rule, with audit; DISMISSED = closed without a change.',
+  "STATUS"         STRING NOT NULL COMMENT 'Where the exception is in its resolution. Codes: NEW = written by a pipeline stage, waiting for triage; RESOLVED = resolved by a person; AUTO_RESOLVED = resolved by a whitelisted rule, with audit; DISMISSED = closed without a change.',
   "RESOLUTION"     STRING COMMENT 'What was done to resolve it.',
   "RESOLVED_BY"    STRING COMMENT 'Person or rule that resolved it.',
   "RESOLVED_AT"    TIMESTAMP_NTZ(6) COMMENT 'When it was resolved.',

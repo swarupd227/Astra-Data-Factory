@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import custodian_folder, exceptions_table, file_metadata_table, files_table, parse_problems_table, pipe_name, raw_lines_table, record_table, silver_table, sql_type, task_name
+from astra_data.render.names import custodian_folder, exceptions_table, file_metadata_table, files_table, parse_problems_table, pipe_name, raw_lines_table, record_table, runs_table, silver_table, sql_type, task_name
 
 
 def _position(field) -> str:
@@ -72,6 +72,10 @@ def render_doc(compiled: CompiledConfig) -> str:
         out.append(f"## Silver")
         out.append("")
         out.append(f"`SILVER.{silver_table(compiled)}` holds one active row per scope and key. A refresh file replaces its scope as of the file's business date: rows in the file are inserted or updated, rows not in the file are retired (`RETIRED_AT`, `RETIRED_BY_FILE`); an update file merges on keys and carries every other row forward. Files are merged in arrival order once their parse is complete. A file whose header declares no known mode, or whose business date is earlier than what Silver holds for its scope, is rejected whole. Unpaired records, blank keys and duplicate keys within a file are exceptions in `EXCEPTIONS.{exceptions_table(compiled)}`; the first row for a key is kept. Every merge is logged in `CONTROL.MERGE_LOG`.")
+        out.append("")
+        out.append(f"## Exceptions")
+        out.append("")
+        out.append(f"Nothing is dropped silently. Every problem a stage raises is a row of `EXCEPTIONS.{exceptions_table(compiled)}` written with state `NEW`, the rejection code, the level, the stage and the full source record as payload: the raw line for a parse problem, the parsed row for a merge or resolution exception, the file metadata for a file-level exception. Each run is recorded in `BRONZE.{runs_table(compiled)}` with what it registered, merged, projected and rejected, and the rendered test `{compiled.id}_rejected_rows_equal_exceptions.sql` fails when the rows the stages rejected and the rows in the store disagree.")
         out.append("")
 
     out.append("## Mappings")

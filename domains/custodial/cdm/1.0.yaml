@@ -309,7 +309,7 @@ entities:
         required: true
         description: Where the exception is in its resolution.
         codes:
-          - { value: OPEN, meaning: "waiting for triage" }
+          - { value: NEW, meaning: "written by a pipeline stage, waiting for triage" }
           - { value: RESOLVED, meaning: "resolved by a person" }
           - { value: AUTO_RESOLVED, meaning: "resolved by a whitelisted rule, with audit" }
           - { value: DISMISSED, meaning: "closed without a change" }

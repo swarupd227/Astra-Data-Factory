@@ -33,7 +33,7 @@ from astra_knowledge.cdm import Column, Entity
 
 from astra_core.problems import Problem
 from astra_data.compiler import CompiledConfig, CompiledMapping, provided_columns
-from astra_data.render.names import BRONZE, EXCEPTIONS, REFERENCE, SILVER, exceptions_table, lit, procedure, q, silver_table
+from astra_data.render.names import BRONZE, EXCEPTIONS, REFERENCE, SILVER, exceptions_table, lit, procedure, q, runs_table, silver_table
 
 
 def problems(compiled: CompiledConfig) -> list[Problem]:
@@ -136,7 +136,7 @@ def render_resolve(compiled: CompiledConfig) -> str:
     def exception(code: str, level: str, message: str, condition: str, field: str = "NULL") -> str:
         return (
             f'  INSERT INTO {exceptions} ("EXCEPTION_ID", "REJECTION_CODE", "LEVEL", "STAGE", "ENTITY", "CUSTODIAN_ID", "FIELD_NAME", "MESSAGE", "RECORD_KEY", "PAYLOAD", "RAISED_AT", "STATUS", "SOURCE_SYSTEM", "SOURCE_FILE", "SOURCE_LINE", "CONFIG_VERSION", "RUN_ID", "LOADED_AT")\n'
-            f"  SELECT UUID_STRING(), {lit(code)}, {lit(level)}, 'resolution', {lit(entity.name)}, {custodian}, {field}, {message}, {key_text}, TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)), SYSDATE(), 'OPEN', {custodian}, s.\"LAST_FILE\", s.\"LAST_LINE\", {config_version}, :RUN_ID, SYSDATE()\n"
+            f"  SELECT UUID_STRING(), {lit(code)}, {lit(level)}, 'resolution', {lit(entity.name)}, {custodian}, {field}, {message}, {key_text}, TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)), SYSDATE(), 'NEW', {custodian}, s.\"LAST_FILE\", s.\"LAST_LINE\", {config_version}, :RUN_ID, SYSDATE()\n"
             f"  FROM {work} s WHERE {condition};"
         )
 
@@ -212,6 +212,7 @@ AS
 $$
 DECLARE
   projected INTEGER DEFAULT 0;
+  held INTEGER DEFAULT 0;
 BEGIN
   -- 1. The rows this run merged, with what the reference data says about them.
   CREATE OR REPLACE TEMPORARY TABLE {work} AS
@@ -235,6 +236,8 @@ BEGIN
   WHEN MATCHED THEN UPDATE SET {updates}, "UPDATED_AT" = SYSDATE()
   WHEN NOT MATCHED THEN INSERT ({", ".join(q(c) for c in columns)}, "LOADED_AT") VALUES ({", ".join(f'r.{q(c)}' for c in columns)}, SYSDATE());
   projected := SQLROWCOUNT;
+  held := (SELECT COUNT(*) FROM {work} s WHERE {hold_sql});
+  UPDATE {BRONZE}.{q(runs_table(compiled))} SET "ROWS_PROJECTED" = :projected, "ROWS_REJECTED" = "ROWS_REJECTED" + :held WHERE "RUN_ID" = :RUN_ID;
   RETURN projected;
 END;
 $$;

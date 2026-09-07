@@ -88,6 +88,10 @@ def exceptions_table(compiled: CompiledConfig) -> str:
     return source_name(compiled)
 
 
+def runs_table(compiled: CompiledConfig) -> str:
+    return f"{source_name(compiled)}_RUNS"
+
+
 def pipe_name(compiled: CompiledConfig) -> str:
     return f"{source_name(compiled)}_PIPE"
 

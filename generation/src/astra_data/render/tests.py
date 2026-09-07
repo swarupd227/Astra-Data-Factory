@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import BRONZE, CONTROL, EXCEPTIONS, SILVER, exceptions_table, file_metadata_table, files_table, parse_problems_table, q, record_table, silver_table
+from astra_data.render.names import BRONZE, CONTROL, EXCEPTIONS, SILVER, exceptions_table, file_metadata_table, files_table, parse_problems_table, q, record_table, runs_table, silver_table
 
 PENDING_HOURS = 24
 
@@ -77,6 +77,31 @@ def render(compiled: CompiledConfig) -> dict[str, str]:
                 f'LEFT JOIN {CONTROL}."REJECTION_CODES" r ON r."CODE" = e."REJECTION_CODE"',
                 'WHERE r."CODE" IS NULL',
                 'GROUP BY e."REJECTION_CODE";',
+                "",
+            ]
+        )
+        tests[f"tests/{source}_rejected_rows_equal_exceptions.sql"] = "\n".join(
+            [
+                f"-- {source}: every row a stage rejected is in the exception store with a record-level exception, and nothing else is.",
+                "-- Returns finished runs whose rejected-row count differs from the distinct rows with record-level exceptions.",
+                'SELECT r."RUN_ID", r."ROWS_REJECTED", COALESCE(e."REJECTED_IN_STORE", 0) AS "REJECTED_IN_STORE"',
+                f"FROM {BRONZE}.{q(runs_table(compiled))} r",
+                "LEFT JOIN (",
+                '  SELECT "RUN_ID", COUNT(DISTINCT "SOURCE_FILE" || \'#\' || "SOURCE_LINE"::STRING) AS "REJECTED_IN_STORE"',
+                f"  FROM {EXCEPTIONS}.{q(exceptions_table(compiled))}",
+                "  WHERE \"LEVEL\" = 'record'",
+                '  GROUP BY "RUN_ID"',
+                ') e ON e."RUN_ID" = r."RUN_ID"',
+                'WHERE r."FINISHED_AT" IS NOT NULL AND COALESCE(e."REJECTED_IN_STORE", 0) <> r."ROWS_REJECTED";',
+                "",
+            ]
+        )
+        tests[f"tests/{source}_exceptions_have_payload_and_start_new.sql"] = "\n".join(
+            [
+                f"-- {source}: every exception carries the full source record and was written as NEW. Returns exceptions without a payload or with an unknown state.",
+                'SELECT "EXCEPTION_ID", "REJECTION_CODE", "STAGE", "STATUS"',
+                f"FROM {EXCEPTIONS}.{q(exceptions_table(compiled))}",
+                "WHERE \"PAYLOAD\" IS NULL OR \"STATUS\" NOT IN ('NEW', 'RESOLVED', 'AUTO_RESOLVED', 'DISMISSED');",
                 "",
             ]
         )

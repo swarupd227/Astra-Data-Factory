@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from astra_core.problems import Problem
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import BRONZE, CONTROL, LINEAGE, custodian_folder, delivery_patterns, files_table, like_to_regex, lines_view, lit, pipe_name, procedure, q, raw_lines_table, record_table
+from astra_data.render.names import BRONZE, CONTROL, EXCEPTIONS, LINEAGE, custodian_folder, delivery_patterns, exceptions_table, files_table, like_to_regex, lines_view, lit, pipe_name, procedure, q, raw_lines_table, record_table, runs_table
 
 RAW_LINES_COLUMNS = ("FILE_NAME", "ROW_NUMBER", "LINE", "FILE_CONTENT_KEY", "FILE_LAST_MODIFIED", "INGESTED_AT")
 
@@ -81,6 +81,31 @@ def render_ddl(compiled: CompiledConfig) -> str:
     lines.append(")")
     lines.append(f"BASE_LOCATION = 'bronze/{files_table(compiled).lower()}/'")
     lines.append(f"COMMENT = {lit(f'Source {source}: landed files and their pipeline status. Rendered by astra-data render.')};")
+    lines.append("")
+    lines.append(f"-- Every run of {source}: what each stage registered, merged, projected and rejected, and how many exceptions it wrote.")
+    lines.append(f"-- ROWS_REJECTED is counted by the stages from their own inputs; the exception store must agree (tests/{source}_rejected_rows_equal_exceptions.sql).")
+    lines.append(f"CREATE ICEBERG TABLE IF NOT EXISTS {BRONZE}.{q(runs_table(compiled))} (")
+    lines.append(
+        ",\n".join(
+            [
+                '  "RUN_ID"            STRING NOT NULL',
+                '  "STARTED_AT"        TIMESTAMP_NTZ(6) NOT NULL',
+                '  "FINISHED_AT"       TIMESTAMP_NTZ(6)',
+                '  "FILES_REGISTERED"  NUMBER(18,0) NOT NULL COMMENT \'Files intake registered as pending\'',
+                '  "FILES_MERGED"      NUMBER(18,0) NOT NULL',
+                '  "FILES_REJECTED"    NUMBER(18,0) NOT NULL COMMENT \'Files rejected whole (unknown merge mode, out of order); their rows stay in Bronze\'',
+                '  "ROWS_MERGED"       NUMBER(18,0) NOT NULL COMMENT \'Rows inserted or updated in the Silver source table\'',
+                '  "ROWS_PROJECTED"    NUMBER(18,0) NOT NULL COMMENT \'Rows merged into the canonical entity\'',
+                '  "ROWS_REJECTED"     NUMBER(18,0) NOT NULL COMMENT \'Source rows a stage rejected: excluded by the parse, unpaired, blank or duplicate keys, unresolved\'',
+                '  "EXCEPTIONS_FILE"   NUMBER(18,0) NOT NULL',
+                '  "EXCEPTIONS_RECORD" NUMBER(18,0) NOT NULL COMMENT \'Record-level exception rows written; one per rejected row and failure\'',
+                '  "EXCEPTIONS_FIELD"  NUMBER(18,0) NOT NULL',
+            ]
+        )
+    )
+    lines.append(")")
+    lines.append(f"BASE_LOCATION = 'bronze/{runs_table(compiled).lower()}/'")
+    lines.append(f"COMMENT = {lit(f'Source {source}: the run ledger. Rendered by astra-data render.')};")
     lines.append("")
     return "\n".join(lines)
 
@@ -156,6 +181,7 @@ BEGIN
     AND {_file_filter(compiled, 'l."FILE_NAME"')}
     AND NOT EXISTS (SELECT 1 FROM {files} f WHERE f."FILE_NAME" = l."FILE_NAME");
   registered := SQLROWCOUNT;
+  UPDATE {BRONZE}.{q(runs_table(compiled))} SET "FILES_REGISTERED" = :registered WHERE "RUN_ID" = :RUN_ID;
   RETURN registered;
 END;
 $$;
@@ -165,19 +191,30 @@ $$;
 def render_process(compiled: CompiledConfig, stages: list[str]) -> str:
     source = compiled.id
     calls = "\n".join(f"  CALL {BRONZE}.{q(procedure(compiled, stage))}(:run_id);" for stage in stages)
+    runs = f"{BRONZE}.{q(runs_table(compiled))}"
+    exceptions = f"{EXCEPTIONS}.{q(exceptions_table(compiled))}"
     return f"""-- Process {source}: one run of every stage the bundle has, in order. Each stage is a procedure that
--- takes the run id; later releases add stages here without changing the task. Rendered by astra-data render.
+-- takes the run id and writes what it did to the run ledger; later releases add stages here without changing the task.
+-- Rendered by astra-data render.
 CREATE OR REPLACE PROCEDURE {BRONZE}.{q(procedure(compiled, "PROCESS"))}()
 RETURNS STRING
 LANGUAGE SQL
 EXECUTE AS OWNER
-COMMENT = 'Runs the stages of source {source}: {", ".join(s.lower() for s in stages)}.'
+COMMENT = 'Runs the stages of source {source}: {", ".join(s.lower() for s in stages)}; records the run in {runs_table(compiled)}.'
 AS
 $$
 DECLARE
   run_id STRING DEFAULT UUID_STRING();
 BEGIN
+  INSERT INTO {runs} ("RUN_ID", "STARTED_AT", "FILES_REGISTERED", "FILES_MERGED", "FILES_REJECTED", "ROWS_MERGED", "ROWS_PROJECTED", "ROWS_REJECTED", "EXCEPTIONS_FILE", "EXCEPTIONS_RECORD", "EXCEPTIONS_FIELD")
+  VALUES (:run_id, SYSDATE(), 0, 0, 0, 0, 0, 0, 0, 0, 0);
 {calls}
+  UPDATE {runs} r SET
+    "FINISHED_AT" = SYSDATE(),
+    "EXCEPTIONS_FILE" = (SELECT COUNT(*) FROM {exceptions} e WHERE e."RUN_ID" = :run_id AND e."LEVEL" = 'file'),
+    "EXCEPTIONS_RECORD" = (SELECT COUNT(*) FROM {exceptions} e WHERE e."RUN_ID" = :run_id AND e."LEVEL" = 'record'),
+    "EXCEPTIONS_FIELD" = (SELECT COUNT(*) FROM {exceptions} e WHERE e."RUN_ID" = :run_id AND e."LEVEL" = 'field')
+  WHERE r."RUN_ID" = :run_id;
   RETURN run_id;
 END;
 $$;
