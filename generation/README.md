@@ -45,6 +45,7 @@ src/astra_data/
   gold.py                          Gold read models and the watermark as a bundle per domain pack (releases/<pack>-gold): consumer-shaped Iceberg tables, CONTROL.PUBLISH_GOLD (rewrites each business date a DAG run touched and writes the watermark row last, in one transaction), <TABLE>_PUBLISHED views over complete days, tests; the custodian DAG ends in <CUSTODIAN>_PUBLISH (ADR 0026)
   lint.py                          `astra-data bundles lint`: every generated test parses as one Snowflake SELECT (sqlglot); the deploy action runs them for real
   render/terraform.py              the bundle's Terraform root: data sources with postconditions on the tier warehouse, schemas, PII tag and landing bucket, so the plan is clean when the foundation holds what the bundle needs, plus a mocked tftest (ADR 0027)
+  migration.py                     `astra-data migrate validate | plan | run`: drives SnowConvert AI through extract, convert, migrate and validate from a migration file, points the converted DDL at the archive-store schema as a release bundle, deploys it before the data migration, and stores logs, reports and run.json with the release (ADR 0028)
   bundle.py                        bundle loading, placeholder rendering, deploy and test
   custodians.py                    delivery expectations and alert severities, from configs to CONTROL
   rejections.py                    the rejection taxonomy, from the domain pack to CONTROL

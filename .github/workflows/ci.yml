@@ -76,6 +76,9 @@ jobs:
       - name: Check release bundles
         run: astra-data --format github bundles check releases
 
+      - name: Validate migration files
+        run: astra-data --format github migrate validate migrations
+
       # Generated tests run for real after every deploy (astra-data test in the deploy action); here every
       # test of every bundle, committed or rendered above, must parse as one Snowflake SELECT.
       - name: Generated tests parse as Snowflake SQL

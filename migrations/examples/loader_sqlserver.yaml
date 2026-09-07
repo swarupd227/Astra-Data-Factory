@@ -1,0 +1,43 @@
+# Historical migration of the legacy Loader database into the archive store, driven
+# through SnowConvert AI by `astra-data migrate` (ADR 0028).
+#
+# The phases are the SnowConvert AI CLI's own: extract the schema from the source,
+# convert it to Snowflake DDL, migrate the data, validate counts and checksums.
+# The argument lists below follow the CLI as documented for the version noted in
+# docs/runbooks/historical-migration.md; confirm them against `snowct --help` of
+# the licensed install before the first live run and keep them here, reviewed.
+#
+# Secrets are named, never written: the connection string and the license key are
+# read from the environment variables below at run time and never reach a log.
+migration_version: 0
+id: loader_sqlserver
+description: >-
+  The Loader's SQL Server database: positions, transactions, accounts and rejections as the
+  legacy path holds them, moved whole into the archive store so history stays queryable next
+  to the lakehouse after the legacy path is retired.
+owner:
+  name: Migration lead
+  email: migration@example.com
+
+source:
+  platform: sql_server
+  server: loader-sql.example.internal
+  port: 1433
+  database: LoaderDB
+  schemas: [dbo]
+  connection_env: LOADER_SQLSERVER_CONNECTION
+
+target:
+  schema: ARCHIVE
+  table_prefix: ""
+
+snowconvert:
+  command: [snowct]
+  license_env: SNOWCONVERT_LICENSE
+  version_args: ["--version"]
+  converted_ddl: "**/*.sql"
+  phases:
+    extract:  ["extract", "sql-server", "--connection-string", "{connection}", "--database", "{source_database}", "--schemas", "{schemas}", "--output", "{extract_dir}", "--license", "{license}"]
+    convert:  ["convert", "sql-server", "--input", "{extract_dir}", "--output", "{convert_dir}", "--license", "{license}"]
+    migrate:  ["migrate", "sql-server", "--connection-string", "{connection}", "--database", "{source_database}", "--schemas", "{schemas}", "--target-database", "{database}", "--target-schema", "{target_schema}", "--output", "{migrate_dir}", "--license", "{license}"]
+    validate: ["validate", "sql-server", "--connection-string", "{connection}", "--database", "{source_database}", "--schemas", "{schemas}", "--target-database", "{database}", "--target-schema", "{target_schema}", "--output", "{validate_dir}", "--license", "{license}"]

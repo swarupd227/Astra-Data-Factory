@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -19,6 +20,7 @@ from astra_data.compiler import compile_paths
 from astra_data.render import bundle_name as release_bundle_name, check_bundle as check_release_bundle, write_bundle as write_release_bundle
 from astra_data.custodians import custodians_from_configs, sync, sync_statements
 from astra_data.lint import lint_bundles
+from astra_data.migration import PHASES, load_run_bundle, plan as migration_plan, run_migration, validate_paths as validate_migrations
 from astra_data.gold import bundle_name as gold_bundle_name, check_bundle as check_gold_bundle, packs_with_read_models, write_bundle as write_gold_bundle
 from astra_data.reference_data import bundle_name, check_bundle, packs_with_reference_data, sync as sync_reference_feeds, sync_statements as reference_feed_statements, write_bundle
 from astra_data.rejections import sync as sync_rejections, sync_statements as rejection_statements, taxonomies_from_packs
@@ -362,6 +364,81 @@ def cmd_reference_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_migrate_validate(args: argparse.Namespace) -> int:
+    migrations, problems = validate_migrations(args.paths, root=Path(args.root))
+    if problems:
+        _print_problems(problems, args.format)
+        _summary(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in {len(migrations) + len({p.path for p in problems})} migration file{'s' if len(migrations) + len({p.path for p in problems}) != 1 else ''}", args.format)
+        return 1
+    for m in migrations:
+        _summary(f"{m.id}: {m.source.platform} {m.source.database} ({', '.join(m.source.schemas)}) on {m.source.server} -> {m.target_schema}; tool {' '.join(m.snowconvert.command)}", args.format)
+    _summary(f"checked {len(migrations)} migration file{'s' if len(migrations) != 1 else ''}: no problems" if migrations else f"no migration files under {', '.join(args.paths)}", args.format)
+    return 0
+
+
+def _one_migration(args: argparse.Namespace):
+    migrations, problems = validate_migrations([args.migration], root=Path(args.root))
+    if problems:
+        _print_problems(problems, args.format)
+        return None
+    return migrations[0]
+
+
+def cmd_migrate_plan(args: argparse.Namespace) -> int:
+    migration = _one_migration(args)
+    if migration is None:
+        return 1
+    target = Target(args.environment, args.prefix)
+    steps = migration_plan(migration, target, Path(args.work), args.phases or PHASES)
+    if args.format == "json":
+        print(json.dumps({"migration": migration.id, "target": target.database, "phases": [{"phase": p, "command": argv} for p, argv in steps]}, indent=2))
+        return 0
+    for phase, argv in steps:
+        print(f"{phase:9} {' '.join(argv)}")
+    _summary(f"{len(steps)} phase{'s' if len(steps) != 1 else ''} of {migration.id} would run against {target.database}; secrets shown as <VARIABLE>", args.format)
+    return 0
+
+
+def cmd_migrate_run(args: argparse.Namespace) -> int:
+    migration = _one_migration(args)
+    if migration is None:
+        return 1
+    target = Target(args.environment, args.prefix)
+    executor = None if args.no_deploy else _executor()
+    try:
+        run = run_migration(
+            migration,
+            target,
+            Path(args.work),
+            Path(args.releases),
+            phases=args.phases or PHASES,
+            executor=executor,
+            repo_root=Path(args.root),
+            tool_override=shlex.split(args.tool) if args.tool else None,
+        )
+    except EnvironmentError as exc:
+        print(f"::error title=Migration::{exc}" if args.format == "github" else f"error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if executor is not None:
+            executor.close()
+    if args.format == "json":
+        print(json.dumps(run.to_dict(), indent=2))
+    else:
+        for p in run.phases:
+            line = f"{p.phase:9} {p.status}" + (f"  exit {p.exit_code} in {p.seconds}s  {p.log}" if p.status != "skipped" else "")
+            print(f"::error title=Migration phase failed::{migration.id} {p.phase}: exit {p.exit_code}, see {p.log}" if (args.format == "github" and p.status == "failed") else line)
+        tables = len(run.tables)
+        _summary(
+            f"{migration.id} run {run.run_id} {run.status}: {tables} table{'s' if tables != 1 else ''} converted into {target.database}.{migration.target_schema}"
+            + (f", {run.ewis} EWI marker{'s' if run.ewis != 1 else ''} to resolve" if run.ewis else "")
+            + (", deployed" if run.deployed else ", not deployed")
+            + f"; results under {_rel(run.bundle_dir, Path(args.root))}/migration/runs/{run.run_id}",
+            args.format,
+        )
+    return 0 if run.status == "succeeded" else 1
+
+
 def cmd_gold_render(args: argparse.Namespace) -> int:
     packs, problems = packs_with_read_models(args.domains, root=Path(args.root), domain=args.domain)
     if problems:
@@ -516,6 +593,25 @@ def build_parser() -> argparse.ArgumentParser:
     gr.add_argument("--releases", default="releases", help="bundles directory (default: releases)")
     gr.add_argument("--check", action="store_true")
     gr.set_defaults(func=cmd_gold_render)
+
+    mg = sub.add_parser("migrate", help="historical migration with SnowConvert AI: validate migration files, plan the commands, run the phases and store the results with the release")
+    mgsub = mg.add_subparsers(dest="migrate_command", required=True)
+    mv = mgsub.add_parser("validate", help="validate migration files against the migration schema")
+    mv.add_argument("paths", nargs="*", default=["migrations"], help="files or directories (default: migrations)")
+    mv.set_defaults(func=cmd_migrate_validate)
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--migration", required=True, help="migration file")
+    common.add_argument("--environment", required=True, type=environment_name)
+    common.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    common.add_argument("--work", default=os.environ.get("ASTRA_MIGRATION_WORK", "work/migrations"), help="working directory for the tool's input and output (default: work/migrations)")
+    common.add_argument("--phase", dest="phases", action="append", choices=list(PHASES), help="run only this phase; repeatable, in order (default: all four)")
+    mp = mgsub.add_parser("plan", parents=[common], help="print the command lines a run would execute, secrets shown as <VARIABLE>")
+    mp.set_defaults(func=cmd_migrate_plan)
+    mr = mgsub.add_parser("run", parents=[common], help="run the phases, write the converted DDL bundle under releases/, deploy it, and store logs and results with it")
+    mr.add_argument("--releases", default="releases", help="bundles directory (default: releases)")
+    mr.add_argument("--tool", help="command that replaces snowconvert.command, for example a wrapper script")
+    mr.add_argument("--no-deploy", action="store_true", help="do not deploy the converted DDL before the migrate phase (no Snowflake connection needed)")
+    mr.set_defaults(func=cmd_migrate_run)
 
     return parser
 

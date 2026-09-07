@@ -42,6 +42,7 @@ Object names are `<PREFIX>_<ENV>_...`; the default prefix is `ASTRA`. For `dev`:
 | Schema | `ASTRA_DEV.EXCEPTIONS` | Exception store |
 | Schema | `ASTRA_DEV.CONTROL` | Run status, file tracking, watermarks |
 | Schema | `ASTRA_DEV.REFERENCE` | Replicated reference data (security master, account cross-reference) with change logs; stage and CSV file format for their snapshots |
+| Schema | `ASTRA_DEV.ARCHIVE` | Archive store: the legacy SQL Server schema converted and loaded by SnowConvert AI (`astra-data migrate`) |
 | Warehouse | `ASTRA_DEV_WH_SIMPLE` | Size from `warehouse_tiers.simple.size` |
 | Warehouse | `ASTRA_DEV_WH_MEDIUM` | Size from `warehouse_tiers.medium.size` |
 | Warehouse | `ASTRA_DEV_WH_COMPLEX` | Size from `warehouse_tiers.complex.size` |
@@ -100,6 +101,7 @@ Access is data, not code. Each schema in `var.schemas` lists its `readers`, `wri
 | EXCEPTIONS | ENGINEER | PIPELINE, STEWARD | AUDITOR |
 | CONTROL | ENGINEER | PIPELINE | STEWARD, CONSUMER, AUDITOR, SANDBOX |
 | REFERENCE | ENGINEER | PIPELINE | STEWARD, AUDITOR |
+| ARCHIVE | ENGINEER | PIPELINE | STEWARD, AUDITOR |
 
 SANDBOX additionally holds `INSERT` on `CONTROL.SANDBOX_LOG`, `APPLY` on the two tags, and the account privileges `CREATE DATABASE` and `CREATE WAREHOUSE` (see `sandbox.tf`).
 

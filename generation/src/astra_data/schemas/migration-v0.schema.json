@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/migration-v0.schema.json",
+  "title": "Historical migration, version 0",
+  "description": "One SQL Server source the factory migrates into the archive store with SnowConvert AI: where the source is, which schemas move, how the tool is invoked for each phase, and where the converted schema lands. Secrets are named by environment variable, never written here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["migration_version", "id", "description", "owner", "source", "target", "snowconvert"],
+  "properties": {
+    "migration_version": { "const": 0 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$", "description": "Names the release bundle <id>-migration and the run directory." },
+    "description": { "type": "string", "minLength": 20 },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "email"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "email": { "type": "string", "format": "email", "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "server", "database", "schemas", "connection_env"],
+      "properties": {
+        "platform": { "const": "sql_server", "description": "SnowConvert AI source platform; only SQL Server is driven for now." },
+        "server": { "type": "string", "minLength": 1, "description": "Host name of the SQL Server instance, for the record; the connection string is the secret." },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 1433 },
+        "database": { "type": "string", "minLength": 1 },
+        "schemas": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }, "description": "Source schemas extracted, converted and migrated." },
+        "connection_env": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "description": "Environment variable holding the SQL Server connection string. The value is never written to the repository or a log." }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema"],
+      "properties": {
+        "schema": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "description": "Archive-store schema of the environment database; ARCHIVE in the foundation." },
+        "table_prefix": { "type": "string", "pattern": "^[A-Za-z0-9_]*$", "default": "", "description": "Prefix for every converted table, for example LEGACY_." }
+      }
+    },
+    "snowconvert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "phases"],
+      "properties": {
+        "command": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "The SnowConvert AI CLI executable and any leading arguments; astra-data migrate --tool overrides it." },
+        "license_env": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "description": "Environment variable holding the SnowConvert AI license key, when the CLI needs one on the command line ({license})." },
+        "version_args": { "type": "array", "items": { "type": "string" }, "default": ["--version"], "description": "Arguments that print the tool's version; recorded with every run." },
+        "converted_ddl": { "type": "string", "minLength": 1, "default": "**/*.sql", "description": "Glob, relative to the convert output directory, of the converted DDL files." },
+        "phases": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["extract", "convert", "migrate", "validate"],
+          "properties": {
+            "extract": { "$ref": "#/$defs/argv" },
+            "convert": { "$ref": "#/$defs/argv" },
+            "migrate": { "$ref": "#/$defs/argv" },
+            "validate": { "$ref": "#/$defs/argv" }
+          },
+          "description": "Arguments per phase, after the command. Placeholders: {connection} {license} {schemas} {source_server} {source_port} {source_database} {database} {target_schema} {work_dir} {extract_dir} {convert_dir} {migrate_dir} {validate_dir}."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "argv": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+  }
+}

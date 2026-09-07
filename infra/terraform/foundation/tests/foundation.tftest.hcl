@@ -26,8 +26,8 @@ run "creates_every_object_from_defaults" {
   }
 
   assert {
-    condition     = toset(keys(snowflake_schema.this)) == toset(["BRONZE", "SILVER", "GOLD", "EXCEPTIONS", "CONTROL", "REFERENCE"])
-    error_message = "Default schemas must be BRONZE, SILVER, GOLD, EXCEPTIONS, CONTROL and REFERENCE."
+    condition     = toset(keys(snowflake_schema.this)) == toset(["BRONZE", "SILVER", "GOLD", "EXCEPTIONS", "CONTROL", "REFERENCE", "ARCHIVE"])
+    error_message = "Default schemas must be BRONZE, SILVER, GOLD, EXCEPTIONS, CONTROL, REFERENCE and ARCHIVE."
   }
 
   assert {
@@ -204,13 +204,13 @@ run "grants_follow_the_schema_access_matrix" {
   }
 
   assert {
-    condition     = toset([for k, _ in snowflake_grant_privileges_to_account_role.future_objects : split(".", k)[0] if split(".", k)[1] == "AUDITOR"]) == toset(["BRONZE", "SILVER", "GOLD", "EXCEPTIONS", "CONTROL", "REFERENCE"])
+    condition     = toset([for k, _ in snowflake_grant_privileges_to_account_role.future_objects : split(".", k)[0] if split(".", k)[1] == "AUDITOR"]) == toset(["BRONZE", "SILVER", "GOLD", "EXCEPTIONS", "CONTROL", "REFERENCE", "ARCHIVE"])
     error_message = "AUDITOR reads every schema."
   }
 
   assert {
     condition = alltrue([
-      for s in ["BRONZE", "SILVER", "GOLD", "EXCEPTIONS", "CONTROL", "REFERENCE"] :
+      for s in ["BRONZE", "SILVER", "GOLD", "EXCEPTIONS", "CONTROL", "REFERENCE", "ARCHIVE"] :
       contains(keys(snowflake_grant_privileges_to_account_role.future_objects), "${s}.PIPELINE.TABLES") &&
       contains(keys(snowflake_grant_privileges_to_account_role.future_objects), "${s}.ENGINEER.TABLES")
     ])
@@ -233,7 +233,7 @@ run "grants_follow_the_schema_access_matrix" {
   }
 
   assert {
-    condition     = toset([for k, _ in snowflake_grant_privileges_to_account_role.schema_create : split(".", k)[1]]) == toset(["ENGINEER"]) && length(snowflake_grant_privileges_to_account_role.schema_create) == 6
+    condition     = toset([for k, _ in snowflake_grant_privileges_to_account_role.schema_create : split(".", k)[1]]) == toset(["ENGINEER"]) && length(snowflake_grant_privileges_to_account_role.schema_create) == 7
     error_message = "Only ENGINEER creates objects, and it can do so in every schema."
   }
 

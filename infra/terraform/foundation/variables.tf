@@ -99,6 +99,11 @@ variable "schemas" {
       writers = ["PIPELINE"]
       readers = ["STEWARD", "AUDITOR"]
     }
+    ARCHIVE = {
+      comment = "Archive store: the legacy SQL Server schema as converted and loaded by SnowConvert AI through astra-data migrate."
+      writers = ["PIPELINE"]
+      readers = ["STEWARD", "AUDITOR"]
+    }
   }
 
   validation {
