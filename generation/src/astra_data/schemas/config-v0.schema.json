@@ -165,7 +165,7 @@
     },
     "delivery": {
       "type": "object",
-      "description": "When the custodian delivers and which files are expected every business day. Drives the 'late' alert (S1.2.4). Shared by every source of the same custodian; sources must agree.",
+      "description": "When the custodian delivers and which files are expected every business day. Drives the 'late' alert (S1.2.4) and the custodian's Tasks DAG, which starts when every expected file of a business date has arrived (S3.2.6). Shared by every source of the same custodian; sources must agree.",
       "additionalProperties": false,
       "required": ["cutoff_time", "timezone", "files"],
       "properties": {

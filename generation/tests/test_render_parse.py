@@ -72,7 +72,7 @@ def test_target_lag_changes_with_the_config(inputs, tmp_path):
     compiled = compile_config(path, registry=registry, catalog=catalog, packs=packs, root=tmp_path)
     files = render_bundle(compiled)
     assert files["pipeline/pershing_position_parse.sql"].count("TARGET_LAG = '45 minutes'") == 3
-    assert "SCHEDULE = '45 MINUTE'" in files["pipeline/pershing_position_tasks.sql"]
+    assert "SCHEDULE = '45 MINUTE'" not in files["pipeline/pershing_position_tasks.sql"]  # the process task runs after the custodian's gate, not on the lag (S3.2.6)
     assert compiled.to_dict()["processing"] == {"target_lag_minutes": 45}
 
     without = "\n".join(line for line in VALID.splitlines() if "processing:" not in line and "target_lag_minutes" not in line) + "\n"

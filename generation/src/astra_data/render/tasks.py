@@ -1,33 +1,75 @@
-"""Tasks for one source: the serverless orchestration that runs its process procedure."""
+"""Tasks for one source: the per-custodian DAG that runs its process procedure when the custodian's file set is complete.
+
+A source whose config has a delivery block joins its custodian's Tasks DAG
+(ADR 0024): the root task <CUSTODIAN>_GATE runs every minute and calls
+CONTROL.CUSTODIAN_GATE, which returns 'run' when every expected file
+pattern of the custodian (CONTROL.CUSTODIAN_FILES, synced from the same
+delivery block) has a loaded file for a business date and a file arrived
+since that date's last run. The source's process task runs after the gate,
+only then. A file that completes the set after the cutoff starts the DAG on
+arrival, so the late alert is followed by a run. Each custodian has its own
+gate and its own DAG; nothing in one references another.
+
+Every rendered source is in a DAG: a config without a delivery block
+cannot be rendered at all, since the pipe needs its patterns (ADR 0019).
+"""
 
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import BRONZE, WAREHOUSE_BY_TIER, procedure, q, task_name
+from astra_data.render.names import BRONZE, CONTROL, WAREHOUSE_BY_TIER, gate_task_name, lit, procedure, q, task_name
 
 # Order of pipeline steps within the manifest, by the suffix of the file name.
 STEP_ORDER = {"pipe.sql": 0, "lines.sql": 1, "parse.sql": 2, "intake.sql": 3, "merge.sql": 4, "resolve.sql": 5, "process.sql": 6, "tasks.sql": 7}
+
+GATE_SCHEDULE_MINUTES = 1
+
+
+def render_gate(compiled: CompiledConfig) -> list[str]:
+    """The custodian's root task. Created once and never replaced here, so the other sources' tasks stay attached to it."""
+    custodian = compiled.source["custodian"]
+    gate = f"{BRONZE}.{q(gate_task_name(compiled))}"
+    delivery = compiled.delivery
+    return [
+        f"ALTER TASK IF EXISTS {gate} SUSPEND;",
+        f"CREATE TASK IF NOT EXISTS {gate}",
+        f"  SCHEDULE = '{GATE_SCHEDULE_MINUTES} MINUTE'",
+        "  USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = 'XSMALL'",
+        "  ALLOW_OVERLAPPING_EXECUTION = FALSE",
+        "  SUSPEND_TASK_AFTER_NUM_FAILURES = 10",
+        f"  COMMENT = {lit(f'Gate of custodian {custodian}: starts its DAG when the expected file set for a business date is complete (cutoff {delivery['cutoff_time']} {delivery['timezone']}); a late file starts it again on arrival.')}",
+        "AS",
+        f"  CALL {CONTROL}.\"CUSTODIAN_GATE\"({lit(custodian)});",
+    ]
 
 
 def render_tasks(compiled: CompiledConfig) -> str:
     source = compiled.id
     tier = compiled.source["tier"]
-    timezone = compiled.delivery["timezone"] if compiled.delivery else "UTC"
-    task = task_name(compiled)
-    interval = compiled.target_lag_minutes
+    custodian = compiled.source["custodian"]
+    task = f"{BRONZE}.{q(task_name(compiled))}"
+    process = f"CALL {BRONZE}.{q(procedure(compiled, 'PROCESS'))}();"
+    gate = f"{BRONZE}.{q(gate_task_name(compiled))}"
+    patterns = ", ".join(f["pattern"] for f in compiled.delivery["files"])
     return "\n".join(
         [
-            f"-- Task for {source}: runs the process procedure every {interval} minutes (processing.target_lag_minutes) on the {tier} tier warehouse.",
-            f"-- Named {task} so a failure is attributed to custodian {compiled.source['custodian']} by CONTROL.DETECT_TASK_FAILURES.",
+            f"-- Tasks DAG of custodian {custodian} for source {source}. The gate {gate_task_name(compiled)} is the root: every minute it",
+            f"-- asks CONTROL.CUSTODIAN_GATE whether a business date's expected file set ({patterns}) is complete and a file",
+            "-- arrived since that date's last run; the process task below runs after the gate only when it answers 'run'. A late",
+            "-- file after the cutoff completes the set and starts the DAG on arrival; a re-delivery starts it again (ADR 0024).",
+            "-- The gate is created once and not replaced, so the other sources of the custodian stay attached; the DAG is suspended",
+            "-- while this task is attached and every task of it is resumed at the end. Nothing here refers to another custodian.",
+            f"-- Named {task_name(compiled)} so a failure is attributed to custodian {custodian} by CONTROL.DETECT_TASK_FAILURES.",
             "-- Rendered by astra-data render.",
-            f"CREATE OR REPLACE TASK {BRONZE}.{q(task)}",
+            *render_gate(compiled),
+            f"CREATE OR REPLACE TASK {task}",
             f"  WAREHOUSE = {WAREHOUSE_BY_TIER[tier]}",
-            f"  SCHEDULE = '{interval} MINUTE'",
-            "  SUSPEND_TASK_AFTER_NUM_FAILURES = 10",
-            f"  COMMENT = 'Processes source {source} ({compiled.spec.label}) every {interval} minutes; timezone {timezone} for the delivery cutoff.'",
+            f"  AFTER {gate}",
+            f"  WHEN SYSTEM$GET_PREDECESSOR_RETURN_VALUE('{gate_task_name(compiled)}') = 'run'",
+            f"  COMMENT = {lit(f'Processes source {source} ({compiled.spec.label}) when the gate of custodian {custodian} starts a run; {tier} tier warehouse.')}",
             "AS",
-            f"  CALL {BRONZE}.{q(procedure(compiled, 'PROCESS'))}();",
-            f"ALTER TASK {BRONZE}.{q(task)} RESUME;",
+            f"  {process}",
+            f"SELECT SYSTEM$TASK_DEPENDENTS_ENABLE('{gate}');",
             "",
         ]
     )

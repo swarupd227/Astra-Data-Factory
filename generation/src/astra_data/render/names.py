@@ -46,6 +46,11 @@ def task_name(compiled: CompiledConfig, stage: str = "PROCESS") -> str:
     return f"{prefix}_{stage}"
 
 
+def gate_task_name(compiled: CompiledConfig) -> str:
+    """The root task of the custodian's DAG, shared by every source of the custodian (ADR 0024)."""
+    return f"{compiled.source['custodian'].upper()}_GATE"
+
+
 def record_table(compiled: CompiledConfig, record_label: str) -> str:
     return f"{source_name(compiled)}_{record_label.upper()}"
 

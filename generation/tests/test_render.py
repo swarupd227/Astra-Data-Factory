@@ -135,8 +135,8 @@ def test_pipeline_scopes_lines_registers_files_and_runs_stages(compiled):
 
     tasks = files["pipeline/pershing_position_tasks.sql"]
     assert 'CREATE OR REPLACE TASK {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"' in tasks
-    assert "WAREHOUSE = {{ WAREHOUSE_MEDIUM }}" in tasks and "SCHEDULE = '10 MINUTE'" in tasks  # processing.target_lag_minutes
-    assert 'CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"();' in tasks and 'ALTER TASK {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS" RESUME;' in tasks
+    assert "WAREHOUSE = {{ WAREHOUSE_MEDIUM }}" in tasks and 'AFTER {{ DATABASE }}."BRONZE"."PERSHING_GATE"' in tasks  # the custodian's DAG, S3.2.6
+    assert 'CALL {{ DATABASE }}."BRONZE"."PERSHING_POSITION_PROCESS"();' in tasks and "SELECT SYSTEM$TASK_DEPENDENTS_ENABLE('{{ DATABASE }}.\"BRONZE\".\"PERSHING_GATE\"');" in tasks
 
 
 def test_task_name_carries_the_custodian_prefix_once(compiled, tmp_path):

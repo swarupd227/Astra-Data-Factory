@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
-from astra_data.render.names import custodian_folder, exceptions_table, file_metadata_table, files_table, parse_problems_table, pipe_name, raw_lines_table, record_table, runs_table, silver_table, sql_type, task_name
+from astra_data.render.names import custodian_folder, exceptions_table, file_metadata_table, files_table, gate_task_name, parse_problems_table, pipe_name, raw_lines_table, record_table, runs_table, silver_table, sql_type, task_name
 
 
 def _position(field) -> str:
@@ -13,6 +13,15 @@ def _position(field) -> str:
     if field.column:
         return f"column {field.column}"
     return ""
+
+
+def _orchestration(compiled: CompiledConfig) -> str:
+    src = compiled.source
+    return (
+        f"Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` on the {src['tier']} tier warehouse as part of the DAG of custodian {src['custodian']}: "
+        f"its root `BRONZE.{gate_task_name(compiled)}` asks `CONTROL.CUSTODIAN_GATE` every minute whether a business date's expected file set is complete and a file arrived since that date's last run, "
+        f"and the process task runs only then. A late file after the cutoff completes the set and starts the DAG on arrival; every start is a row of `CONTROL.CUSTODIAN_RUNS`."
+    )
 
 
 def render_doc(compiled: CompiledConfig) -> str:
@@ -138,7 +147,7 @@ def render_doc(compiled: CompiledConfig) -> str:
 
     out.append("## Pipeline")
     out.append("")
-    out.append(f"Pipe `BRONZE.{pipe_name(compiled)}` loads every file under `{custodian_folder(compiled)}` of the landing prefix that matches the delivery patterns into `BRONZE.{raw_lines_table(compiled)}` on arrival, one row per line. Dynamic tables parse the lines with a target lag of {compiled.target_lag_minutes} minutes. Task `BRONZE.{task_name(compiled)}` runs `{compiled.id.upper()}_PROCESS` every {compiled.target_lag_minutes} minutes on the {src['tier']} tier warehouse. Stages: intake (register landed files as pending), merge (pending files into Silver in arrival order), resolve (this run's rows into the canonical entity with platform identifiers; failures become exceptions with the configured codes).")
+    out.append(f"Pipe `BRONZE.{pipe_name(compiled)}` loads every file under `{custodian_folder(compiled)}` of the landing prefix that matches the delivery patterns into `BRONZE.{raw_lines_table(compiled)}` on arrival, one row per line. Dynamic tables parse the lines with a target lag of {compiled.target_lag_minutes} minutes. {_orchestration(compiled)} Stages: intake (register landed files as pending), merge (pending files into Silver in arrival order), resolve (this run's rows into the canonical entity with platform identifiers; failures become exceptions with the configured codes).")
     out.append("")
     return "\n".join(out)
 

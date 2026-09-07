@@ -75,6 +75,8 @@ Object names are `<PREFIX>_<ENV>_...`; the default prefix is `ASTRA`. For `dev`:
 | Iceberg tables | `ASTRA_DEV.CONTROL.CUSTODIANS`, `CUSTODIAN_FILES` | Cutoff, timezone, business days, expected files and alert severities per custodian, synced from configs. |
 | Procedures | `ASTRA_DEV.CONTROL.DETECT_TASK_FAILURES`, `DETECT_LATE_CUSTODIANS`, `DISPATCH_ALERTS`, `RUN_ALERTING` | Detection and dispatch. |
 | Task | `ASTRA_DEV.CONTROL.RAISE_ALERTS` | Serverless, every minute by default. Calls `RUN_ALERTING`. |
+| Iceberg table | `ASTRA_DEV.CONTROL.CUSTODIAN_RUNS` | Every start of a custodian's Tasks DAG: business date, reason (complete, late_arrival, redelivery), files seen. |
+| Procedure | `ASTRA_DEV.CONTROL.CUSTODIAN_GATE` | Root of each custodian's rendered DAG: answers 'run' when a business date's expected file set is complete and a file arrived since its last run. |
 | Integrations | `ASTRA_DEV_ALERT_EMAIL`, `ASTRA_DEV_ALERT_SLACK`, `ASTRA_DEV_ALERT_JIRA` | Each only when its channel is configured. Webhook secrets are Snowflake secrets in CONTROL. |
 | Tag | `ASTRA_DEV.CONTROL.PII` | Marks a column as PII; the value is the category. Three masking policies are bound to it. |
 | Masking policies | `ASTRA_DEV.CONTROL.PII_STRING`, `PII_NUMBER`, `PII_DATE` | Privileged roles see values; everyone else sees a category-shaped mask. `BRONZE.RAW_LINES.LINE` is tagged from the start. |
