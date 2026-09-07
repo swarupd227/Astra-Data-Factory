@@ -73,12 +73,21 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "level", "check"],
+        "required": ["id", "kind", "level", "check"],
         "properties": {
           "id": { "$ref": "#/$defs/identifier" },
-          "level": { "enum": ["file", "record", "pair", "business"] },
-          "check": { "type": "string", "minLength": 1 },
-          "threshold": { "type": "number" },
+          "kind": { "enum": ["control_total", "not_null", "unique", "accepted_values", "range", "condition"], "description": "What the rule measures; each kind becomes one data metric function or one association (S3.2.7)" },
+          "level": { "enum": ["file", "record", "pair", "business"], "description": "file for a control total; record measures a physical record's Bronze table; pair and business measure the Silver table of the logical record" },
+          "check": { "type": "string", "minLength": 1, "description": "The rule in words, for the docs and the metric's comment" },
+          "record": { "$ref": "#/$defs/identifier", "description": "Detail record measured; needed when the spec has several" },
+          "field": { "type": "string", "minLength": 1, "description": "The field measured (not_null, accepted_values, range; the summed field of a control total)" },
+          "fields": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "unique: the fields that identify a row" },
+          "trailer_field": { "type": "string", "minLength": 1, "description": "control_total: the trailer field carrying the total" },
+          "aggregate": { "enum": ["count", "sum"], "description": "control_total: count of the record's rows (default) or sum of field" },
+          "values": { "type": "array", "minItems": 1, "items": { "type": ["string", "number"] }, "description": "accepted_values: the values the field may hold" },
+          "min": { "type": ["number", "string"], "description": "range: lowest allowed value" },
+          "max": { "type": ["number", "string"], "description": "range: highest allowed value" },
+          "condition": { "type": "string", "minLength": 1, "description": "condition: SQL over the table's columns that every row must satisfy" },
           "severity": { "enum": ["info", "warning", "error"] },
           "owner": { "type": "string" }
         }

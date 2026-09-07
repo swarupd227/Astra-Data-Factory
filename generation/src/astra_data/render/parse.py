@@ -325,9 +325,16 @@ def render_file_metadata(compiled: CompiledConfig) -> str:
         joins.append(
             f"LEFT JOIN (SELECT \"FILE_NAME\", {inner} FROM {classified} WHERE \"RECORD_TYPE\" = {lit(record.label)} QUALIFY ROW_NUMBER() OVER (PARTITION BY \"FILE_NAME\" ORDER BY \"LINE_NUMBER\") = 1) {alias}\n  ON {alias}.\"FILE_NAME\" = l.\"FILE_NAME\""
         )
+    totals = [(r.record, r.total_field) for r in compiled.dq_rules if r.kind == "control_total" and r.aggregate == "sum"]
+    totals = sorted(set(totals))
+    for n, (label, field_name) in enumerate(totals):
+        alias = f"s{n}"
+        column = q(f"{label.upper()}_{field_name.upper()}_TOTAL")
+        meta_selects.append(f"       {alias}.\"TOTAL\" AS {column},")
+        joins.append(f"LEFT JOIN (SELECT \"FILE_NAME\", SUM({q(field_name.upper())}) AS \"TOTAL\" FROM {BRONZE}.{q(record_table(compiled, label))} GROUP BY \"FILE_NAME\") {alias}\n  ON {alias}.\"FILE_NAME\" = l.\"FILE_NAME\"")
     return "\n".join(
         [
-            f"-- Per file of {compiled.id}: what was parsed, what was excluded and why, and the header and trailer values.",
+            f"-- Per file of {compiled.id}: what was parsed, what was excluded and why, the header and trailer values" + (" and the totals the control totals check" if totals else "") + ".",
             *_dynamic_header(compiled, file_metadata_table(compiled), f"Source {compiled.id}: per-file counts, excluded rows, problem counts, header and trailer values. TARGET_LAG from the config."),
             "SELECT l.\"FILE_NAME\",",
             "       l.\"LINE_COUNT\",",

@@ -78,6 +78,6 @@ resource "snowflake_grant_privileges_to_account_role" "task_execution" {
   for_each = toset(local.task_execution_roles)
 
   account_role_name = snowflake_account_role.this[each.key].name
-  privileges        = ["EXECUTE TASK", "EXECUTE MANAGED TASK"]
+  privileges        = ["EXECUTE TASK", "EXECUTE MANAGED TASK", "EXECUTE DATA METRIC FUNCTION"] # the last attaches rendered DMFs to tables
   on_account        = true
 }

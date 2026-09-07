@@ -7,7 +7,7 @@ One command renders every artifact for a config into `releases/<bundle>/`:
                               records, its file registry and its problems
   pipeline/<source>_*.sql     the lines view, the intake procedure, the
                               process procedure that runs the stages, tasks
-  dq/dmf_<source>.sql         data metric functions on the Bronze tables
+  dq/dmf_<source>.sql         data metric functions: the spec's measures and one per dq_rule
   tests/*.sql                 queries that return failing rows
   docs/<source>.md            the source, its layout, mappings and rules
   atlan/<source>.json         catalog assets and lineage for Atlan

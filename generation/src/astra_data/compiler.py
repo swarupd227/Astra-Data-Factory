@@ -29,6 +29,7 @@ from astra_knowledge.rules import Catalog, Rule
 
 from astra_core.problems import Problem, dedupe, display_path
 from astra_core.yamlsource import LineDict, line_of, load
+from astra_data.dq import CompiledDqRule, compile_dq_rules
 from astra_data.targets import TargetProfile, get_profile, profile_ids
 from astra_data.transforms import TransformCall, TransformError, parse_transform
 from astra_data.validate import discover, validate_config_file
@@ -159,7 +160,7 @@ class CompiledConfig:
     owner: dict[str, str]
     mappings: tuple[CompiledMapping, ...]
     rules: tuple[Rule, ...]
-    dq_rules: tuple[dict, ...]
+    dq_rules: tuple[CompiledDqRule, ...]
     resolution: Resolution
     delivery: dict[str, Any] | None
     alerts: dict[str, Any] | None
@@ -193,7 +194,7 @@ class CompiledConfig:
             "owner": dict(self.owner),
             "mappings": [m.to_dict() for m in self.mappings],
             "rules": [{"id": r.id, "class": r.class_, "status": r.status, "citation": r.citation.text, "text": r.text} for r in self.rules],
-            "dq_rules": [dict(d) for d in self.dq_rules],
+            "dq_rules": [d.to_dict() for d in self.dq_rules],
             "resolution": self.resolution.to_dict(),
             "delivery": dict(self.delivery) if self.delivery else None,
             "alerts": dict(self.alerts) if self.alerts else None,
@@ -252,6 +253,7 @@ def compile_config(path: Path, *, registry: Registry, catalog: Catalog, packs: I
     model = pack.latest
     mappings = tuple(_mappings(data, display, spec, model, catalog, problems))
     resolution = _resolution(data, display, spec, pack, model, problems)
+    dq_rules = compile_dq_rules(data, display, spec, problems)
     if problems:
         raise CompileError(dedupe(problems))
     _coverage(data, display, model, mappings, resolution, problems)
@@ -271,7 +273,7 @@ def compile_config(path: Path, *, registry: Registry, catalog: Catalog, packs: I
         owner=dict(data["owner"]),
         mappings=mappings,
         rules=rules,
-        dq_rules=tuple(dict(d) for d in data.get("dq_rules") or []),
+        dq_rules=dq_rules,
         resolution=resolution,
         delivery=dict(data["delivery"]) if data.get("delivery") else None,
         alerts=dict(data["alerts"]) if data.get("alerts") else None,

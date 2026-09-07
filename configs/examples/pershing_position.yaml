@@ -67,9 +67,27 @@ rules:
 
 dq_rules:
   - id: trailer_control_total
+    kind: control_total
     level: file
     check: trailer record count equals the number of detail records
+    trailer_field: detail_count
+    aggregate: count
     severity: error
+    owner: steward@example.com
+  - id: cusip_present
+    kind: not_null
+    level: record
+    check: every detail record names a security
+    field: cusip
+    severity: warning
+    owner: steward@example.com
+  - id: price_not_negative
+    kind: range
+    level: record
+    check: a reported price is never negative
+    field: price
+    min: 0
+    severity: info
     owner: steward@example.com
 
 # How stale the parsed tables may be and how often the source is processed.

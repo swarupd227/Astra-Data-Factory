@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from astra_data.compiler import CompiledConfig
+from astra_data.render.dq import dmf_name, rule_table
 from astra_data.render.names import custodian_folder, exceptions_table, file_metadata_table, files_table, gate_task_name, parse_problems_table, pipe_name, raw_lines_table, record_table, runs_table, silver_table, sql_type, task_name
 
 
@@ -124,12 +125,17 @@ def render_doc(compiled: CompiledConfig) -> str:
     out.append("## Data quality")
     out.append("")
     if compiled.dq_rules:
-        out.append("| Rule | Level | Severity | Check |")
-        out.append("|---|---|---|---|")
+        out.append("| Rule | Kind | Level | Severity | Check | Metric | Measured on |")
+        out.append("|---|---|---|---|---|---|---|")
         for d in compiled.dq_rules:
-            out.append(f"| `{d['id']}` | {d['level']} | {d.get('severity', 'error')} | {d['check']} |")
+            table, _ = rule_table(compiled, d)
+            metric = f"`SNOWFLAKE.CORE.{d.system_function}`" if d.system_function else f"`CONTROL.{dmf_name(compiled, d)}`"
+            columns = ", ".join(c.name for c in d.columns)
+            out.append(f"| `{d.id}` | {d.kind} | {d.level} | {d.severity} | {d.check} | {metric} on ({columns}) | `{table.split('.', 1)[1].replace(chr(34), '')}` |")
         out.append("")
-    out.append(f"Data metric functions measure row counts, nulls in required fields and duplicate merge keys on the Bronze record tables. Parse problems are rows of `BRONZE.{parse_problems_table(compiled)}` with their rejection code.")
+        out.append("Each rule is one data metric function or one association, measured whenever its table changes; a custom function returns 0 when the rule holds, the gap for a control total and the failing rows otherwise. Rules at severity error also have a rendered test that lists what fails.")
+        out.append("")
+    out.append(f"The spec alone gives row counts, nulls in required fields and duplicate merge keys on the Bronze record tables. Parse problems are rows of `BRONZE.{parse_problems_table(compiled)}` with their rejection code.")
     out.append("")
 
     if compiled.delivery:

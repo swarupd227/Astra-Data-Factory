@@ -179,7 +179,7 @@ def _args(root: Path = REPO) -> list[str]:
 def test_cli_compile_prints_a_summary_and_json(capsys):
     assert main([*_args(), str(REPO / "configs")]) == 0
     out = capsys.readouterr().out
-    assert "pershing_position: pershing_gcus 2017-07-25 via fixed_width_multi_record -> custodial CDM 1.0 on snowflake_iceberg; 7 mappings, 1 rule, 1 dq rule" in out
+    assert "pershing_position: pershing_gcus 2017-07-25 via fixed_width_multi_record -> custodial CDM 1.0 on snowflake_iceberg; 7 mappings, 1 rule, 3 dq rules" in out
     assert "compiled 1 config: no problems" in out
 
     assert main(["--format", "json", *_args(), str(REPO / "configs")]) == 0
