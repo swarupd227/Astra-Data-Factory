@@ -15,7 +15,26 @@ terraform {
 resource "aws_s3_bucket" "this" {
   bucket = var.name
 
+  object_lock_enabled = var.object_lock_retention_days != null
+
   tags = merge(var.tags, { Name = var.name })
+}
+
+# Object lock: every version written is read-only for the retention period. Used by the golden
+# bucket, whose datasets are the oracle for parity and must not change after capture.
+resource "aws_s3_bucket_object_lock_configuration" "this" {
+  count = var.object_lock_retention_days == null ? 0 : 1
+
+  bucket = aws_s3_bucket.this.id
+
+  rule {
+    default_retention {
+      mode = var.object_lock_mode
+      days = var.object_lock_retention_days
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.this]
 }
 
 resource "aws_s3_bucket_ownership_controls" "this" {

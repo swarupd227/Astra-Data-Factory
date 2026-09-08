@@ -15,6 +15,7 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | `rules` | Knowledge (E2) | The rule catalog: one file per business rule with citation, class, owner, status and its history; configs reference rules by id |
 | `configs` | Knowledge (E2) | Source configs, one YAML file per source, validated against the schema, the spec registry and the rule catalog on every pull request |
 | `assessments` | Discovery (WBS 1.4) | Assessment memos with their evidence: the Normalizer decision's Spark transformers, their Snowpark Connect versions, recorded changes, samples, expected rows and harness results |
+| `golden` | Verification (E4) | Golden datasets: per pilot custodian, how the legacy path is replayed and the index of every captured version (hash, source files, store reference); the data lives in the golden bucket, read-only |
 | `migrations` | Generation (E3) | Historical migrations driven through SnowConvert AI: one file per SQL Server source naming the schemas, the archive-store schema and the command line of each phase; results and logs land with the release |
 | `releases` | Generation (E3) | Release bundles rendered from configs and domain packs (reference-data replication, Gold read models and the watermark) and written by migration runs (converted archive-store DDL with logs and results); deployed by the pipeline |
 | `generation` | Generation (E3) | `astra-data`: config validation, bundle deploy and generated tests. The compiler and renderers grow here. |

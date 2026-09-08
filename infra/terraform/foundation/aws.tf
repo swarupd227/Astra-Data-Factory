@@ -21,6 +21,7 @@ locals {
 
   iceberg_bucket_name = coalesce(var.iceberg_bucket_name, "${lower(var.prefix)}-${var.environment}-iceberg-${local.account_id}")
   landing_bucket_name = coalesce(var.landing_bucket_name, "${lower(var.prefix)}-${var.environment}-landing-${local.account_id}")
+  golden_bucket_name  = coalesce(var.golden_bucket_name, "${lower(var.prefix)}-${var.environment}-golden-${local.account_id}")
 
   iceberg_base_url = "s3://${local.iceberg_bucket_name}/"
   landing_base_url = "s3://${local.landing_bucket_name}/${var.landing_prefix}/"
@@ -52,6 +53,16 @@ module "landing_bucket" {
 
   name                               = local.landing_bucket_name
   noncurrent_version_expiration_days = var.landing_noncurrent_version_days
+}
+
+# Golden datasets (S4.1.2): the legacy path's outputs captured per business day. Object lock
+# keeps every version read-only for the retention period; astra-verify golden writes here.
+module "golden_bucket" {
+  source = "./modules/private-bucket"
+
+  name                       = local.golden_bucket_name
+  object_lock_retention_days = var.golden_retention_days
+  object_lock_mode           = var.golden_retention_mode
 }
 
 # --- Role assumed by Snowflake for Iceberg storage ------------------------

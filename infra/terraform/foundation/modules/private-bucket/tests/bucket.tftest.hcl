@@ -77,3 +77,32 @@ run "rejects_invalid_name" {
 
   expect_failures = [var.name]
 }
+
+run "object_lock_is_off_unless_a_retention_is_given" {
+  command = plan
+
+  assert {
+    condition     = aws_s3_bucket.this.object_lock_enabled == false && length(aws_s3_bucket_object_lock_configuration.this) == 0
+    error_message = "Without a retention there is no object lock."
+  }
+}
+
+run "object_lock_retains_every_version_for_the_given_days" {
+  command = plan
+
+  variables {
+    name                       = "astra-dev-golden-123456789012"
+    object_lock_retention_days = 400
+    object_lock_mode           = "COMPLIANCE"
+  }
+
+  assert {
+    condition     = aws_s3_bucket.this.object_lock_enabled == true && length(aws_s3_bucket_object_lock_configuration.this) == 1
+    error_message = "A retention turns object lock on at creation."
+  }
+
+  assert {
+    condition     = anytrue([for r in aws_s3_bucket_object_lock_configuration.this[0].rule : anytrue([for d in r.default_retention : d.mode == "COMPLIANCE" && d.days == 400])])
+    error_message = "The default retention carries the mode and the days."
+  }
+}

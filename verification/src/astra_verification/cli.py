@@ -20,6 +20,7 @@ from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExec
 from astra_verification.pii import run_checks as run_pii_checks
 from astra_verification.reference import feed_statuses
 from astra_verification.dryrun import BUDGET_SECONDS, DryRunError, dry_run
+from astra_verification.golden import MAX_DAYS, MIN_DAYS, OdbcLegacyStore, capture_day, check as golden_check, coverage, discover as discover_captures, file_source, load_capture, object_store, record, secrets_from, subprocess_runner as golden_runner, verify as golden_verify
 from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
@@ -221,6 +222,100 @@ def cmd_reference_status(args: argparse.Namespace) -> int:
 # -- parser ------------------------------------------------------------------
 
 
+def _capture_dir(args: argparse.Namespace):
+    path = Path(args.capture)
+    capture_file = path if path.is_file() else path / "capture.yaml"
+    capture, problems = load_capture(capture_file, Path(args.root))
+    if capture is None:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        return None, capture_file.parent.parent
+    return capture, capture_file.parent.parent
+
+
+def cmd_golden_check(args: argparse.Namespace) -> int:
+    captures, problems = golden_check(Path(args.golden), Path(args.root))
+    if problems:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in golden captures and indexes", file=sys.stderr)
+        return 1
+    for c in captures:
+        cov = coverage(Path(args.golden), c.custodian)
+        print(f"{c.custodian}: {len(c.outputs)} outputs ({', '.join(c.outputs)}), files {c.files_location}/{c.files_pattern}; {cov.versions} version(s) over {cov.days} business day(s) indexed")
+    print(f"checked {len(captures)} capture file{'s' if len(captures) != 1 else ''}: no problems" if captures else f"no capture files under {args.golden}")
+    return 0
+
+
+def cmd_golden_status(args: argparse.Namespace) -> int:
+    rows = [coverage(Path(args.golden), path.parent.name) for path in discover_captures(Path(args.golden))]
+    if args.json:
+        print(json.dumps([{"custodian": c.custodian, "days": c.days, "versions": c.versions, "first": c.first, "last": c.last, "within_range": c.within_range} for c in rows], indent=2))
+        return 0 if all(c.within_range for c in rows) else 1
+    for c in rows:
+        print(f"{c.custodian}: {c.verdict}" + (f" ({c.first} to {c.last}, {c.versions} version(s))" if c.days else ""))
+    if not rows:
+        print(f"no capture files under {args.golden}")
+    return 0 if all(c.within_range for c in rows) else 1
+
+
+def cmd_golden_capture(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    capture, golden_dir = _capture_dir(args)
+    if capture is None:
+        return 2
+    start, end = date.fromisoformat(args.start), date.fromisoformat(args.end)
+    days = capture.business_days_between(start, end)
+    if not days:
+        print(f"error: no business day of {capture.custodian} between {start} and {end}", file=sys.stderr)
+        return 2
+    try:
+        connection = secrets_from(os.environ, capture)
+    except EnvironmentError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    store = object_store(args.store)
+    files = file_source(args.files or capture.files_location)
+    legacy = OdbcLegacyStore(connection) if args.legacy is None else args.legacy
+    results = []
+    try:
+        for day in days:
+            result = capture_day(capture, day, files=files, store=store, legacy=legacy, runner=golden_runner, environ=dict(os.environ), work_dir=Path(args.work))
+            results.append(result)
+            line = f"{day.isoformat()}  {result.status:14}"
+            if result.status in ("captured", "unchanged"):
+                line += f" v{result.version} {result.hash[:12]}  {len(result.sources)} file(s), rows " + ", ".join(f"{k} {v}" for k, v in result.rows.items())
+            elif result.detail:
+                line += f" {result.detail}"
+            print(line)
+    finally:
+        close = getattr(legacy, "close", None)
+        if close:
+            close()
+    added = record(golden_dir, results)
+    captured = sum(1 for r in results if r.status == "captured")
+    failed = [r for r in results if r.status == "replay_failed"]
+    cov = coverage(golden_dir, capture.custodian)
+    print(f"{capture.custodian}: {captured} new version(s) captured, {sum(1 for r in results if r.status == 'unchanged')} unchanged, {sum(1 for r in results if r.status == 'no_files')} without files, {len(failed)} replay failure(s); index golden/{capture.custodian}/datasets.json {'updated' if added else 'unchanged'}; {cov.verdict}")
+    return 1 if failed else 0
+
+
+def cmd_golden_verify(args: argparse.Namespace) -> int:
+    capture, golden_dir = _capture_dir(args)
+    if capture is None:
+        return 2
+    problems = golden_verify(golden_dir, capture.custodian, object_store(args.store))
+    cov = coverage(golden_dir, capture.custodian)
+    if problems:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"{capture.custodian}: {len(problems)} of {cov.versions} indexed version(s) do not verify against {args.store}", file=sys.stderr)
+        return 1
+    print(f"{capture.custodian}: {cov.versions} version(s) over {cov.days} business day(s) verify against {args.store}: every file hashes as its manifest says")
+    return 0
+
+
 def cmd_dryrun(args: argparse.Namespace) -> int:
     """Sample files through a drafted config in a sandbox; the report says what the pipeline made of them; the sandbox is gone."""
     from datetime import datetime, timezone
@@ -361,6 +456,30 @@ def build_parser() -> argparse.ArgumentParser:
     dr.add_argument("--out", default=os.environ.get("ASTRA_DRYRUN_OUT", "work/dryrun"), help="reports are written under <out>/<task id>/ (default: work/dryrun)")
     dr.add_argument("--json", action="store_true")
     dr.set_defaults(func=cmd_dryrun)
+
+    golden_parser = sub.add_parser("golden", help="golden datasets: the legacy path's outputs captured per business day, hashed, versioned, read-only")
+    gsub = golden_parser.add_subparsers(dest="golden_command", required=True)
+    gcommon = argparse.ArgumentParser(add_help=False)
+    gcommon.add_argument("--root", default=".", help="repository root used to display paths (default: current directory)")
+    gk = gsub.add_parser("check", parents=[gcommon], help="validate every capture file and index under a golden directory")
+    gk.add_argument("golden", nargs="?", default="golden")
+    gk.set_defaults(func=cmd_golden_check)
+    gs = gsub.add_parser("status", parents=[gcommon], help=f"business days captured per custodian against the {MIN_DAYS} to {MAX_DAYS} the replay needs")
+    gs.add_argument("golden", nargs="?", default="golden")
+    gs.add_argument("--json", action="store_true")
+    gs.set_defaults(func=cmd_golden_status)
+    gc = gsub.add_parser("capture", parents=[gcommon], help="replay every business day of a range through the legacy path and store the outputs and rejections")
+    gc.add_argument("capture", help="the custodian's directory under golden/, or its capture.yaml")
+    gc.add_argument("--from", dest="start", required=True, help="first business date, YYYY-MM-DD")
+    gc.add_argument("--to", dest="end", required=True, help="last business date, YYYY-MM-DD")
+    gc.add_argument("--store", required=True, help="the golden store: s3://bucket[/prefix], or a directory for a trial")
+    gc.add_argument("--files", help="override the capture file's files.location")
+    gc.add_argument("--work", default=os.environ.get("ASTRA_GOLDEN_WORK", "work/golden"), help="working directory for file copies and replay logs (default: work/golden)")
+    gc.set_defaults(func=cmd_golden_capture, legacy=None)
+    gv = gsub.add_parser("verify", parents=[gcommon], help="re-read every indexed version from the store and check that every file still hashes as its manifest says")
+    gv.add_argument("capture", help="the custodian's directory under golden/, or its capture.yaml")
+    gv.add_argument("--store", required=True)
+    gv.set_defaults(func=cmd_golden_verify)
 
     snowpark_parser = sub.add_parser("snowpark", help="Snowpark Connect assessment of Spark transformers")
     spsub = snowpark_parser.add_subparsers(dest="snowpark_command", required=True)

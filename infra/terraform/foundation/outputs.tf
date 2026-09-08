@@ -33,6 +33,11 @@ output "iceberg_bucket_name" {
   value       = module.iceberg_bucket.name
 }
 
+output "golden_bucket_name" {
+  description = "Golden datasets bucket; --store s3://<this> for astra-verify golden capture."
+  value       = module.golden_bucket.name
+}
+
 output "landing_bucket_name" {
   description = "S3 bucket custodian files are delivered to."
   value       = module.landing_bucket.name

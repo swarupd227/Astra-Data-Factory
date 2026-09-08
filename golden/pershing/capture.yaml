@@ -1,0 +1,31 @@
+# How the legacy path is replayed for Pershing and what is captured from it, per business
+# day, as the oracle for parity (ADR 0031). `astra-verify golden capture golden/pershing
+# --from 2026-06-01 --to 2026-08-29 --store s3://<golden bucket>` walks the business days.
+#
+# The replay command and the queries are the client's: confirm them against the
+# non-production Splitter/Loader and its database before the first capture and keep them
+# here, reviewed. The connection string is named, never written.
+capture_version: 0
+custodian: pershing
+description: >-
+  Pershing GCUS position and transaction files replayed through Splitter/Loader in
+  non-production; the loaded rows and the rejections per business day are the oracle
+  the factory's pipelines are proven against.
+sources: [pershing_position]
+business_days: [mon, tue, wed, thu, fri]
+
+files:
+  location: s3://astra-dev-landing-123456789012/archive/pershing
+  pattern: "GCUS_{yyyymmdd}_*.dat"
+
+legacy:
+  replay: ["loader-replay", "--custodian", "pershing", "--business-date", "{business_date}", "--files", "{file_list}", "--target", "nonprod"]
+  connection_env: LOADER_NONPROD_CONNECTION
+  rejections: rejections
+  outputs:
+    positions: >-
+      SELECT AccountId, CustodianCode, AccountNumber, Cusip, AsOfDate, Quantity, Price, MarketValue, SourceFile, SourceLine
+      FROM dbo.LoaderPosition WHERE AsOfDate = '{business_date}' ORDER BY AccountId, Cusip, SourceFile, SourceLine
+    rejections: >-
+      SELECT RejectionId, RejectCode, SourceFile, SourceLine, RawRecord, RaisedAt
+      FROM dbo.LoaderRejection WHERE SourceFile IN ({file_names}) ORDER BY SourceFile, SourceLine, RejectionId

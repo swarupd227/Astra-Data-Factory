@@ -241,6 +241,34 @@ variable "landing_prefix" {
   }
 }
 
+variable "golden_bucket_name" {
+  description = "Golden datasets bucket. Null derives <prefix>-<environment>-golden-<account id>."
+  type        = string
+  default     = null
+}
+
+variable "golden_retention_days" {
+  description = "Days every golden dataset version stays read-only under S3 Object Lock after capture."
+  type        = number
+  default     = 400
+
+  validation {
+    condition     = var.golden_retention_days >= 1 && floor(var.golden_retention_days) == var.golden_retention_days
+    error_message = "golden_retention_days must be a whole number of at least 1."
+  }
+}
+
+variable "golden_retention_mode" {
+  description = "Object lock mode of the golden bucket: GOVERNANCE for non-production, COMPLIANCE once the retention is agreed for production."
+  type        = string
+  default     = "GOVERNANCE"
+
+  validation {
+    condition     = contains(["GOVERNANCE", "COMPLIANCE"], var.golden_retention_mode)
+    error_message = "golden_retention_mode must be GOVERNANCE or COMPLIANCE."
+  }
+}
+
 variable "landing_noncurrent_version_days" {
   description = "Days to keep superseded versions of landed files (a re-delivered file overwrites the previous object; the old version stays this long). Null keeps every version."
   type        = number

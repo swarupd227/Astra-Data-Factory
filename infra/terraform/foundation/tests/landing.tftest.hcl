@@ -332,3 +332,17 @@ run "rejects_schemas_without_bronze_and_control" {
 
   expect_failures = [var.schemas]
 }
+
+run "golden_bucket_keeps_datasets_read_only" {
+  command = plan
+
+  assert {
+    condition     = startswith(module.golden_bucket.name, "astra-dev-golden-")
+    error_message = "The golden bucket follows the foundation's naming."
+  }
+
+  assert {
+    condition     = output.golden_bucket_name == module.golden_bucket.name
+    error_message = "The golden bucket name is an output for astra-verify golden capture."
+  }
+}

@@ -58,6 +58,7 @@ Object names are `<PREFIX>_<ENV>_...`; the default prefix is `ASTRA`. For `dev`:
 | IAM role | `ASTRA_DEV_OPEN_CATALOG` | Assumed by Open Catalog; read only. Created once `open_catalog.iam_user_arn` and `external_id` are set. |
 | External volume | `ASTRA_DEV_ICEBERG` | Points at the bucket through the Snowflake role. `USAGE` for ADMIN, ENGINEER, PIPELINE. |
 | Catalog integration | `ASTRA_DEV_OPEN_CATALOG` | Only when `open_catalog` is set. The database's `CATALOG_SYNC` parameter points at it. |
+| S3 bucket | `astra-dev-golden-<aws account id>` | Golden datasets (S4.1.2): the legacy path's outputs per business day. Same hardening; S3 Object Lock with a default retention (`golden_retention_days`, `golden_retention_mode`) keeps every version read-only. |
 | S3 bucket | `astra-dev-landing-<aws account id>` | Custodian deliveries under `landing/`. Same hardening; superseded versions kept 30 days. |
 | IAM role | `ASTRA_DEV_SNOWFLAKE_LANDING` | Assumed by Snowflake; read only, limited to the landing prefix. |
 | Storage integration | `ASTRA_DEV_LANDING` | Delegates landing-zone access to the role above. `USAGE` for ADMIN, ENGINEER, PIPELINE. |

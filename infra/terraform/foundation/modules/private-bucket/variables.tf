@@ -19,6 +19,28 @@ variable "noncurrent_version_expiration_days" {
   }
 }
 
+variable "object_lock_retention_days" {
+  description = "When set, the bucket is created with S3 Object Lock and every new object version is retained, unmodifiable and undeletable, for this many days. Null means no object lock. Cannot be turned on after creation."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.object_lock_retention_days == null || try(var.object_lock_retention_days >= 1, false)
+    error_message = "object_lock_retention_days must be at least 1 or null."
+  }
+}
+
+variable "object_lock_mode" {
+  description = "GOVERNANCE (a principal with s3:BypassGovernanceRetention may still delete) or COMPLIANCE (nobody can, until the retention ends)."
+  type        = string
+  default     = "GOVERNANCE"
+
+  validation {
+    condition     = contains(["GOVERNANCE", "COMPLIANCE"], var.object_lock_mode)
+    error_message = "object_lock_mode must be GOVERNANCE or COMPLIANCE."
+  }
+}
+
 variable "tags" {
   description = "Tags added to the bucket in addition to the provider's default tags."
   type        = map(string)
