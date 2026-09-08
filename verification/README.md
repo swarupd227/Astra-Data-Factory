@@ -2,6 +2,8 @@
 
 The verification plane of Astra Data Factory (product spec Section 5). Today it provides ephemeral sandboxes (S1.2.3); dry-runs, golden replay, parity and the DQ runner (E4) build on them.
 
+It runs dry runs (S4.1.1, ADR 0030): `astra-verify dryrun --config configs/<source>.yaml --sample <file> --environment dev` compiles and renders the config as the pipeline would, creates a sandbox, deploys the canonical model, the reference-data tables and the source bundle into it, loads the samples the way Snowpipe would, runs the stages and writes `work/dryrun/<task id>/report.md` and `report.json`: rows parsed, rejected by code, control-total gaps, the rendered tests; the sandbox is destroyed whatever happened, and the elapsed time is reported against the ten-minute budget.
+
 It also carries the Snowpark Connect assessment harness (S3.3.2, ADR 0029): `astra-verify snowpark assess assessments/normalizer --engine local|snowpark-connect` runs the assessment's Spark transformers on a local Spark session or on Snowflake through Snowpark Connect, records effort and result under `results/`, and rewrites the memo's evidence section. Install `.[spark]` (and a Java runtime) for the local engine, `.[snowpark-connect]` for Snowflake.
 
 ```bash

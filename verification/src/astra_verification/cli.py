@@ -19,6 +19,7 @@ from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExec
 
 from astra_verification.pii import run_checks as run_pii_checks
 from astra_verification.reference import feed_statuses
+from astra_verification.dryrun import BUDGET_SECONDS, DryRunError, dry_run
 from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
@@ -220,6 +221,57 @@ def cmd_reference_status(args: argparse.Namespace) -> int:
 # -- parser ------------------------------------------------------------------
 
 
+def cmd_dryrun(args: argparse.Namespace) -> int:
+    """Sample files through a drafted config in a sandbox; the report says what the pipeline made of them; the sandbox is gone."""
+    from datetime import datetime, timezone
+
+    task_id = args.task or f"dryrun-{Path(args.config).stem}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    repo = Path(args.repo)
+
+    def under_repo(path: str) -> Path:
+        return Path(path) if Path(path).is_absolute() else repo / path
+
+    bundles = [under_repo(b) for b in (args.bundles or ["releases/custodial-reference-data"])]
+    cdm_ddl = under_repo(args.cdm_ddl) if args.cdm_ddl else None
+    spec = SandboxSpec(task_id=task_id, environment=args.environment, prefix=args.prefix, ttl_minutes=args.ttl_minutes, warehouse_size=args.warehouse_size)
+    out = Path(args.out) / task_id
+    executor = _executor()
+    try:
+        report = dry_run(
+            Path(args.config),
+            [Path(s) for s in args.samples],
+            spec,
+            executor,
+            repo=repo,
+            out=out,
+            extra_bundles=bundles,
+            cdm_ddl=cdm_ddl,
+        )
+    except DryRunError as exc:
+        for p in exc.problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: the dry run did not start; {len(exc.problems)} problem{'s' if len(exc.problems) != 1 else ''} in the inputs", file=sys.stderr)
+        return 2
+    finally:
+        executor.close()
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        parsed = ", ".join(f"{label} {rows}" for label, rows in report.parsed.items()) or "nothing"
+        rejected = ", ".join(f"{e['code']} {e['rows']}" for e in report.exceptions if e["level"] == "record") or "none"
+        failed_tests = [t["test"] for t in report.tests if not t["passed"]]
+        gaps = [c for c in report.control_totals if c["gap"] not in (None, "0", "0.0")]
+        print(f"dry run of {report.source} in {report.sandbox}: {report.status}, {report.seconds:.1f} s of {BUDGET_SECONDS} s{'' if report.within_budget else ' (over budget)'}, sandbox destroyed: {'yes' if report.destroyed else 'no'}")
+        print(f"  parsed: {parsed}")
+        print(f"  rejected rows by code: {rejected}")
+        print(f"  control-total gaps: {len(gaps)} file(s) with a gap" if report.control_totals else "  control-total gaps: no control-total rule")
+        print(f"  DQ: {len(report.tests) - len(failed_tests)} of {len(report.tests)} tests passed" + (f"; failing: {', '.join(failed_tests)}" if failed_tests else ""))
+        if report.error:
+            print(f"  stopped: {report.error}")
+        print(f"  report: {out / 'report.md'}")
+    return 1 if report.error or not report.within_budget else 0
+
+
 def cmd_snowpark_assess(args: argparse.Namespace) -> int:
     """Run the assessment's transformers on an engine, write the result file and rewrite the memo's evidence."""
     try:
@@ -294,6 +346,21 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--privileged-role", help="role that sees PII in clear (default <PREFIX>_<ENV>_ENGINEER)")
     pc.add_argument("--restricted-role", help="role that must see the mask (default <PREFIX>_<ENV>_AUDITOR)")
     pc.set_defaults(func=cmd_pii_check)
+
+    dr = sub.add_parser("dryrun", help="run sample files through a drafted config in a sandbox and report; the sandbox is destroyed afterwards")
+    dr.add_argument("--config", required=True, help="the drafted config file")
+    dr.add_argument("--sample", dest="samples", action="append", required=True, help="sample file the custodian would deliver; repeatable. Its name must match a delivery pattern of the config")
+    dr.add_argument("--environment", required=True, help="environment whose foundation the sandbox borrows (external volume, control tables, rejection codes)")
+    dr.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    dr.add_argument("--task", help="task id of the sandbox (default: dryrun-<config>-<timestamp>)")
+    dr.add_argument("--ttl-minutes", type=int, default=30, help="time limit after which the reaper drops the sandbox should the run die (default 30)")
+    dr.add_argument("--warehouse-size", default="XSMALL", choices=WAREHOUSE_SIZES)
+    dr.add_argument("--repo", default=".", help="repository root: specs, rules and domains are read from it (default: current directory)")
+    dr.add_argument("--bundle", dest="bundles", action="append", help="bundle deployed into the sandbox before the source, relative to --repo; repeatable (default: releases/custodial-reference-data)")
+    dr.add_argument("--cdm-ddl", default="domains/custodial/cdm/rendered/1.0/ddl.sql", help="rendered canonical model DDL deployed first, relative to --repo; empty to skip")
+    dr.add_argument("--out", default=os.environ.get("ASTRA_DRYRUN_OUT", "work/dryrun"), help="reports are written under <out>/<task id>/ (default: work/dryrun)")
+    dr.add_argument("--json", action="store_true")
+    dr.set_defaults(func=cmd_dryrun)
 
     snowpark_parser = sub.add_parser("snowpark", help="Snowpark Connect assessment of Spark transformers")
     spsub = snowpark_parser.add_subparsers(dest="snowpark_command", required=True)
