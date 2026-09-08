@@ -1,0 +1,9 @@
+{
+  "columns": ["account_number", "cusip", "quantity", "price", "as_of_date"],
+  "source": "the pattern library on samples/gcus_positions.dat: sign '+' long, '-' short, ' ' unknown (NULL); blank cusip and short lines dropped",
+  "rows": [
+    ["12345678", "037833100", "100.00000", "227.120000", "2026-08-29"],
+    ["12345678", "594918104", "-25.50000", "410.500000", "2026-08-29"],
+    ["87654321", "037833100", null, "227.120000", "2026-08-29"]
+  ]
+}

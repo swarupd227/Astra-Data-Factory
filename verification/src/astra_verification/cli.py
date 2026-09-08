@@ -19,6 +19,7 @@ from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExec
 
 from astra_verification.pii import run_checks as run_pii_checks
 from astra_verification.reference import feed_statuses
+from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
     WAREHOUSE_SIZES,
@@ -219,6 +220,35 @@ def cmd_reference_status(args: argparse.Namespace) -> int:
 # -- parser ------------------------------------------------------------------
 
 
+def cmd_snowpark_assess(args: argparse.Namespace) -> int:
+    """Run the assessment's transformers on an engine, write the result file and rewrite the memo's evidence."""
+    try:
+        assessment = load_assessment(Path(args.assessment))
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        run = run_assessment(assessment, SparkEngine(args.engine), transformers=args.transformers or None)
+    except ImportError as exc:
+        print(f"error: engine {args.engine} needs a package that is not installed: {exc}. Install astra-verification[spark] for local, [snowpark-connect] for Snowpark Connect.", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    update_memo(assessment)
+    if args.json:
+        print(json.dumps(run.to_dict(), indent=2))
+    else:
+        print(f"{args.engine}: session started in {run.session_seconds:g} s")
+        for r in run.results:
+            parity = "" if r.parity is None else ("parity with expected" if r.parity else f"{r.mismatches} mismatch{'es' if r.mismatches != 1 else ''} against expected")
+            print(f"  {r.transformer:22} {r.status:9} {r.rows:4} rows  {r.seconds:7.3f} s  {parity}" + (f"  {r.error}" if r.error else ""))
+        failed = [r for r in run.results if r.status != "succeeded"]
+        parity_failed = [r for r in run.results if r.parity is False]
+        print(f"run {run.run_id} {run.status}; results/{args.engine}-{run.run_id}.json written and the memo's evidence rewritten" + (f"; {len(parity_failed)} transformer(s) without parity" if parity_failed else "") + (f"; {len(failed)} failed" if failed else ""))
+    return 0 if run.status == "succeeded" and not any(r.parity is False for r in run.results) else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-verify", description="Astra Data Factory verification plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -264,6 +294,15 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--privileged-role", help="role that sees PII in clear (default <PREFIX>_<ENV>_ENGINEER)")
     pc.add_argument("--restricted-role", help="role that must see the mask (default <PREFIX>_<ENV>_AUDITOR)")
     pc.set_defaults(func=cmd_pii_check)
+
+    snowpark_parser = sub.add_parser("snowpark", help="Snowpark Connect assessment of Spark transformers")
+    spsub = snowpark_parser.add_subparsers(dest="snowpark_command", required=True)
+    sa = spsub.add_parser("assess", help="run the assessment's transformers on an engine, record effort and result, and rewrite the memo's evidence")
+    sa.add_argument("assessment", help="assessment directory, for example assessments/normalizer")
+    sa.add_argument("--engine", choices=list(ENGINES), default="local", help="local (a local Spark session, the reference) or snowpark-connect (the same code on Snowflake)")
+    sa.add_argument("--transformer", dest="transformers", action="append", help="run only this transformer; repeatable (default: all)")
+    sa.add_argument("--json", action="store_true")
+    sa.set_defaults(func=cmd_snowpark_assess)
 
     reference_parser = sub.add_parser("reference", help="reference-data replication")
     rsub = reference_parser.add_subparsers(dest="reference_command", required=True)

@@ -14,10 +14,11 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | `domains` | Knowledge (E2) | Domain packs: glossary, canonical data model versions with rendered DDL and key tests, the rejection taxonomy and the reference-data feeds |
 | `rules` | Knowledge (E2) | The rule catalog: one file per business rule with citation, class, owner, status and its history; configs reference rules by id |
 | `configs` | Knowledge (E2) | Source configs, one YAML file per source, validated against the schema, the spec registry and the rule catalog on every pull request |
+| `assessments` | Discovery (WBS 1.4) | Assessment memos with their evidence: the Normalizer decision's Spark transformers, their Snowpark Connect versions, recorded changes, samples, expected rows and harness results |
 | `migrations` | Generation (E3) | Historical migrations driven through SnowConvert AI: one file per SQL Server source naming the schemas, the archive-store schema and the command line of each phase; results and logs land with the release |
 | `releases` | Generation (E3) | Release bundles rendered from configs and domain packs (reference-data replication, Gold read models and the watermark) and written by migration runs (converted archive-store DDL with logs and results); deployed by the pipeline |
 | `generation` | Generation (E3) | `astra-data`: config validation, bundle deploy and generated tests. The compiler and renderers grow here. |
-| `verification` | Verification (E4) | `astra-verify`: ephemeral sandboxes per task. Dry-runs, golden replay and parity grow here. |
+| `verification` | Verification (E4) | `astra-verify`: ephemeral sandboxes per task and the Snowpark Connect assessment harness. Dry-runs, golden replay and parity grow here. |
 | `infra/terraform/foundation` | Control (E1) | Per environment: Snowflake database, schemas, roles, tier-sized warehouses, Iceberg bucket and external volume, Open Catalog sync, landing zone with Snowpipe and file load log |
 | `infra/terraform/bootstrap` | Control (E1) | Once per AWS account: the bucket that holds Terraform state for every environment |
 | `tools/opencatalog` | Control (E1) | Provisions and verifies Snowflake Open Catalog, which has no Terraform provider |

@@ -1,0 +1,21 @@
+# What had to change for position_normalizer to run on Snowpark Connect, and what it cost.
+# Recorded by the engineer who made the change; the harness attaches it to the evidence.
+transformer: position_normalizer
+engineer: platform architect
+effort_hours: 3.0
+changes:
+  - kind: api_gap
+    what: RDD text read (sparkContext.textFile) replaced by a one-column DataFrame of lines handed in by the caller
+    why: Snowpark Connect implements the DataFrame API only; there is no RDD, and the executor cannot read a local path
+    effort_hours: 1.0
+  - kind: api_gap
+    what: Per-line Python parse function (rdd.map) rewritten as substring, trim, cast and when expressions
+    why: Python functions on RDDs do not run on Snowpark Connect; DataFrame expressions run on Snowflake unchanged
+    effort_hours: 1.5
+  - kind: semantics
+    what: Implied decimals computed with decimal casts and division instead of Python Decimal
+    why: keeps the scale explicit so both engines produce the same DECIMAL(18,5) and DECIMAL(15,6) values
+    effort_hours: 0.5
+unchanged:
+  - The layout offsets, the sign convention and the drop of header, trailer and short lines
+  - "The output schema: account_number, cusip, quantity, price, as_of_date"

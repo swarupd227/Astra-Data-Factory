@@ -5,12 +5,22 @@ description = "Astra Data Factory verification plane: ephemeral sandboxes, and l
 requires-python = ">=3.11"
 dependencies = [
   "astra-data",
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
 # Talking to Snowflake. Install generation with the same extra.
 deploy = [
   "snowflake-connector-python>=3.12",
+]
+# `astra-verify snowpark assess --engine local` runs a local Spark session (needs a Java runtime);
+# `--engine snowpark-connect` runs the same code on Snowflake through Snowpark Connect for Spark.
+spark = [
+  "pyspark>=3.5,<3.6",
+]
+snowpark-connect = [
+  "pyspark>=3.5,<3.6",
+  "snowpark-connect",
 ]
 dev = [
   "pytest>=8",

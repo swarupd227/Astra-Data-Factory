@@ -1,0 +1,10 @@
+{
+  "columns": ["transaction_id", "account_number", "cusip", "transaction_type", "trade_date", "quantity", "amount"],
+  "source": "the split rule of spec drip_transaction_example on samples/drip_transactions.dat: a DRIP yields the dividend (-1) and the purchase (-2) with the amount negated",
+  "rows": [
+    ["TX0000000001", "12345678", "037833100", "BUY", "2026-08-27", "10.0000", "-22712.00"],
+    ["TX0000000002-1", "12345678", "037833100", "DIV", "2026-08-28", null, "1135.60"],
+    ["TX0000000002-2", "12345678", "037833100", "BUY", "2026-08-28", "0.5000", "-1135.60"],
+    ["TX0000000003", "87654321", "594918104", "SELL", "2026-08-28", "25.0000", "10262.50"]
+  ]
+}

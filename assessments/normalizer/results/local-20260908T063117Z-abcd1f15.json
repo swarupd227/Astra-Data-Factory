@@ -1,0 +1,118 @@
+{
+  "engine": "local",
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "pyspark": "3.5.3",
+    "python": "3.13.2"
+  },
+  "finished_at": "2026-09-08T06:31:36Z",
+  "results": [
+    {
+      "changes": 3,
+      "columns": [
+        "transaction_id",
+        "account_number",
+        "cusip",
+        "transaction_type",
+        "trade_date",
+        "quantity",
+        "amount"
+      ],
+      "effort_hours": 4.0,
+      "error": null,
+      "lines_added": 43,
+      "lines_removed": 57,
+      "mismatches": 0,
+      "parity": true,
+      "rows": 4,
+      "sample": [
+        [
+          "TX0000000001",
+          "12345678",
+          "037833100",
+          "BUY",
+          "2026-08-27",
+          "10.0000",
+          "-22712.00"
+        ],
+        [
+          "TX0000000002-1",
+          "12345678",
+          "037833100",
+          "DIV",
+          "2026-08-28",
+          null,
+          "1135.60"
+        ],
+        [
+          "TX0000000002-2",
+          "12345678",
+          "037833100",
+          "BUY",
+          "2026-08-28",
+          "0.5000",
+          "-1135.60"
+        ],
+        [
+          "TX0000000003",
+          "87654321",
+          "594918104",
+          "SELL",
+          "2026-08-28",
+          "25.0000",
+          "10262.50"
+        ]
+      ],
+      "seconds": 5.3,
+      "status": "succeeded",
+      "transformer": "drip_split"
+    },
+    {
+      "changes": 3,
+      "columns": [
+        "account_number",
+        "cusip",
+        "quantity",
+        "price",
+        "as_of_date"
+      ],
+      "effort_hours": 3.0,
+      "error": null,
+      "lines_added": 35,
+      "lines_removed": 47,
+      "mismatches": 0,
+      "parity": true,
+      "rows": 3,
+      "sample": [
+        [
+          "12345678",
+          "037833100",
+          "100.00000",
+          "227.120000",
+          "2026-08-29"
+        ],
+        [
+          "12345678",
+          "594918104",
+          "-25.50000",
+          "410.500000",
+          "2026-08-29"
+        ],
+        [
+          "87654321",
+          "037833100",
+          null,
+          "227.120000",
+          "2026-08-29"
+        ]
+      ],
+      "seconds": 0.796,
+      "status": "succeeded",
+      "transformer": "position_normalizer"
+    }
+  ],
+  "run_id": "20260908T063117Z-abcd1f15",
+  "session_seconds": 8.609,
+  "started_at": "2026-09-08T06:31:17Z",
+  "status": "succeeded"
+}

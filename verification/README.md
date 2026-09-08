@@ -2,6 +2,8 @@
 
 The verification plane of Astra Data Factory (product spec Section 5). Today it provides ephemeral sandboxes (S1.2.3); dry-runs, golden replay, parity and the DQ runner (E4) build on them.
 
+It also carries the Snowpark Connect assessment harness (S3.3.2, ADR 0029): `astra-verify snowpark assess assessments/normalizer --engine local|snowpark-connect` runs the assessment's Spark transformers on a local Spark session or on Snowflake through Snowpark Connect, records effort and result under `results/`, and rewrites the memo's evidence section. Install `.[spark]` (and a Java runtime) for the local engine, `.[snowpark-connect]` for Snowflake.
+
 ```bash
 cd verification
 python -m venv .venv && . .venv/bin/activate

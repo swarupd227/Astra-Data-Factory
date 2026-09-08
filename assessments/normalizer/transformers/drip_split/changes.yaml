@@ -1,0 +1,20 @@
+# What had to change for drip_split to run on Snowpark Connect, and what it cost.
+transformer: drip_split
+engineer: platform architect
+effort_hours: 4.0
+changes:
+  - kind: api_gap
+    what: RDD text read (sparkContext.textFile) replaced by a one-column DataFrame of lines handed in by the caller
+    why: Snowpark Connect implements the DataFrame API only; there is no RDD
+    effort_hours: 0.5
+  - kind: api_gap
+    what: Per-line Python parse (rdd.map) rewritten as substring, trim, cast and to_date expressions
+    why: Python functions on RDDs do not run on Snowpark Connect
+    effort_hours: 1.5
+  - kind: api_gap
+    what: The split (rdd.flatMap over a Python function) rewritten as explode over an array of struct parts chosen by when
+    why: the one-to-many step must be a DataFrame expression to run on Snowflake; explode(array(...)) is the idiom for it
+    effort_hours: 2.0
+unchanged:
+  - "The split rule from the spec: the dividend keeps the amount and drops the quantity, the purchase negates the amount; part ids are the source id suffixed -1 and -2"
+  - The output schema
