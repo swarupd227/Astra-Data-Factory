@@ -20,6 +20,7 @@ from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExec
 from astra_verification.pii import run_checks as run_pii_checks
 from astra_verification.reference import feed_statuses
 from astra_verification.dryrun import BUDGET_SECONDS, DryRunError, dry_run
+from astra_verification.dq import DQ_SCORE_TARGET, DqError, compile_for_dq, run_and_alert as run_dq
 from astra_verification.golden import MAX_DAYS, MIN_DAYS, OdbcLegacyStore, capture_day, check as golden_check, coverage, discover as discover_captures, file_source, load_capture, object_store, record, secrets_from, subprocess_runner as golden_runner, verify as golden_verify
 from astra_verification.replay import ReplayError, old_config_from_git, replay
 from astra_verification.parity import MATCH_RATE_TARGET, ParityError, check as parity_check, load_parity, run as run_parity
@@ -556,6 +557,42 @@ def cmd_parity_report(args: argparse.Namespace) -> int:
     return 0 if report.meets_target else 1
 
 
+def cmd_dq_run(args: argparse.Namespace) -> int:
+    """Collect a source's DMF results into a score per entity for one business date; an entity below target raises an alert."""
+    from datetime import date as date_cls
+
+    repo = Path(args.repo)
+    try:
+        compiled = compile_for_dq(Path(args.config), repo)
+    except DqError as exc:
+        for p in exc.problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: {len(exc.problems)} problem{'s' if len(exc.problems) != 1 else ''} compiling {args.config}", file=sys.stderr)
+        return 2
+    if not compiled.dq_rules:
+        print(f"{compiled.id} has no dq_rules; nothing to score")
+        return 0
+    business_date = date_cls.fromisoformat(args.business_date)
+    target = Target(args.environment, args.prefix)
+    executor = _executor()
+    try:
+        scores, alerts = run_dq(compiled, executor, target.database, target, business_date, score_target=args.target, alert=not args.no_alert, out=Path(args.out) / f"{compiled.id}-{args.business_date}")
+    finally:
+        executor.close()
+    if args.json:
+        print(json.dumps([s.to_dict() for s in scores], indent=2))
+    else:
+        print(f"DQ score of {compiled.id} {args.business_date} (target {args.target:.1%}):")
+        for s in scores:
+            status = "no data" if not s.scored else ("meets target" if s.meets_target else "below target")
+            score_text = f"{s.score:.1%}" if s.scored else "n/a"
+            print(f"  {s.entity}: {score_text} - {status} ({len(s.scored_rules)}/{len(s.rules)} rule(s) scored)")
+        if alerts:
+            print(f"  {len(alerts)} alert(s) raised in {target.environment_database}.CONTROL.ALERTS")
+        print(f"  report: {Path(args.out) / f'{compiled.id}-{args.business_date}' / 'dq.md'}")
+    return 0 if scores and all(s.meets_target for s in scores) else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-verify", description="Astra Data Factory verification plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -666,6 +703,20 @@ def build_parser() -> argparse.ArgumentParser:
     pare.add_argument("--out", default=os.environ.get("ASTRA_PARITY_REPORT_OUT", "work/parity-report"), help="the working report is always written under <out>/ (default: work/parity-report)")
     pare.add_argument("--json", action="store_true")
     pare.set_defaults(func=cmd_parity_report)
+
+    dq_parser = sub.add_parser("dq", help="DMF results collected into a score per entity, per business date, against a governance target")
+    dqsub = dq_parser.add_subparsers(dest="dq_command", required=True)
+    dqr = dqsub.add_parser("run", help="score every entity of a source's dq_rules for one business date from its DMF results; an entity below target raises an alert")
+    dqr.add_argument("--config", required=True, help="the source's config, for example configs/pershing/pershing_position.yaml")
+    dqr.add_argument("--business-date", required=True, help="YYYY-MM-DD; DMF results are read for this calendar date")
+    dqr.add_argument("--environment", required=True, help="environment whose deployed tables and DMF results are read")
+    dqr.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    dqr.add_argument("--repo", default=".", help="repository root: specs, rules and domains are read from it (default: current directory)")
+    dqr.add_argument("--target", type=float, default=DQ_SCORE_TARGET, help=f"minimum severity-weighted score an entity must reach (default {DQ_SCORE_TARGET})")
+    dqr.add_argument("--no-alert", action="store_true", help="write the report only; do not raise an alert for an entity below target")
+    dqr.add_argument("--out", default=os.environ.get("ASTRA_DQ_OUT", "work/dq"), help="reports are written under <out>/<source>-<date>/ (default: work/dq)")
+    dqr.add_argument("--json", action="store_true")
+    dqr.set_defaults(func=cmd_dq_run)
 
     golden_parser = sub.add_parser("golden", help="golden datasets: the legacy path's outputs captured per business day, hashed, versioned, read-only")
     gsub = golden_parser.add_subparsers(dest="golden_command", required=True)
