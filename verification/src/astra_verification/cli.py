@@ -23,6 +23,7 @@ from astra_verification.dryrun import BUDGET_SECONDS, DryRunError, dry_run
 from astra_verification.golden import MAX_DAYS, MIN_DAYS, OdbcLegacyStore, capture_day, check as golden_check, coverage, discover as discover_captures, file_source, load_capture, object_store, record, secrets_from, subprocess_runner as golden_runner, verify as golden_verify
 from astra_verification.replay import ReplayError, old_config_from_git, replay
 from astra_verification.parity import MATCH_RATE_TARGET, ParityError, check as parity_check, load_parity, run as run_parity
+from astra_verification.parity_report import run as run_parity_report
 from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
@@ -510,6 +511,51 @@ def cmd_parity_run(args: argparse.Namespace) -> int:
     return 0 if result.meets_target else 1
 
 
+def cmd_parity_report(args: argparse.Namespace) -> int:
+    """Aggregate parity over a dual-run cycle window into a report with trend, and export it into the release evidence."""
+    from datetime import date as date_cls
+
+    mapping, problems = load_parity(Path(args.config), Path(args.root))
+    if mapping is None:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: {len(problems)} problem{'s' if len(problems) != 1 else ''} in the parity mapping", file=sys.stderr)
+        return 2
+    capture_path = Path(args.golden) / mapping.custodian / "capture.yaml"
+    capture, problems = load_capture(capture_path, Path(args.root))
+    if capture is None:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: {capture_path} did not load; the parity report exports into the release(s) named by its sources", file=sys.stderr)
+        return 2
+    start = date_cls.fromisoformat(args.start) if args.start else None
+    end = date_cls.fromisoformat(args.end) if args.end else None
+    target = Target(args.environment, args.prefix)
+    executor = _executor()
+    try:
+        report, exported = run_parity_report(
+            mapping, capture, Path(args.golden), object_store(args.store), executor, target.database,
+            start=start, end=end, out=Path(args.out), export=not args.no_export, releases_dir=Path(args.root) / args.releases,
+        )
+    except ParityError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        executor.close()
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(f"parity report of {report.custodian}: {len(report.cycles)} cycle(s), {report.cycles[0].business_date} to {report.cycles[-1].business_date}")
+        print(f"  {report.legacy_rows} legacy row(s), {report.lakehouse_rows} lakehouse row(s), {report.matched} matched")
+        print(f"  overall match rate {report.match_rate:.4%} (target {MATCH_RATE_TARGET:.1%}): {'meets target' if report.meets_target else 'below target'}; trend: {report.trend}")
+        if report.field_summary:
+            print(f"  by field: {', '.join(f'{k} {v}' for k, v in sorted(report.field_summary.items(), key=lambda kv: -kv[1]))}")
+        print(f"  report: {Path(args.out) / 'report.md'}")
+        if exported:
+            print(f"  exported to: {', '.join(str(p.parent) for p in exported[::2])}")
+    return 0 if report.meets_target else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-verify", description="Astra Data Factory verification plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -607,6 +653,19 @@ def build_parser() -> argparse.ArgumentParser:
     par.add_argument("--out", default=os.environ.get("ASTRA_PARITY_OUT", "work/parity"), help="reports are written under <out>/<custodian>-<date>/ (default: work/parity)")
     par.add_argument("--json", action="store_true")
     par.set_defaults(func=cmd_parity_run)
+    pare = pasub.add_parser("report", parents=[pacommon], help="aggregate parity over a dual-run cycle window with trend, and export it into the release evidence of every source the custodian's capture names")
+    pare.add_argument("--config", required=True, help="the custodian's parity.yaml")
+    pare.add_argument("--environment", required=True, help="environment whose lakehouse table is compared")
+    pare.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    pare.add_argument("--golden", default="golden", help="golden datasets directory, relative to --root (default: golden)")
+    pare.add_argument("--store", required=True, help="the golden store: s3://bucket[/prefix], or a directory")
+    pare.add_argument("--from", dest="start", help="first business date of the window, YYYY-MM-DD (default: every captured date)")
+    pare.add_argument("--to", dest="end", help="last business date of the window, YYYY-MM-DD (default: every captured date)")
+    pare.add_argument("--releases", default="releases", help="release bundles directory, relative to --root (default: releases)")
+    pare.add_argument("--no-export", action="store_true", help="write the working report only; do not export it into release evidence")
+    pare.add_argument("--out", default=os.environ.get("ASTRA_PARITY_REPORT_OUT", "work/parity-report"), help="the working report is always written under <out>/ (default: work/parity-report)")
+    pare.add_argument("--json", action="store_true")
+    pare.set_defaults(func=cmd_parity_report)
 
     golden_parser = sub.add_parser("golden", help="golden datasets: the legacy path's outputs captured per business day, hashed, versioned, read-only")
     gsub = golden_parser.add_subparsers(dest="golden_command", required=True)

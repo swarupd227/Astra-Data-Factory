@@ -18,7 +18,10 @@ astra-verify golden capture golden/pershing --from 2026-06-01 --to 2026-08-29 --
 astra-verify golden verify golden/pershing --store s3://astra-dev-golden-123456789012   # every indexed version still hashes as captured
 astra-verify parity check golden                                   # every pull request: parity mappings valid
 astra-verify parity run --config golden/pershing/parity.yaml --business-date 2026-08-03 --environment dev --store s3://astra-dev-golden-123456789012
+astra-verify parity report --config golden/pershing/parity.yaml --environment dev --store s3://astra-dev-golden-123456789012
 ```
+
+`parity report` runs every already-captured business date (or a `--from`/`--to` window), aggregates the match rate, difference groups and trend, and exports `report.md` / `report.json` into `releases/<source>-parity/` for every source `capture.yaml` names — the release evidence a gate decision is made from (S4.2.2, ADR 0034).
 
 The first capture follows [docs/runbooks/golden-capture.md](../docs/runbooks/golden-capture.md).
 

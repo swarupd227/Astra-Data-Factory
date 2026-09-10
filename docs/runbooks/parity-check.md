@@ -38,3 +38,17 @@ Read the report in order:
 
 - `--legacy-version` compares against a specific captured version instead of the latest for the date, useful when re-checking parity after a Loader fix that produced a new version.
 - The lakehouse side is a live query against the named environment, not a rerun in a sandbox: the number is what is actually deployed there right now.
+
+## Reporting across a dual-run cycle window, for gate evidence
+
+Once several business dates have been checked, roll them up for a release:
+
+```bash
+astra-verify parity report \
+  --config golden/pershing/parity.yaml \
+  --environment dev \
+  --store s3://astra-dev-golden-123456789012
+```
+
+`--from` / `--to` narrow the window to the cycles the release covers; omitted, every already-captured business date is included. The command prints the overall match rate, the trend from the first cycle to the last, and the field most responsible for any shortfall, and it writes `report.md` / `report.json` into `releases/<source>-parity/` for every source `golden/<custodian>/capture.yaml` names (S4.2.2, ADR 0034) — commit that directory with the release it belongs to, the same as the rest of the release's generated evidence. Use `--no-export` for a trial report that should not be mistaken for release evidence.
+
