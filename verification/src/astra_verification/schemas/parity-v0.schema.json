@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/parity-v0.schema.json",
+  "title": "Parity mapping, version 0",
+  "description": "How a legacy golden output compares with a lakehouse table for one custodian: which golden capture output is the oracle, which lakehouse table it compares against, the keys that join a legacy row to a lakehouse row, and the fields compared with their tolerances.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["parity_version", "custodian", "legacy", "lakehouse", "keys", "fields"],
+  "properties": {
+    "parity_version": { "const": 0 },
+    "custodian": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "description": { "type": "string" },
+    "legacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["output"],
+      "properties": {
+        "output": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$", "description": "Name of the golden capture output (legacy.outputs key in capture.yaml) that is the oracle." }
+      }
+    },
+    "lakehouse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "table", "custodian_column", "business_date_column"],
+      "properties": {
+        "schema": { "enum": ["SILVER", "GOLD"] },
+        "table": { "$ref": "#/$defs/identifier" },
+        "custodian_column": { "$ref": "#/$defs/identifier", "description": "Column naming the custodian, filtered to this parity mapping's custodian." },
+        "business_date_column": { "$ref": "#/$defs/identifier", "description": "Column naming the business date, filtered to the date being compared." }
+      }
+    },
+    "keys": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/field" }, "description": "Columns that identify a row on both sides; a row is compared by matching every key." },
+    "fields": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/field" }, "description": "Columns compared for value parity, each with its own tolerance." }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["legacy", "lakehouse"],
+      "properties": {
+        "legacy": { "$ref": "#/$defs/identifier", "description": "Column name in the legacy output CSV (the golden capture query's own column names)." },
+        "lakehouse": { "$ref": "#/$defs/identifier", "description": "Column name in the lakehouse table." },
+        "type": { "enum": ["string", "decimal", "integer", "date"], "default": "string" },
+        "tolerance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["exact", "decimal_places", "absolute", "relative"] },
+            "places": { "type": "integer", "minimum": 0, "maximum": 20, "description": "decimal_places: round both values to this many places before comparing." },
+            "epsilon": { "type": "number", "exclusiveMinimum": 0, "description": "absolute: the largest allowed difference. relative: the largest allowed difference as a fraction of the larger magnitude." }
+          },
+          "allOf": [
+            { "if": { "properties": { "kind": { "const": "decimal_places" } } }, "then": { "required": ["places"] } },
+            { "if": { "properties": { "kind": { "enum": ["absolute", "relative"] } } }, "then": { "required": ["epsilon"] } }
+          ]
+        }
+      }
+    }
+  }
+}

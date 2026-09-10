@@ -6,6 +6,7 @@ The legacy path's own outputs, captured per custodian and business day as the or
 golden/<custodian>/
   capture.yaml     where the historical files are, how a day is replayed through Splitter/Loader in non-production, the queries that read the outputs and rejections back
   datasets.json    the index: every captured version with its business date, hash, source files, row counts and store reference; appended, never rewritten
+  parity.yaml      how a captured output compares with a lakehouse table (S4.2.1): keys, fields, tolerances
 ```
 
 The datasets themselves live in the golden bucket, one version per capture under `<custodian>/<business date>/v<n>/`: `sources.json` (the files with their hashes), one CSV per output, `replay.log`, and `manifest.json` whose hash is the hash of everything in it. The bucket's object lock keeps a written version read-only; a capture that produces identical content adds no version.
@@ -15,6 +16,8 @@ astra-verify golden check golden                                   # every pull 
 astra-verify golden status golden                                  # business days captured per custodian, against the 30 to 60 the replay needs
 astra-verify golden capture golden/pershing --from 2026-06-01 --to 2026-08-29 --store s3://astra-dev-golden-123456789012
 astra-verify golden verify golden/pershing --store s3://astra-dev-golden-123456789012   # every indexed version still hashes as captured
+astra-verify parity check golden                                   # every pull request: parity mappings valid
+astra-verify parity run --config golden/pershing/parity.yaml --business-date 2026-08-03 --environment dev --store s3://astra-dev-golden-123456789012
 ```
 
 The first capture follows [docs/runbooks/golden-capture.md](../docs/runbooks/golden-capture.md).

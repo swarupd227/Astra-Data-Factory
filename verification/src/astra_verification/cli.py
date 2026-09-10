@@ -22,6 +22,7 @@ from astra_verification.reference import feed_statuses
 from astra_verification.dryrun import BUDGET_SECONDS, DryRunError, dry_run
 from astra_verification.golden import MAX_DAYS, MIN_DAYS, OdbcLegacyStore, capture_day, check as golden_check, coverage, discover as discover_captures, file_source, load_capture, object_store, record, secrets_from, subprocess_runner as golden_runner, verify as golden_verify
 from astra_verification.replay import ReplayError, old_config_from_git, replay
+from astra_verification.parity import MATCH_RATE_TARGET, ParityError, check as parity_check, load_parity, run as run_parity
 from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
@@ -465,6 +466,50 @@ def cmd_replay(args: argparse.Namespace) -> int:
     return 0 if report.auto_promotable else 1
 
 
+def cmd_parity_check(args: argparse.Namespace) -> int:
+    mappings, problems = parity_check(Path(args.golden), Path(args.root))
+    if problems:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in parity mappings", file=sys.stderr)
+        return 1
+    for m in mappings:
+        print(f"{m.custodian}: {m.legacy_output} vs {m.schema}.{m.table}; {len(m.keys)} key(s), {len(m.fields)} field(s)")
+    print(f"checked {len(mappings)} parity mapping{'s' if len(mappings) != 1 else ''}: no problems" if mappings else f"no parity mappings under {args.golden}")
+    return 0
+
+
+def cmd_parity_run(args: argparse.Namespace) -> int:
+    """Compare a golden dataset's legacy output with the lakehouse for one business date; the report says the match rate."""
+    from datetime import date as date_cls
+
+    mapping, problems = load_parity(Path(args.config), Path(args.root))
+    if mapping is None:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: {len(problems)} problem{'s' if len(problems) != 1 else ''} in the parity mapping", file=sys.stderr)
+        return 2
+    business_date = date_cls.fromisoformat(args.business_date)
+    target = Target(args.environment, args.prefix)
+    executor = _executor()
+    try:
+        result = run_parity(mapping, Path(args.golden), object_store(args.store), executor, target.database, business_date, legacy_version=args.legacy_version, out=Path(args.out) / f"{mapping.custodian}-{args.business_date}")
+    except ParityError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        executor.close()
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(f"parity of {result.custodian} {result.business_date}: {result.legacy_output} vs {result.table}")
+        print(f"  {result.legacy_rows} legacy row(s), {result.lakehouse_rows} lakehouse row(s), {result.matched} matched")
+        print(f"  match rate {result.match_rate:.4%} (target {MATCH_RATE_TARGET:.1%}): {'meets target' if result.meets_target else 'below target'}")
+        print(f"  missing {len(result.missing)}, extra {len(result.extra)}, value mismatch {len(result.mismatches)} row(s)" + (f"; by field: {', '.join(f'{k} {v}' for k, v in sorted(result.field_summary.items(), key=lambda kv: -kv[1]))}" if result.field_summary else ""))
+        print(f"  report: {Path(args.out) / f'{mapping.custodian}-{args.business_date}' / 'parity.md'}")
+    return 0 if result.meets_target else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-verify", description="Astra Data Factory verification plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -543,6 +588,25 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--out", default=os.environ.get("ASTRA_REPLAY_OUT", "work/replay-reports"), help="reports are written under <out>/<task id>/ (default: work/replay-reports)")
     rp.add_argument("--json", action="store_true")
     rp.set_defaults(func=cmd_replay)
+
+    parity_parser = sub.add_parser("parity", help="row and field parity between a golden legacy output and the lakehouse, with configurable keys and tolerances")
+    pasub = parity_parser.add_subparsers(dest="parity_command", required=True)
+    pacommon = argparse.ArgumentParser(add_help=False)
+    pacommon.add_argument("--root", default=".", help="repository root used to display paths (default: current directory)")
+    pac = pasub.add_parser("check", parents=[pacommon], help="validate every parity mapping under a golden directory")
+    pac.add_argument("golden", nargs="?", default="golden")
+    pac.set_defaults(func=cmd_parity_check)
+    par = pasub.add_parser("run", parents=[pacommon], help="compare one golden dataset's legacy output with the lakehouse for a business date")
+    par.add_argument("--config", required=True, help="the custodian's parity.yaml")
+    par.add_argument("--business-date", required=True, help="YYYY-MM-DD, a business date already captured for the custodian")
+    par.add_argument("--environment", required=True, help="environment whose lakehouse table is compared")
+    par.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    par.add_argument("--golden", default="golden", help="golden datasets directory, relative to --root (default: golden)")
+    par.add_argument("--store", required=True, help="the golden store: s3://bucket[/prefix], or a directory")
+    par.add_argument("--legacy-version", type=int, help="golden dataset version to compare against (default: the latest captured for the date)")
+    par.add_argument("--out", default=os.environ.get("ASTRA_PARITY_OUT", "work/parity"), help="reports are written under <out>/<custodian>-<date>/ (default: work/parity)")
+    par.add_argument("--json", action="store_true")
+    par.set_defaults(func=cmd_parity_run)
 
     golden_parser = sub.add_parser("golden", help="golden datasets: the legacy path's outputs captured per business day, hashed, versioned, read-only")
     gsub = golden_parser.add_subparsers(dest="golden_command", required=True)

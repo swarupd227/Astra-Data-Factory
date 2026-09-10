@@ -1,0 +1,28 @@
+# How the pershing_position golden dataset compares with the lakehouse's canonical Position
+# table (S4.2.1, ADR 0033): the legacy output that is the oracle, the lakehouse table, the
+# keys that join a legacy row to a lakehouse row, and the fields compared with a tolerance
+# per field. Keys are the custodian's own identifiers (account number, CUSIP, business date),
+# not the platform's resolved SECURITY_ID, so parity measures what was loaded, not resolution.
+parity_version: 0
+custodian: pershing
+description: >-
+  Pershing positions: the golden dataset's positions output against SILVER.POSITION.
+
+legacy:
+  output: positions
+
+lakehouse:
+  schema: SILVER
+  table: POSITION
+  custodian_column: CUSTODIAN_ID
+  business_date_column: AS_OF_DATE
+
+keys:
+  - { legacy: AccountNumber, lakehouse: ACCOUNT_NUMBER, type: string }
+  - { legacy: Cusip, lakehouse: CUSTODIAN_SECURITY_ID, type: string }
+  - { legacy: AsOfDate, lakehouse: AS_OF_DATE, type: date }
+
+fields:
+  - { legacy: Quantity, lakehouse: QUANTITY, type: decimal, tolerance: { kind: decimal_places, places: 5 } }
+  - { legacy: Price, lakehouse: PRICE, type: decimal, tolerance: { kind: decimal_places, places: 4 } }
+  - { legacy: MarketValue, lakehouse: MARKET_VALUE, type: decimal, tolerance: { kind: decimal_places, places: 2 } }
