@@ -291,8 +291,16 @@ def dry_run(
     cdm_ddl: Path | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     monotonic: Callable[[], float] = time.monotonic,
+    on_before_destroy: Callable[[Executor, SandboxSpec, CompiledConfig, DryRunReport], None] | None = None,
 ) -> DryRunReport:
-    """Everything above, in order, in one sandbox that is destroyed at the end."""
+    """Everything above, in order, in one sandbox that is destroyed at the end.
+
+    `on_before_destroy`, when given, runs after the report is read back and before the
+    sandbox is dropped, with the executor, spec, compiled config and report; a caller
+    that needs more than the report (S4.1.3's replay reads the canonical rows) does its
+    own extra queries there, while the sandbox still exists. An exception it raises is
+    recorded like any other failure and still leaves the sandbox destroyed.
+    """
     started = monotonic()
     started_at = clock()
     spec = replace(spec, schemas=tuple(dict.fromkeys(spec.schemas + ("REFERENCE",))))  # the reference replicas live there
@@ -343,6 +351,8 @@ def dry_run(
         _read_back(executor, spec, compiled, report)
         report.tests = [{"test": r.test, "passed": r.passed, "failing_rows": r.failing_rows, "sample": [list(map(str, row)) for row in r.sample]} for r in run_tests(bundle, target, executor)]
         phase("reported", t, f"{sum(1 for x in report.tests if x['passed'])} of {len(report.tests)} tests passed")
+        if on_before_destroy is not None:
+            on_before_destroy(executor, spec, compiled, report)
     except Exception as exc:
         report.error = f"{type(exc).__name__}: {str(exc).splitlines()[0][:500] if str(exc) else ''}"
     finally:

@@ -98,6 +98,11 @@ def test_the_validator_names_what_is_wrong(tmp_path, mutate, expected):
     assert c is None and any(p.message.startswith(expected) for p in problems), [p.message for p in problems]
 
 
+def test_load_capture_reports_a_missing_file_instead_of_raising(tmp_path):
+    c, problems = load_capture(tmp_path / "no_such_custodian" / "capture.yaml", tmp_path)
+    assert c is None and [p.message for p in problems] == ["no such file"]
+
+
 # --------------------------------------------------------- one business day
 
 

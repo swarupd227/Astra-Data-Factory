@@ -21,6 +21,7 @@ from astra_verification.pii import run_checks as run_pii_checks
 from astra_verification.reference import feed_statuses
 from astra_verification.dryrun import BUDGET_SECONDS, DryRunError, dry_run
 from astra_verification.golden import MAX_DAYS, MIN_DAYS, OdbcLegacyStore, capture_day, check as golden_check, coverage, discover as discover_captures, file_source, load_capture, object_store, record, secrets_from, subprocess_runner as golden_runner, verify as golden_verify
+from astra_verification.replay import ReplayError, old_config_from_git, replay
 from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
@@ -396,6 +397,74 @@ def cmd_snowpark_assess(args: argparse.Namespace) -> int:
     return 0 if run.status == "succeeded" and not any(r.parity is False for r in run.results) else 1
 
 
+def cmd_replay(args: argparse.Namespace) -> int:
+    """Replay a config change against N days of already-captured history; the difference report says whether SME review is needed."""
+    from datetime import datetime, timezone
+
+    if bool(args.old) == bool(args.old_ref):
+        print("error: give exactly one of --old (a file) or --old-ref (a git ref)", file=sys.stderr)
+        return 2
+
+    repo = Path(args.repo)
+
+    def under_repo(path: str) -> Path:
+        return Path(path) if Path(path).is_absolute() else repo / path
+
+    new_config = Path(args.new)
+    task_id = args.task or f"replay-{new_config.stem}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    work = under_repo(args.work)
+    out = Path(args.out) / task_id
+    try:
+        old_config = Path(args.old) if args.old else old_config_from_git(new_config, args.old_ref, repo, work)
+    except ReplayError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    bundles = [under_repo(b) for b in (args.bundles or ["releases/custodial-reference-data"])]
+    cdm_ddl = under_repo(args.cdm_ddl) if args.cdm_ddl else None
+    executor = _executor()
+    try:
+        report = replay(
+            old_config,
+            new_config,
+            args.custodian,
+            args.environment,
+            executor,
+            repo=repo,
+            golden_dir=under_repo(args.golden),
+            days=args.days,
+            prefix=args.prefix,
+            work_dir=work,
+            out=out,
+            extra_bundles=bundles,
+            cdm_ddl=cdm_ddl,
+            task_id=task_id,
+        )
+    except (DryRunError, ReplayError) as exc:
+        problems = getattr(exc, "problems", None)
+        if problems:
+            for p in problems:
+                print(p.format(), file=sys.stderr)
+            print(f"error: the replay did not start; {len(problems)} problem{'s' if len(problems) != 1 else ''} in the inputs", file=sys.stderr)
+        else:
+            print(f"error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        executor.close()
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(f"replay of {report.custodian}: {len(report.business_days)} business day(s) ({report.business_days[0]} to {report.business_days[-1]}), {len(report.sample_files)} file(s), {report.seconds:.1f} s")
+        print(f"  config: {len(report.config_diff.fields)} field/rule/dq/resolution difference(s)" + (f", {len(report.config_diff.other)} other" if report.config_diff.other else ""))
+        if report.both_ran:
+            print(f"  data: {report.rows_compared} row(s) compared, {report.rows_added} added, {report.rows_removed} removed, {report.rows_changed} changed")
+            print(f"  exceptions: {len(report.exception_delta)} code(s) changed; tests: {len(report.test_delta)} changed")
+        else:
+            print(f"  old run: {report.old_run.status}" + (f" - {report.old_run.error}" if report.old_run.error else ""))
+            print(f"  new run: {report.new_run.status}" + (f" - {report.new_run.error}" if report.new_run.error else ""))
+        print(f"  {'eligible for promotion without SME review' if report.auto_promotable else 'SME review needed'}; report: {out / 'replay.md'}")
+    return 0 if report.auto_promotable else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-verify", description="Astra Data Factory verification plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -456,6 +525,24 @@ def build_parser() -> argparse.ArgumentParser:
     dr.add_argument("--out", default=os.environ.get("ASTRA_DRYRUN_OUT", "work/dryrun"), help="reports are written under <out>/<task id>/ (default: work/dryrun)")
     dr.add_argument("--json", action="store_true")
     dr.set_defaults(func=cmd_dryrun)
+
+    rp = sub.add_parser("replay", help="replay a config change against N days of already-captured history; a difference report grouped by rule and field says whether SME review is needed")
+    rp.add_argument("--new", required=True, help="the drafted (new) config file")
+    rp.add_argument("--old", help="the config as it was before the change; a file path")
+    rp.add_argument("--old-ref", help="git ref to read the old config from, at --new's path (alternative to --old)")
+    rp.add_argument("--custodian", required=True, help="custodian whose golden datasets (astra-verify golden capture) supply the historical files")
+    rp.add_argument("--days", type=int, default=MIN_DAYS, help=f"business days of already-captured history to replay, most recent first (default {MIN_DAYS})")
+    rp.add_argument("--environment", required=True, help="environment whose foundation the two sandboxes borrow")
+    rp.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    rp.add_argument("--task", help="task id prefix for the two sandboxes (default: replay-<config>-<timestamp>)")
+    rp.add_argument("--repo", default=".", help="repository root: specs, rules, domains and golden/ are read from it (default: current directory)")
+    rp.add_argument("--golden", default="golden", help="golden datasets directory, relative to --repo (default: golden)")
+    rp.add_argument("--bundle", dest="bundles", action="append", help="bundle deployed into each sandbox before the source, relative to --repo; repeatable (default: releases/custodial-reference-data)")
+    rp.add_argument("--cdm-ddl", default="domains/custodial/cdm/rendered/1.0/ddl.sql", help="rendered canonical model DDL deployed first, relative to --repo; empty to skip")
+    rp.add_argument("--work", default=os.environ.get("ASTRA_REPLAY_WORK", "work/replay"), help="working directory for file copies and the old config, relative to --repo unless absolute (default: work/replay)")
+    rp.add_argument("--out", default=os.environ.get("ASTRA_REPLAY_OUT", "work/replay-reports"), help="reports are written under <out>/<task id>/ (default: work/replay-reports)")
+    rp.add_argument("--json", action="store_true")
+    rp.set_defaults(func=cmd_replay)
 
     golden_parser = sub.add_parser("golden", help="golden datasets: the legacy path's outputs captured per business day, hashed, versioned, read-only")
     gsub = golden_parser.add_subparsers(dest="golden_command", required=True)

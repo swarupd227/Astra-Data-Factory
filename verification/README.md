@@ -1,8 +1,12 @@
 # astra-verification
 
-The verification plane of Astra Data Factory (product spec Section 5). Today it provides ephemeral sandboxes (S1.2.3); dry-runs, golden replay, parity and the DQ runner (E4) build on them.
+The verification plane of Astra Data Factory (product spec Section 5). Today it provides ephemeral sandboxes (S1.2.3), dry-runs, golden datasets, config-change replay and the Snowpark Connect assessment harness; parity and the DQ runner (E4) build on them.
 
 It runs dry runs (S4.1.1, ADR 0030): `astra-verify dryrun --config configs/<source>.yaml --sample <file> --environment dev` compiles and renders the config as the pipeline would, creates a sandbox, deploys the canonical model, the reference-data tables and the source bundle into it, loads the samples the way Snowpipe would, runs the stages and writes `work/dryrun/<task id>/report.md` and `report.json`: rows parsed, rejected by code, control-total gaps, the rendered tests; the sandbox is destroyed whatever happened, and the elapsed time is reported against the ten-minute budget.
+
+It captures golden datasets (S4.1.2, ADR 0031): `astra-verify golden capture golden/<custodian> --from <date> --to <date> --store s3://<golden bucket>` replays a custodian's historical files through Splitter/Loader in non-production and stores the outputs and rejections as hashed, versioned, read-only datasets, indexed in `golden/<custodian>/datasets.json`. See [golden/README.md](../golden/README.md). Install `.[golden]` for an S3 store or file source, `.[legacy]` for the SQL Server connection.
+
+It replays a config change against that history (S4.1.3, ADR 0032): `astra-verify replay --new <draft config> --old <path> | --old-ref <git ref> --custodian <name> --environment dev` runs the config as it was and the config as drafted through two sandboxes against the same already-captured business days, and writes `replay.md` / `replay.json`: every mapping, rule, DQ rule and resolution difference from the two configs alone, then every canonical row that differs between the two runs, attributed to the field or rule responsible, plus the exception and DQ test deltas. Exit code 0 means eligible for promotion without SME review, 1 means a difference was found, 2 means the replay could not start.
 
 It also carries the Snowpark Connect assessment harness (S3.3.2, ADR 0029): `astra-verify snowpark assess assessments/normalizer --engine local|snowpark-connect` runs the assessment's Spark transformers on a local Spark session or on Snowflake through Snowpark Connect, records effort and result under `results/`, and rewrites the memo's evidence section. Install `.[spark]` (and a Java runtime) for the local engine, `.[snowpark-connect]` for Snowflake.
 

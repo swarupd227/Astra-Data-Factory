@@ -18,3 +18,5 @@ astra-verify golden verify golden/pershing --store s3://astra-dev-golden-1234567
 ```
 
 The first capture follows [docs/runbooks/golden-capture.md](../docs/runbooks/golden-capture.md).
+
+The captured business days are also what `astra-verify replay` (S4.1.3, ADR 0032) replays a drafted config change against: it reads this index for the N most recent dates and fetches the same files `capture.yaml` used, so a replay and a capture never disagree about what "history" means.

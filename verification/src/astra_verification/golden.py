@@ -79,6 +79,8 @@ class Capture:
 def load_capture(path: Path, root: Path | None = None) -> tuple[Capture | None, list[Problem]]:
     path = Path(path)
     display = display_path(path, root)
+    if not path.is_file():
+        return None, [Problem(display, None, "no such file")]
     try:
         data = load(path.read_text(encoding="utf-8"))
     except UnicodeDecodeError as exc:
