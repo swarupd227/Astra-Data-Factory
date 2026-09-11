@@ -1,0 +1,14 @@
+# The client's own DQ / parity tool for Pershing (S4.2.4, ADR 0036). Envestnet validates
+# parity with iceDQ as well as astra-verify parity run; both read the same golden output
+# and lakehouse table golden/pershing/parity.yaml already names — nothing here restates
+# them. `astra-verify connector describe` renders the connection sheet from this file and
+# parity.yaml together; `astra-verify connector store-result` files iceDQ's own exported
+# result alongside astra-verify's own parity report for the business date it ran against.
+connector_version: 0
+custodian: pershing
+description: >-
+  Envestnet reconciles Pershing parity with iceDQ, reading the pershing_position golden
+  dataset's positions output and SILVER.POSITION the same way astra-verify parity does.
+tool: icedq
+role: ENVESTNET_ICEDQ_READONLY
+result_formats: [csv, json]

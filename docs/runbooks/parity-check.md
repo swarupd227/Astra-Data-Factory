@@ -52,3 +52,14 @@ astra-verify parity report \
 
 `--from` / `--to` narrow the window to the cycles the release covers; omitted, every already-captured business date is included. The command prints the overall match rate, the trend from the first cycle to the last, and the field most responsible for any shortfall, and it writes `report.md` / `report.json` into `releases/<source>-parity/` for every source `golden/<custodian>/capture.yaml` names (S4.2.2, ADR 0034) — commit that directory with the release it belongs to, the same as the rest of the release's generated evidence. Use `--no-export` for a trial report that should not be mistaken for release evidence.
 
+## Validating the same day with the client's own tool
+
+When a custodian has a `connector.yaml` (S4.2.4, ADR 0036), Envestnet can reconcile the same business date with its own tool — iceDQ or Datagaps — instead of, or alongside, `parity run`:
+
+```bash
+astra-verify connector describe --config golden/pershing/connector.yaml --environment dev --store s3://astra-dev-golden-123456789012
+astra-verify connector store-result --config golden/pershing/connector.yaml --business-date 2026-08-03 --file icedq-export.csv
+```
+
+`describe` writes a connection sheet naming the same golden output, lakehouse table, keys, fields and tolerances `parity.yaml` already states — the two tools reconcile identically because neither restates the recipe. `store-result` files the tool's own exported result, hashed, into `work/parity/<custodian>-<date>/` by default: the same directory `parity run` writes `parity.md` into, so the two sit side by side without either command needing to know about the other.
+

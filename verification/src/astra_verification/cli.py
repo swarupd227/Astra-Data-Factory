@@ -25,6 +25,7 @@ from astra_verification.golden import MAX_DAYS, MIN_DAYS, OdbcLegacyStore, captu
 from astra_verification.replay import ReplayError, old_config_from_git, replay
 from astra_verification.parity import MATCH_RATE_TARGET, ParityError, check as parity_check, load_parity, run as run_parity
 from astra_verification.parity_report import run as run_parity_report
+from astra_verification.connector import ConnectorError, check as connector_check, describe as describe_connector, load_connector, store_result, write_descriptor
 from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
@@ -593,6 +594,70 @@ def cmd_dq_run(args: argparse.Namespace) -> int:
     return 0 if scores and all(s.meets_target for s in scores) else 1
 
 
+def cmd_connector_check(args: argparse.Namespace) -> int:
+    configs, problems = connector_check(Path(args.golden), Path(args.root))
+    if problems:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in connector configs", file=sys.stderr)
+        return 1
+    for c in configs:
+        print(f"{c.custodian}: {c.tool}, role {c.role}, result formats {', '.join(c.result_formats)}")
+    print(f"checked {len(configs)} connector config{'s' if len(configs) != 1 else ''}: no problems" if configs else f"no connector configs under {args.golden}")
+    return 0
+
+
+def cmd_connector_describe(args: argparse.Namespace) -> int:
+    """Render a connection sheet for the client's tool from a connector config and its custodian's parity.yaml; no Snowflake connection is needed."""
+    connector, problems = load_connector(Path(args.config), Path(args.root))
+    if connector is None:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: {len(problems)} problem{'s' if len(problems) != 1 else ''} in the connector config", file=sys.stderr)
+        return 2
+    parity_path = Path(args.golden) / connector.custodian / "parity.yaml"
+    mapping, problems = load_parity(parity_path, Path(args.root))
+    if mapping is None:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: {parity_path} did not load; the connector describes the same golden output and lakehouse table it names", file=sys.stderr)
+        return 2
+    target = Target(args.environment, args.prefix)
+    descriptor = describe_connector(connector, mapping, object_store(args.store), target)
+    markdown, data = write_descriptor(descriptor, Path(args.out) / connector.custodian)
+    if args.json:
+        print(json.dumps(descriptor, indent=2))
+    else:
+        print(f"connector for {connector.custodian}: {connector.tool}, role {connector.role}")
+        print(f"  golden: {descriptor['golden']['location']}")
+        print(f"  lakehouse: {descriptor['lakehouse']['database']}.{descriptor['lakehouse']['schema']}.{descriptor['lakehouse']['table']}")
+        print(f"  {len(descriptor['keys'])} key(s), {len(descriptor['fields'])} field(s)")
+        print(f"  sheet: {markdown}")
+    return 0
+
+
+def cmd_connector_store_result(args: argparse.Namespace) -> int:
+    """File the client tool's own exported result alongside astra-verify's own parity report for the business date."""
+    from datetime import date as date_cls
+
+    connector, problems = load_connector(Path(args.config), Path(args.root))
+    if connector is None:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: {len(problems)} problem{'s' if len(problems) != 1 else ''} in the connector config", file=sys.stderr)
+        return 2
+    business_date = date_cls.fromisoformat(args.business_date)
+    out = Path(args.out) / f"{connector.custodian}-{args.business_date}"
+    try:
+        dest, meta = store_result(connector, Path(args.file), business_date, out)
+    except ConnectorError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"stored {connector.tool}'s result for {connector.custodian} {args.business_date}: {dest}")
+    print(f"  {meta}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-verify", description="Astra Data Factory verification plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -717,6 +782,29 @@ def build_parser() -> argparse.ArgumentParser:
     dqr.add_argument("--out", default=os.environ.get("ASTRA_DQ_OUT", "work/dq"), help="reports are written under <out>/<source>-<date>/ (default: work/dq)")
     dqr.add_argument("--json", action="store_true")
     dqr.set_defaults(func=cmd_dq_run)
+
+    connector_parser = sub.add_parser("connector", help="the client's own DQ / parity tool (iceDQ, Datagaps): a connection sheet to the same golden output and lakehouse table astra-verify parity compares, and a place for its result")
+    consub = connector_parser.add_subparsers(dest="connector_command", required=True)
+    concommon = argparse.ArgumentParser(add_help=False)
+    concommon.add_argument("--root", default=".", help="repository root used to display paths (default: current directory)")
+    conck = consub.add_parser("check", parents=[concommon], help="validate every connector config under a golden directory")
+    conck.add_argument("golden", nargs="?", default="golden")
+    conck.set_defaults(func=cmd_connector_check)
+    cond = consub.add_parser("describe", parents=[concommon], help="render a connection sheet for the client's tool from a connector config and its custodian's parity.yaml")
+    cond.add_argument("--config", required=True, help="the custodian's connector.yaml")
+    cond.add_argument("--environment", required=True, help="environment whose lakehouse table the sheet names")
+    cond.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    cond.add_argument("--golden", default="golden", help="golden datasets directory, relative to --root (default: golden)")
+    cond.add_argument("--store", required=True, help="the golden store: s3://bucket[/prefix], or a directory")
+    cond.add_argument("--out", default=os.environ.get("ASTRA_CONNECTOR_OUT", "work/connector"), help="the sheet is written under <out>/<custodian>/ (default: work/connector)")
+    cond.add_argument("--json", action="store_true")
+    cond.set_defaults(func=cmd_connector_describe)
+    cons = consub.add_parser("store-result", parents=[concommon], help="file the client tool's own exported result alongside astra-verify's own parity report for the business date")
+    cons.add_argument("--config", required=True, help="the custodian's connector.yaml")
+    cons.add_argument("--business-date", required=True, help="YYYY-MM-DD the tool's result is for")
+    cons.add_argument("--file", required=True, help="the tool's exported result file")
+    cons.add_argument("--out", default=os.environ.get("ASTRA_PARITY_OUT", "work/parity"), help="stored under <out>/<custodian>-<date>/, the same directory astra-verify parity run writes to (default: work/parity)")
+    cons.set_defaults(func=cmd_connector_store_result)
 
     golden_parser = sub.add_parser("golden", help="golden datasets: the legacy path's outputs captured per business day, hashed, versioned, read-only")
     gsub = golden_parser.add_subparsers(dest="golden_command", required=True)

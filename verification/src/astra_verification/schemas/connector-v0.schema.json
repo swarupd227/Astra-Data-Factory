@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/connector-v0.schema.json",
+  "title": "Client DQ tool connector, version 0",
+  "description": "What the custodian's own parity.yaml does not already say and is not a runtime flag: which client tool (iceDQ or Datagaps) reads the golden output and lakehouse table astra-verify parity already compares, the Snowflake role it connects as, and the result formats accepted from it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["connector_version", "custodian", "tool", "role"],
+  "properties": {
+    "connector_version": { "const": 0 },
+    "custodian": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "description": { "type": "string" },
+    "tool": { "enum": ["icedq", "datagaps"], "description": "The client's DQ / parity tool reading the golden and lakehouse tables for this custodian." },
+    "role": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Snowflake role the tool connects with to read the lakehouse table; granted by the client's Snowflake admin outside Terraform." },
+    "result_formats": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["csv", "json", "xml", "pdf", "xlsx"] },
+      "default": ["csv"],
+      "description": "File types accepted from the tool's own exported result."
+    }
+  }
+}
