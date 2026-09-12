@@ -19,14 +19,15 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | `migrations` | Generation (E3) | Historical migrations driven through SnowConvert AI: one file per SQL Server source naming the schemas, the archive-store schema and the command line of each phase; results and logs land with the release |
 | `releases` | Generation (E3) | Release bundles rendered from configs and domain packs (reference-data replication, Gold read models and the watermark) and written by migration runs (converted archive-store DDL with logs and results); deployed by the pipeline |
 | `generation` | Generation (E3) | `astra-data`: config validation, bundle deploy and generated tests. The compiler and renderers grow here. |
-| `verification` | Verification (E4) | `astra-verify`: ephemeral sandboxes per task, dry runs of a drafted config, golden dataset capture, replay of a config change against captured history, the parity engine and its report across a dual-run cycle window, the DQ runner and its per-entity scores, a connection sheet for the client's own DQ tool, the 3x volume test, chaos scenarios proving recoverability, a DR drill proving RTO and RPO, and the Snowpark Connect assessment harness. |
+| `verification` | Verification (E4) | `astra-verify`: ephemeral sandboxes per task, dry runs of a drafted config, golden dataset capture, replay of a config change against captured history, the parity engine and its report across a dual-run cycle window, the DQ runner and its per-entity scores, a connection sheet for the client's own DQ tool, the 3x volume test, chaos scenarios proving recoverability, a DR drill proving RTO and RPO, the agent evaluation harness, and the Snowpark Connect assessment harness. |
+| `agents` | Agents (E5) | Per agent: a gold set (`eval.yaml`) of reviewed inputs and correct output, scored by `astra-verify agent-eval` (S4.3.4). The Agents plane itself has not started; `agents/examples` is a worked example against the real `pershing_gcus` spec. |
 | `infra/terraform/foundation` | Control (E1) | Per environment: Snowflake database, schemas, roles, tier-sized warehouses, Iceberg bucket and external volume, Open Catalog sync, landing zone with Snowpipe and file load log |
 | `infra/terraform/bootstrap` | Control (E1) | Once per AWS account: the bucket that holds Terraform state for every environment |
 | `tools/opencatalog` | Control (E1) | Provisions and verifies Snowflake Open Catalog, which has no Terraform provider |
 | `.github` | Control (E1) | `ci` on every pull request; `deploy` to dev on merge and to qa on approval |
 | `docs` | | Specification, backlog, architecture decision records and runbooks |
 
-Further planes (agents, workbench) are added as their epics start.
+The Agents plane's own epic (E5) has not started; `agents` today holds only the evaluation harness's gold set format. The workbench (Control, E1) is added as its epic starts.
 
 ## Working in this repository
 

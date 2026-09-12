@@ -1,0 +1,47 @@
+# Weekly agent evaluation report (S4.3.4, ADR 0040): every agent that has both a gold set
+# and a predictions.yaml is scored, precision and recall published by tier across every
+# agent — "metrics visible to the client: per agent, per tier, per week" (product spec
+# Section 11). Nothing here needs a Snowflake account; the harness only reads files.
+#
+# Until a real agent exists under agents/<agent>/ (the Agents plane, E5, has not started),
+# this runs against the committed example and reports it in the job summary and as an
+# uploaded artifact; a real agent's own predictions.yaml joins the same directory when it
+# exists, with no change to this workflow.
+
+name: agent evaluation weekly
+
+on:
+  schedule:
+    - cron: "0 8 * * 1" # Monday 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  weekly-report:
+    name: score every agent and publish the weekly report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install astra-core, astra-knowledge, astra-data and astra-verification
+        run: python -m pip install -e core -e knowledge -e "generation[dev]" -e verification
+
+      - name: Score every agent and publish the weekly report
+        run: astra-verify agent-eval report agents --out work/agent-eval/weekly
+
+      - name: Add the report to the job summary
+        if: always()
+        run: cat work/agent-eval/weekly/weekly.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-eval-weekly
+          path: work/agent-eval/weekly/
+          retention-days: 90

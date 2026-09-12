@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/eval-v0.schema.json",
+  "title": "Agent gold set, version 0",
+  "description": "One agent's gold set: reviewed inputs and their correct output, as the canonical string items the agent should produce, with the precision and recall threshold each tier must clear. Product spec Section 11.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eval_version", "agent", "thresholds", "cases"],
+  "properties": {
+    "eval_version": { "const": 0 },
+    "agent": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$", "description": "The agent catalog id, for example spec_reader or modeler." },
+    "description": { "type": "string" },
+    "thresholds": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "simple": { "$ref": "#/$defs/threshold" },
+        "medium": { "$ref": "#/$defs/threshold" },
+        "complex": { "$ref": "#/$defs/threshold" }
+      },
+      "description": "Minimum precision and recall per tier; a tier with no cases in this gold set needs no threshold. Set from the pilot baseline, never invented."
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "tier", "input", "expected"],
+        "properties": {
+          "id": { "$ref": "#/$defs/identifier" },
+          "tier": { "enum": ["simple", "medium", "complex"] },
+          "input": { "type": "string", "minLength": 1, "description": "Where the reviewed input lives, for a human to find it (a path, a citation)." },
+          "expected": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The correct output, as canonical string items; empty means the agent should produce nothing for this case." }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["precision", "recall"],
+      "properties": {
+        "precision": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

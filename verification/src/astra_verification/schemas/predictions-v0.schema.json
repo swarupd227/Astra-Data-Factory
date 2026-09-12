@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/predictions-v0.schema.json",
+  "title": "Agent predictions, version 0",
+  "description": "What an agent actually produced for each of its gold set's cases, as the same canonical string items eval.yaml expects — never committed alongside the gold set it is scored against, produced fresh by the agent's own wrapper on each change.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["predictions_version", "agent", "run", "predictions"],
+  "properties": {
+    "predictions_version": { "const": 0 },
+    "agent": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "run": { "type": "string", "minLength": 1, "description": "What produced this: a model id, a git ref, a timestamp — whatever identifies the run for a human reading the report." },
+    "predictions": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+      "additionalProperties": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+      "description": "Case id to the items the agent produced for it; a case with no key is unscored and reported as missing, not as an empty prediction."
+    }
+  }
+}

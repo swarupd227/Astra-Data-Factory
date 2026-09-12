@@ -1,0 +1,43 @@
+# Example gold set. Validated in CI as a smoke test of the eval schema, against the real
+# pershing_gcus spec already in this repo; never scored as a claim about a real agent,
+# because no Spec Reader agent exists yet (the Agents plane, E5, has not started). Real
+# configs live beside it, one directory per agent, named for the agent catalog id (product
+# spec Section 6).
+eval_version: 0
+agent: spec_reader
+description: >-
+  What the Spec Reader agent (S5.1.1) should extract from the header and detail records of
+  the pershing_gcus 2017-07-25 spec: one field per canonical item, with its page and line
+  citation. thresholds are illustrative starting points, not a pilot-measured baseline.
+thresholds:
+  simple:
+    precision: 0.95
+    recall: 0.95
+  medium:
+    precision: 0.9
+    recall: 0.9
+
+cases:
+  - id: pershing_gcus_header
+    tier: simple
+    input: specs/pershing_gcus/2017-07-25.yaml#header
+    expected:
+      - "field:header.record_type@p4l3"
+      - "field:header.file_date@p4l5"
+      - "field:header.remote_id@p4l7"
+      - "field:header.refresh_flag@p4l9"
+      - "field:header.filler@p4l11"
+
+  - id: pershing_gcus_detail
+    tier: medium
+    input: specs/pershing_gcus/2017-07-25.yaml#detail
+    expected:
+      - "field:detail.record_type@p12l3"
+      - "field:detail.account_number@p12l5"
+      - "field:detail.cusip@p12l8"
+      - "field:detail.quantity@p13l2"
+      - "field:detail.quantity_sign@p13l6"
+      - "field:detail.price@p13l9"
+      - "field:detail.as_of_date@p13l12"
+      - "field:detail.security_type@p14l1"
+      - "field:detail.filler@p14l8"

@@ -91,6 +91,9 @@ jobs:
       - name: Check client DQ tool connector configs
         run: astra-verify connector check golden
 
+      - name: Check agent gold sets
+        run: astra-verify agent-eval check agents
+
       # Generated tests run for real after every deploy (astra-data test in the deploy action); here every
       # test of every bundle, committed or rendered above, must parse as one Snowflake SELECT.
       - name: Generated tests parse as Snowflake SQL

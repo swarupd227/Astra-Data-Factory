@@ -29,6 +29,7 @@ from astra_verification.connector import ConnectorError, check as connector_chec
 from astra_verification.volume import VOLUME_BUDGET_SECONDS, VolumeError, run as run_volume
 from astra_verification.chaos import SCENARIOS, ChaosError, run as run_chaos
 from astra_verification.dr import DrError, run as run_dr
+from astra_verification.agent_eval import AgentEvalError, check as agent_eval_check, load_gold_set, load_predictions, run_weekly, score as score_agent, write_report as write_agent_report, write_weekly_report
 from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
@@ -797,6 +798,71 @@ def cmd_dr_run(args: argparse.Namespace) -> int:
     return 0 if report.proven else 1
 
 
+def cmd_agent_eval_check(args: argparse.Namespace) -> int:
+    gold_sets, problems = agent_eval_check(Path(args.agents), Path(args.root))
+    if problems:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"{len(problems)} problem{'s' if len(problems) != 1 else ''} in agent gold sets", file=sys.stderr)
+        return 1
+    for g in gold_sets:
+        print(f"{g.agent}: {len(g.cases)} case(s), tiers {', '.join(sorted(g.thresholds))}")
+    print(f"checked {len(gold_sets)} gold set{'s' if len(gold_sets) != 1 else ''}: no problems" if gold_sets else f"no gold sets under {args.agents}")
+    return 0
+
+
+def cmd_agent_eval_score(args: argparse.Namespace) -> int:
+    """Score one agent's predictions against its gold set; a tier below threshold, or a case with no prediction, blocks release."""
+    gold, problems = load_gold_set(Path(args.gold), Path(args.root))
+    if gold is None:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: {len(problems)} problem{'s' if len(problems) != 1 else ''} in the gold set", file=sys.stderr)
+        return 2
+    predictions, problems = load_predictions(Path(args.predictions), Path(args.root))
+    if predictions is None:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: {len(problems)} problem{'s' if len(problems) != 1 else ''} in the predictions", file=sys.stderr)
+        return 2
+    try:
+        result = score_agent(gold, predictions)
+    except AgentEvalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    markdown, _data = write_agent_report(result, Path(args.out))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(f"{result.agent} ({result.run}): {len(result.cases)} case(s), passed: {'yes' if result.passed else 'no'}")
+        if result.missing_cases:
+            print(f"  missing predictions: {', '.join(result.missing_cases)}")
+        for tier, s in sorted(result.by_tier.items()):
+            t = result.thresholds.get(tier)
+            target = f" (target P>={t.precision:.0%} R>={t.recall:.0%})" if t else ""
+            print(f"  {tier}: precision {s.precision:.1%} recall {s.recall:.1%}{target}" if s.precision is not None and s.recall is not None else f"  {tier}: not measured")
+        print(f"  report: {markdown}")
+    return 0 if result.passed else 1
+
+
+def cmd_agent_eval_report(args: argparse.Namespace) -> int:
+    """Score every agent with both a gold set and predictions, and publish one report by tier across every agent — the weekly evidence."""
+    report, problems = run_weekly(Path(args.agents), Path(args.root))
+    if problems:
+        for p in problems:
+            print(p.format(), file=sys.stderr)
+    markdown, _data = write_weekly_report(report, Path(args.out))
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(f"agent evaluation, weekly: {len(report.results)} agent(s) scored" + (f", {len(report.skipped)} skipped (no predictions yet)" if report.skipped else ""))
+        for tier, s in sorted(report.by_tier.items()):
+            print(f"  {tier}: precision {s.precision:.1%} recall {s.recall:.1%} ({s.cases} case(s))" if s.precision is not None and s.recall is not None else f"  {tier}: not measured")
+        print(f"  all passed: {'yes' if report.all_passed else 'no'}")
+        print(f"  report: {markdown}")
+    return 0 if report.all_passed else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-verify", description="Astra Data Factory verification plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -915,6 +981,25 @@ def build_parser() -> argparse.ArgumentParser:
     drr.add_argument("--out", default=os.environ.get("ASTRA_DR_OUT", "work/dr"), help="reports are written under <out>/<task id>/ (default: work/dr)")
     drr.add_argument("--json", action="store_true")
     drr.set_defaults(func=cmd_dr_run)
+
+    aev = sub.add_parser("agent-eval", help="every agent scored against its own gold set, by tier; needs no Snowflake connection")
+    aevsub = aev.add_subparsers(dest="agent_eval_command", required=True)
+    aevcommon = argparse.ArgumentParser(add_help=False)
+    aevcommon.add_argument("--root", default=".", help="repository root used to display paths (default: current directory)")
+    aevck = aevsub.add_parser("check", parents=[aevcommon], help="validate every agent's gold set under an agents directory")
+    aevck.add_argument("agents", nargs="?", default="agents")
+    aevck.set_defaults(func=cmd_agent_eval_check)
+    aevs = aevsub.add_parser("score", parents=[aevcommon], help="score one agent's predictions against its gold set; the per-change release gate")
+    aevs.add_argument("--gold", required=True, help="the agent's eval.yaml")
+    aevs.add_argument("--predictions", required=True, help="the agent's predictions.yaml, produced by the agent's own wrapper")
+    aevs.add_argument("--out", default=os.environ.get("ASTRA_AGENT_EVAL_OUT", "work/agent-eval"), help="the report is written under <out>/ (default: work/agent-eval)")
+    aevs.add_argument("--json", action="store_true")
+    aevs.set_defaults(func=cmd_agent_eval_score)
+    aevr = aevsub.add_parser("report", parents=[aevcommon], help="score every agent with both a gold set and predictions, and publish one report by tier across every agent")
+    aevr.add_argument("agents", nargs="?", default="agents")
+    aevr.add_argument("--out", default=os.environ.get("ASTRA_AGENT_EVAL_WEEKLY_OUT", "work/agent-eval/weekly"), help="the report is written under <out>/ (default: work/agent-eval/weekly)")
+    aevr.add_argument("--json", action="store_true")
+    aevr.set_defaults(func=cmd_agent_eval_report)
 
     rp = sub.add_parser("replay", help="replay a config change against N days of already-captured history; a difference report grouped by rule and field says whether SME review is needed")
     rp.add_argument("--new", required=True, help="the drafted (new) config file")

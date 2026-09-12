@@ -1,0 +1,26 @@
+# Example predictions, committed only so `astra-verify agent-eval score|report` has
+# something to score in this repo's own CI smoke test. A real agent's predictions.yaml is
+# produced fresh on every run by that agent's own wrapper, not committed as fixed data.
+#
+# Deliberately imperfect: the detail case's filler field is missing, so this example
+# demonstrates a real regression — medium tier's recall falls just under its 90% threshold
+# — the exact case S4.3.4 asks the harness to catch.
+predictions_version: 0
+agent: spec_reader
+run: illustrative-example
+predictions:
+  pershing_gcus_header:
+    - "field:header.record_type@p4l3"
+    - "field:header.file_date@p4l5"
+    - "field:header.remote_id@p4l7"
+    - "field:header.refresh_flag@p4l9"
+    - "field:header.filler@p4l11"
+  pershing_gcus_detail:
+    - "field:detail.record_type@p12l3"
+    - "field:detail.account_number@p12l5"
+    - "field:detail.cusip@p12l8"
+    - "field:detail.quantity@p13l2"
+    - "field:detail.quantity_sign@p13l6"
+    - "field:detail.price@p13l9"
+    - "field:detail.as_of_date@p13l12"
+    - "field:detail.security_type@p14l1"
