@@ -43,7 +43,7 @@ from astra_verification.sandbox import SandboxSpec, create, destroy
 BUDGET_SECONDS = 600
 SKIPPED_STEPS = ("pipe.sql", "tasks.sql", "dmf_")  # no landing pipe, no DAG, no DMF bindings in a sandbox
 STAGE = "DRYRUN"
-CONTROL_TABLES = ("FILE_LOAD_LOG", "MERGE_LOG", "REJECTION_CODES", "CUSTODIAN_RUNS")
+CONTROL_TABLES = ("FILE_LOAD_LOG", "MERGE_LOG", "REJECTION_CODES", "CUSTODIAN_RUNS", "ALERTS")
 
 
 class DryRunError(RuntimeError):
