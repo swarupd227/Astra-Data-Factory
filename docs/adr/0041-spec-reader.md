@@ -1,0 +1,27 @@
+# ADR 0041: The Spec Reader proposes a draft in the registry's own schema; the model call sits behind an interface, real by default
+
+Date: 2026-09-12
+Status: Accepted
+Story: S5.1.1 Spec Reader: build and evaluate (E5, F5.1, WBS 2.5.1, 2.5.2)
+
+## Context
+
+This is the first agent this factory builds. Everything before it — Knowledge, Generation, Verification, Control — is deterministic code with no model in the loop; the product's own principle draws the line here: "Agents propose, humans approve, deterministic code runs. No LLM sits in a production data path." The Spec Reader reads a custodian's layout document (a PDF today) and proposes a Source Spec; a person still decides whether it is right.
+
+## Decision
+
+1. **The agent's output is the same `source-spec-v0` shape the registry already validates against** (`knowledge/src/astra_knowledge/schemas/source-spec-v0.schema.json`) — no second, agent-specific format. The model is asked to call one tool, `extract_source_spec`, whose own JSON schema mirrors the registry's `records`/`file` shapes; the agent then translates the tool's flatter call shape (`start`/`length` instead of a nested `position` object) into the registry's exact nesting and validates the result against the real schema a second time. A field the model calls without a citation cannot satisfy the tool schema in the first place, and is caught again by the registry schema if it ever did — the guardrail is structural, not a prompt instruction alone.
+
+2. **A draft is never written into `specs/` directly.** `run` writes `spec.yaml` under a working directory (`work/spec-reader/<id>/<version>/` by default) next to a report naming every record, its citation coverage, and everything the model left in `unparsed` rather than guessed. Promoting a draft into the registry is a person's decision — a `git mv` after review, not something this agent does for itself.
+
+3. **The model call sits behind `LlmClient`, a one-method interface** (`extract(system, pages) -> Extraction`) — `AnthropicClient` implements it against the real API, called with `tool_choice` forcing the one tool, and every test in this story implements it with a fake that returns a canned `Extraction`. This is not a testing convenience over a "real" design; it is the real design: the same shape every Snowflake-touching command in `astra_verification` already takes against a fake executor, so the assembly, translation and validation logic — the part this story can prove correct without an account — is exercised exactly the way it runs in production, and the one part that cannot be (a live model call) is isolated to as little code as possible.
+
+4. **PDF and Word extraction are thin wrappers over `pdfplumber` and `python-docx`**, both optional extras (`astra-agents[pdf]`, `[docx]`) so importing `astra_agents.spec_reader` itself never requires them — only running against a real document does. A PDF's pages are real citations; a Word document's are not (pagination is a rendering concept `python-docx` does not expose), so a Word-sourced draft's `document.pages` is left unset rather than invented.
+
+5. **Real client credentials were not available to prove a live call end to end in this session.** `ANTHROPIC_API_KEY` was not present in the environment this story was built in; `AnthropicClient` is complete and correct against the SDK's own documented interface (`anthropic.Anthropic(api_key=...)`, `messages.create(tools=..., tool_choice=...)`, parsing a `ToolUseBlock`'s `.input`), reviewed against the installed SDK's actual type signatures rather than assumed, but it has not been exercised against a live account. This is recorded here rather than glossed over: whoever runs the first real extraction should expect to be the first person to see whether the prompt and tool schema hold up against a real model response.
+
+## Consequences
+
+- Two real Pershing layout documents (Global Customer Position and Global Bookkeeping Activity, both real "Pershing Standard File Layouts" PDFs) are available for the next session's live run and for building this agent's real gold set once a person has reviewed an extraction's output — that gold set is not part of this story, which builds the harness and the agent, not yet the reviewed ground truth S4.3.4's `agent-eval` needs.
+- The committed `specs/pershing_gcus/2017-07-25.yaml` already in this repository is a deliberately simplified 120-character illustrative record, not a transcription of the real 750-character, ~90-field document; a real extraction against the real document would produce a materially larger, different draft, written to its own path rather than overwriting the existing illustrative spec any other test in this repository already depends on.
+- `merge`, `split`, `lifecycle` and `pairing` — the source-spec schema's higher-level business-rule sections — are out of this agent's scope; they require the kind of cross-record reasoning the Modeler and Rule Recovery agents are separately responsible for, not a first pass at reading a layout.

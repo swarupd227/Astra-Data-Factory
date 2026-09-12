@@ -184,6 +184,22 @@ jobs:
       - run: python -m pip install -e ../core -e ../knowledge -e ../generation -e ".[dev,spark]"
       - run: python -m pytest -q
 
+  agents:
+    name: astra-agents tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agents
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # No live model call in CI: LlmClient is a fake here, the same way Snowflake-touching
+      # tests run against a fake executor rather than a live account.
+      - run: python -m pip install -e ../core -e ../knowledge -e ".[dev]"
+      - run: python -m pytest -q
+
   opencatalog:
     name: opencatalog tests
     runs-on: ubuntu-latest
