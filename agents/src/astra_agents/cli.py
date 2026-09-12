@@ -17,6 +17,23 @@ from pathlib import Path
 from astra_agents.spec_reader import DEFAULT_MODEL, AnthropicClient, SpecReaderError, run as run_spec_reader, write_draft
 
 
+def cmd_spec_reader_test_connection(args: argparse.Namespace) -> int:
+    """Prove ANTHROPIC_API_KEY authenticates and the account can reach the API. Lists models; generates nothing, sends no document."""
+    client = AnthropicClient(model=args.model)
+    try:
+        result = client.test_connection()
+    except SpecReaderError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(result.detail)
+        if result.ok and args.verbose:
+            print(f"  models visible to this key: {', '.join(result.models)}")
+    return 0 if result.ok else 1
+
+
 def cmd_spec_reader_run(args: argparse.Namespace) -> int:
     client = AnthropicClient(model=args.model)
     try:
@@ -55,6 +72,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sr = sub.add_parser("spec-reader", help="a layout document turned into a Source Spec draft, with page citations")
     srsub = sr.add_subparsers(dest="spec_reader_command", required=True)
+
+    tc = srsub.add_parser("test-connection", help="prove ANTHROPIC_API_KEY authenticates and the account is reachable; lists models, generates nothing")
+    tc.add_argument("--model", default=os.environ.get("ASTRA_SPEC_READER_MODEL", DEFAULT_MODEL), help=f"the model a real run would use (default {DEFAULT_MODEL}); checked against the account's model list")
+    tc.add_argument("--verbose", action="store_true", help="also print every model visible to this key")
+    tc.add_argument("--json", action="store_true")
+    tc.set_defaults(func=cmd_spec_reader_test_connection)
+
     srr = srsub.add_parser("run", help="extract a draft Source Spec from a layout document; never writes into the registry directly")
     srr.add_argument("document", help="the layout document, .pdf or .docx")
     srr.add_argument("--id", required=True, help="spec id (the specs/<id>/ directory it would become)")

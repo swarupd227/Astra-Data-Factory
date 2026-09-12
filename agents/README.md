@@ -14,12 +14,13 @@ pytest
 A layout document (PDF; Word via the same interface) turned into a Source Spec draft — the same `source-spec-v0` shape `specs/<id>/<version>.yaml` already validates against — with a page citation on every field. A passage the model cannot confidently support with a citation is named in the draft's `unparsed` list, never guessed into a field.
 
 ```bash
+astra-agents spec-reader test-connection                    # confirm ANTHROPIC_API_KEY works before a real run — no page, no UI, just this
 astra-agents spec-reader run GCUS.pdf \
   --id pershing_gcus_full --version 2017-07-25 --effective-from 2017-07-25 \
   --file-type position --custodian pershing
 ```
 
-Writes `spec.yaml` next to `report.md` / `report.json` under `work/spec-reader/<id>/<version>/`. The draft is never written into `specs/` directly — "agents propose, humans approve" — promoting it is a person's decision after reviewing the report's citation coverage and unparsed list.
+`test-connection` lists the account's models (free, generates nothing) to prove the key authenticates and the configured model is available, without ever sending a document. `run` writes `spec.yaml` next to `report.md` / `report.json` under `work/spec-reader/<id>/<version>/`. The draft is never written into `specs/` directly — "agents propose, humans approve" — promoting it is a person's decision after reviewing the report's citation coverage and unparsed list.
 
 The real model call sits behind `astra_agents.spec_reader.LlmClient`, a one-method interface: `AnthropicClient` implements it against the real Anthropic API (needs `ANTHROPIC_API_KEY` in the environment and `pip install "astra-agents[llm]"`); every test in this story implements it with a fake returning a canned response, the same way every Snowflake-touching command in `astra_verification` is tested against a fake executor rather than a live account.
 

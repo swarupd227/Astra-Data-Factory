@@ -7,8 +7,16 @@ Story S5.1.1 (ADR 0041). The Spec Reader agent turns a custodian's layout docume
 | Step | Who | Done when |
 |---|---|---|
 | 1. The document | Agent engineer | A layout document (PDF today; Word via the same interface) is on hand. |
-| 2. Credentials | Agent engineer | `ANTHROPIC_API_KEY` is set in the environment; `pip install "astra-agents[llm,pdf]"` (add `,docx` for a Word document). |
+| 2. Credentials | Agent engineer | `ANTHROPIC_API_KEY` is set in the environment; `pip install "astra-agents[llm,pdf]"` (add `,docx` for a Word document). Check it with `astra-agents spec-reader test-connection` before the first real run. |
 | 3. What to call it | Agent engineer | The spec id (the `specs/<id>/` directory it would become), the version (the file name), the file type and the custodians that deliver it are known. |
+
+## Checking the key
+
+```bash
+astra-agents spec-reader test-connection
+```
+
+Lists the account's models — a free call that generates nothing and sends no document — to prove `ANTHROPIC_API_KEY` authenticates and the configured `--model` (default `claude-sonnet-5`) is one the account can actually use. Exit 0 means connected; exit 1 names what failed (authentication, connectivity, or an API error) without ever printing the key itself. There is no UI for this — the key is set as an environment variable the same way every other credential in this repository is, from Snowflake's `SNOWFLAKE_ACCOUNT` on down, never typed into a page or stored by any tool here.
 
 ## Running it
 

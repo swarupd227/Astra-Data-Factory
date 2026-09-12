@@ -234,6 +234,16 @@ def _extraction_from_tool_input(data: dict) -> Extraction:
     return Extraction(file=data["file"], records=data["records"], unparsed=data.get("unparsed", []))
 
 
+@dataclass(frozen=True)
+class ConnectionTestResult:
+    ok: bool
+    detail: str
+    models: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict:
+        return {"ok": self.ok, "detail": self.detail, "models": list(self.models)}
+
+
 class AnthropicClient:
     """The real client. Needs ANTHROPIC_API_KEY in the environment (or api_key given) and `pip install 'astra-agents[llm]'`."""
 
@@ -241,6 +251,25 @@ class AnthropicClient:
         self.model = model
         self.max_tokens = max_tokens
         self._api_key = api_key
+
+    def test_connection(self) -> ConnectionTestResult:
+        """Lists models — free, generates nothing — to prove the key authenticates and the account can reach the API. Never sends a document or a prompt."""
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise SpecReaderError("calling the model needs the anthropic package; pip install 'astra-agents[llm]'") from exc
+        client = anthropic.Anthropic(api_key=self._api_key)
+        try:
+            page = client.models.list(limit=20)
+        except anthropic.AuthenticationError as exc:
+            return ConnectionTestResult(False, f"authentication failed: {exc}")
+        except anthropic.APIConnectionError as exc:
+            return ConnectionTestResult(False, f"could not reach the API: {exc}")
+        except anthropic.APIStatusError as exc:
+            return ConnectionTestResult(False, f"the API returned an error: {exc}")
+        models = tuple(m.id for m in page.data)
+        configured = "available" if self.model in models else "NOT in this account's model list"
+        return ConnectionTestResult(True, f"connected; configured model '{self.model}' is {configured}", models)
 
     def extract(self, *, system: str, pages: list[Page]) -> Extraction:
         try:

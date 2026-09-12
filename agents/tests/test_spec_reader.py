@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from astra_agents.spec_reader import (
+    AnthropicClient,
     DraftSpec,
     Extraction,
     Page,
@@ -273,7 +274,156 @@ def test_write_draft_writes_a_reloadable_yaml_spec_and_reports(tmp_path):
     assert payload["valid"] is True and payload["field_count"] == 5
 
 
+# ---------------------------------------------------------------- AnthropicClient.test_connection
+
+# Module-level so every _fake_anthropic_module() call shares the same class objects — an
+# exception instance built from one call's classes must still match `except anthropic.X`
+# when a *different* fake module is the one installed as `anthropic` at call time.
+
+
+class FakeAuthenticationError(Exception):
+    pass
+
+
+class FakeAPIConnectionError(Exception):
+    pass
+
+
+class FakeAPIStatusError(Exception):
+    pass
+
+
+def _fake_anthropic_module(*, models=(), raises=None):
+    """A stand-in for the `anthropic` package: its own exception classes (so `except anthropic.X` matches), and an Anthropic() whose models.list() returns `models` or raises `raises`."""
+
+    class FakeModelInfo:
+        def __init__(self, id_):
+            self.id = id_
+
+    class FakePage:
+        def __init__(self, ids):
+            self.data = [FakeModelInfo(i) for i in ids]
+
+    class FakeModels:
+        def list(self, limit=None):
+            if raises is not None:
+                raise raises
+            return FakePage(models)
+
+    class FakeAnthropic:
+        def __init__(self, api_key=None):
+            self.models = FakeModels()
+
+    module = type(
+        "anthropic",
+        (),
+        {
+            "AuthenticationError": FakeAuthenticationError,
+            "APIConnectionError": FakeAPIConnectionError,
+            "APIStatusError": FakeAPIStatusError,
+            "Anthropic": FakeAnthropic,
+        },
+    )
+    return module
+
+
+def test_connection_ok_when_the_configured_model_is_in_the_account(monkeypatch):
+    fake = _fake_anthropic_module(models=("claude-sonnet-5", "claude-opus-5"))
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", fake)
+    result = AnthropicClient(model="claude-sonnet-5").test_connection()
+    assert result.ok is True
+    assert "available" in result.detail
+    assert result.models == ("claude-sonnet-5", "claude-opus-5")
+
+
+def test_connection_ok_but_notes_when_the_configured_model_is_not_listed(monkeypatch):
+    fake = _fake_anthropic_module(models=("claude-opus-5",))
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", fake)
+    result = AnthropicClient(model="claude-sonnet-5").test_connection()
+    assert result.ok is True
+    assert "NOT in this account's model list" in result.detail
+
+
+def test_connection_reports_authentication_failure(monkeypatch):
+    fake = _fake_anthropic_module(raises=FakeAuthenticationError("invalid x-api-key"))
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", fake)
+    result = AnthropicClient().test_connection()
+    assert result.ok is False and "authentication failed" in result.detail
+
+
+def test_connection_reports_a_connection_failure(monkeypatch):
+    fake = _fake_anthropic_module(raises=FakeAPIConnectionError("could not connect"))
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", fake)
+    result = AnthropicClient().test_connection()
+    assert result.ok is False and "could not reach the API" in result.detail
+
+
+def test_connection_reports_an_api_status_error(monkeypatch):
+    fake = _fake_anthropic_module(raises=FakeAPIStatusError("rate limited"))
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", fake)
+    result = AnthropicClient().test_connection()
+    assert result.ok is False and "the API returned an error" in result.detail
+
+
+def test_connection_raises_a_clear_error_when_the_package_is_not_installed(monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", None)  # import anthropic -> ModuleNotFoundError
+    with pytest.raises(SpecReaderError, match="pip install"):
+        AnthropicClient().test_connection()
+
+
 # ---------------------------------------------------------------- CLI
+
+
+def test_cli_test_connection_ok(monkeypatch, capsys):
+    import astra_agents.cli as cli
+
+    class FakeConnectionClient:
+        def __init__(self, model=None):
+            self.model = model
+
+        def test_connection(self):
+            from astra_agents.spec_reader import ConnectionTestResult
+
+            return ConnectionTestResult(True, "connected; configured model 'claude-sonnet-5' is available", ("claude-sonnet-5",))
+
+    monkeypatch.setattr(cli, "AnthropicClient", FakeConnectionClient)
+    code = cli.main(["spec-reader", "test-connection"])
+    assert code == 0
+    assert "connected" in capsys.readouterr().out
+
+
+def test_cli_test_connection_fails_clearly(monkeypatch, capsys):
+    import astra_agents.cli as cli
+
+    class FakeConnectionClient:
+        def __init__(self, model=None):
+            pass
+
+        def test_connection(self):
+            from astra_agents.spec_reader import ConnectionTestResult
+
+            return ConnectionTestResult(False, "authentication failed: invalid x-api-key")
+
+    monkeypatch.setattr(cli, "AnthropicClient", FakeConnectionClient)
+    code = cli.main(["spec-reader", "test-connection"])
+    assert code == 1
+    assert "authentication failed" in capsys.readouterr().out
+
+
+def test_cli_test_connection_reports_a_start_error(monkeypatch, capsys):
+    import astra_agents.cli as cli
+
+    class FakeConnectionClient:
+        def __init__(self, model=None):
+            pass
+
+        def test_connection(self):
+            raise SpecReaderError("the anthropic package is not installed; pip install 'astra-agents[llm]'")
+
+    monkeypatch.setattr(cli, "AnthropicClient", FakeConnectionClient)
+    code = cli.main(["spec-reader", "test-connection"])
+    assert code == 2
+    assert "pip install" in capsys.readouterr().err
 
 
 def test_cli_runs_with_a_fake_client(tmp_path, monkeypatch, capsys):
