@@ -28,6 +28,7 @@ from astra_verification.parity_report import run as run_parity_report
 from astra_verification.connector import ConnectorError, check as connector_check, describe as describe_connector, load_connector, store_result, write_descriptor
 from astra_verification.volume import VOLUME_BUDGET_SECONDS, VolumeError, run as run_volume
 from astra_verification.chaos import SCENARIOS, ChaosError, run as run_chaos
+from astra_verification.dr import DrError, run as run_dr
 from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
@@ -755,6 +756,47 @@ def cmd_chaos_run(args: argparse.Namespace) -> int:
     return 0 if report.proven else 1
 
 
+def cmd_dr_run(args: argparse.Namespace) -> int:
+    """Destroy the standardized zone in a sandbox and restore it from the same retained files, proving RTO and RPO."""
+    from datetime import datetime, timezone
+
+    task_id = args.task or f"dr-{Path(args.config).stem}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    repo = Path(args.repo)
+
+    def under_repo(path: str) -> Path:
+        return Path(path) if Path(path).is_absolute() else repo / path
+
+    bundles = [under_repo(b) for b in (args.bundles or ["releases/custodial-reference-data"])]
+    cdm_ddl = under_repo(args.cdm_ddl) if args.cdm_ddl else None
+    spec = SandboxSpec(task_id=task_id, environment=args.environment, prefix=args.prefix, ttl_minutes=args.ttl_minutes, warehouse_size=args.warehouse_size)
+    out = Path(args.out) / task_id
+    executor = _executor()
+    try:
+        report = run_dr(
+            Path(args.config), [Path(s) for s in args.samples], args.rto_minutes, args.rpo_minutes, spec, executor,
+            repo=repo, out=out, extra_bundles=bundles, cdm_ddl=cdm_ddl,
+        )
+    except DrError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except DryRunError as exc:
+        for p in exc.problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: the DR drill did not start; {len(exc.problems)} problem{'s' if len(exc.problems) != 1 else ''} in the inputs", file=sys.stderr)
+        return 2
+    finally:
+        executor.close()
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(f"DR drill of {report.custodian} in {report.sandbox}: {report.status}, proven: {'yes' if report.proven else 'no'}")
+        if report.seconds_to_restore is not None:
+            print(f"  restored in {report.seconds_to_restore:.1f} s (proposed RTO {args.rto_minutes:.0f} min): {'within RTO' if report.within_rto else 'RTO BREACHED'}")
+        print(f"  RPO (proposed {args.rpo_minutes:.0f} min): {'met, no rows lost' if report.within_rpo else 'BREACHED: ' + ', '.join(f'{k} -{v}' for k, v in report.rows_lost.items())}")
+        print(f"  report: {out / 'dr.md'}")
+    return 0 if report.proven else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-verify", description="Astra Data Factory verification plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -854,6 +896,25 @@ def build_parser() -> argparse.ArgumentParser:
     chr_.add_argument("--out", default=os.environ.get("ASTRA_CHAOS_OUT", "work/chaos"), help="reports are written under <out>/<task id>/ (default: work/chaos)")
     chr_.add_argument("--json", action="store_true")
     chr_.set_defaults(func=cmd_chaos_run)
+
+    drp = sub.add_parser("dr", help="destroy the standardized zone (Bronze, Silver) in a sandbox and restore it from retained files, proving RTO and RPO")
+    drsub = drp.add_subparsers(dest="dr_command", required=True)
+    drr = drsub.add_parser("run", help="load a baseline, drop Bronze and Silver, time the restore from the same retained files, and compare row counts")
+    drr.add_argument("--config", required=True, help="the source config the drill loads")
+    drr.add_argument("--sample", dest="samples", action="append", required=True, help="a normal day's sample file, retained independently of the database; repeatable")
+    drr.add_argument("--rto-minutes", type=float, required=True, help="the proposed Recovery Time Objective, in minutes; the client's own commitment, not invented here")
+    drr.add_argument("--rpo-minutes", type=float, required=True, help="the proposed Recovery Point Objective, in minutes; the client's own commitment, not invented here")
+    drr.add_argument("--environment", required=True, help="environment whose foundation the sandbox borrows")
+    drr.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    drr.add_argument("--task", help="task id of the sandbox (default: dr-<config>-<timestamp>)")
+    drr.add_argument("--ttl-minutes", type=int, default=30, help="time limit after which the reaper drops the sandbox should the run die (default 30)")
+    drr.add_argument("--warehouse-size", default="XSMALL", choices=WAREHOUSE_SIZES)
+    drr.add_argument("--repo", default=".", help="repository root: specs, rules and domains are read from it (default: current directory)")
+    drr.add_argument("--bundle", dest="bundles", action="append", help="bundle deployed into the sandbox before the source, relative to --repo; repeatable (default: releases/custodial-reference-data)")
+    drr.add_argument("--cdm-ddl", default="domains/custodial/cdm/rendered/1.0/ddl.sql", help="rendered canonical model DDL deployed first, relative to --repo; empty to skip")
+    drr.add_argument("--out", default=os.environ.get("ASTRA_DR_OUT", "work/dr"), help="reports are written under <out>/<task id>/ (default: work/dr)")
+    drr.add_argument("--json", action="store_true")
+    drr.set_defaults(func=cmd_dr_run)
 
     rp = sub.add_parser("replay", help="replay a config change against N days of already-captured history; a difference report grouped by rule and field says whether SME review is needed")
     rp.add_argument("--new", required=True, help="the drafted (new) config file")

@@ -20,6 +20,8 @@ It proves the 20-minute window at peak volume (S4.3.1, ADR 0037): `astra-verify 
 
 It proves recoverability from four chaos scenarios (S4.3.2, ADR 0038): `astra-verify chaos run --config configs/<custodian>/<source>.yaml --sample <file> --business-date <date> --environment dev` injects a late, malformed, duplicate and truncated version of one real sample file, in one sandbox, and confirms each reaches its documented state (the taxonomy's rejection code, or the source's own control-total dq_rule), raises an alert, and — for the three content faults — recovers once the same, correct file is simply redelivered under a new name; nothing is ever deleted or edited to make a scenario pass. `--scenario` limits the drill to one of the four.
 
+It proves RTO and RPO with a DR drill (S4.3.3, ADR 0039): `astra-verify dr run --config configs/<custodian>/<source>.yaml --sample <file> --rto-minutes <n> --rpo-minutes <n> --environment dev` loads a normal day's sample into a sandbox, drops the standardized zone (Bronze and Silver) outright, times how long recreating it and replaying the same retained files takes, and confirms every row that was there before the disaster is there after the restore. RTO and RPO are the client's own proposed targets, required inputs never defaulted.
+
 It also carries the Snowpark Connect assessment harness (S3.3.2, ADR 0029): `astra-verify snowpark assess assessments/normalizer --engine local|snowpark-connect` runs the assessment's Spark transformers on a local Spark session or on Snowflake through Snowpark Connect, records effort and result under `results/`, and rewrites the memo's evidence section. Install `.[spark]` (and a Java runtime) for the local engine, `.[snowpark-connect]` for Snowflake.
 
 ```bash
