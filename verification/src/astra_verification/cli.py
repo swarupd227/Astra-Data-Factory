@@ -26,6 +26,7 @@ from astra_verification.replay import ReplayError, old_config_from_git, replay
 from astra_verification.parity import MATCH_RATE_TARGET, ParityError, check as parity_check, load_parity, run as run_parity
 from astra_verification.parity_report import run as run_parity_report
 from astra_verification.connector import ConnectorError, check as connector_check, describe as describe_connector, load_connector, store_result, write_descriptor
+from astra_verification.volume import VOLUME_BUDGET_SECONDS, VolumeError, run as run_volume
 from astra_verification.snowpark import ENGINES, SparkEngine, load_assessment, run_assessment, update_memo
 from astra_verification.sandbox import (
     MAX_TTL_MINUTES,
@@ -658,6 +659,58 @@ def cmd_connector_store_result(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_volume_run(args: argparse.Namespace) -> int:
+    """A custodian's daily set at N times normal volume, in one sandbox, through to the Gold publish; the report says whether it fit the 20-minute window."""
+    from datetime import date as date_cls, datetime, timezone
+
+    task_id = args.task or f"volume-{Path(args.configs[0]).stem}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    repo = Path(args.repo)
+
+    def under_repo(path: str) -> Path:
+        return Path(path) if Path(path).is_absolute() else repo / path
+
+    bundles = [under_repo(b) for b in (args.bundles or ["releases/custodial-reference-data"])]
+    cdm_ddl = under_repo(args.cdm_ddl) if args.cdm_ddl else None
+    spec = SandboxSpec(task_id=task_id, environment=args.environment, prefix=args.prefix, ttl_minutes=args.ttl_minutes, warehouse_size=args.warehouse_size)
+    business_date = date_cls.fromisoformat(args.business_date)
+    out = Path(args.out) / task_id
+    executor = _executor()
+    try:
+        report = run_volume(
+            [Path(c) for c in args.configs],
+            [Path(s) for s in args.samples],
+            args.factor,
+            business_date,
+            spec,
+            executor,
+            repo=repo,
+            out=out,
+            extra_bundles=bundles,
+            gold_bundle=under_repo(args.gold_bundle),
+            cdm_ddl=cdm_ddl,
+        )
+    except VolumeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except DryRunError as exc:
+        for p in exc.problems:
+            print(p.format(), file=sys.stderr)
+        print(f"error: the volume test did not start; {len(exc.problems)} problem{'s' if len(exc.problems) != 1 else ''} in the inputs", file=sys.stderr)
+        return 2
+    finally:
+        executor.close()
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(f"{report.factor}x volume test of {report.custodian} {args.business_date} in {report.sandbox} (warehouse {report.warehouse_size}): {report.status}")
+        print(f"  {report.total_files} file(s), {report.total_lines} line(s) across {len(report.sources)} source(s)")
+        if report.seconds_end_to_end is not None:
+            print(f"  end-to-end {report.seconds_end_to_end:.1f} s of a {VOLUME_BUDGET_SECONDS} s (20-minute) budget: {'within budget' if report.within_budget else 'OVER BUDGET'}")
+        print(f"  publish: {report.publish_result or 'not reached'}; gold rows {report.gold_rows if report.gold_rows is not None else 'n/a'}")
+        print(f"  report: {out / 'volume.md'}")
+    return 0 if report.within_budget else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-verify", description="Astra Data Factory verification plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -718,6 +771,26 @@ def build_parser() -> argparse.ArgumentParser:
     dr.add_argument("--out", default=os.environ.get("ASTRA_DRYRUN_OUT", "work/dryrun"), help="reports are written under <out>/<task id>/ (default: work/dryrun)")
     dr.add_argument("--json", action="store_true")
     dr.set_defaults(func=cmd_dryrun)
+
+    vr = sub.add_parser("volume", help="a custodian's daily set at N times normal volume, through to the Gold publish, proving the 20-minute window")
+    vrsub = vr.add_subparsers(dest="volume_command", required=True)
+    vrr = vrsub.add_parser("run", help="inflate a normal day's sample files N times, run every source and publish Gold in one sandbox, and report the end-to-end time against the budget")
+    vrr.add_argument("--config", dest="configs", action="append", required=True, help="a source config of the custodian's daily set; repeatable, every one must belong to the same custodian")
+    vrr.add_argument("--sample", dest="samples", action="append", required=True, help="a normal day's sample file, routed to whichever --config's delivery pattern it matches; repeatable")
+    vrr.add_argument("--factor", type=int, default=3, help="how many times normal volume to inflate the sample files to (default 3)")
+    vrr.add_argument("--business-date", required=True, help="YYYY-MM-DD the sample files' own content is for")
+    vrr.add_argument("--environment", required=True, help="environment whose foundation the sandbox borrows")
+    vrr.add_argument("--prefix", default=os.environ.get("ASTRA_PREFIX", "ASTRA"))
+    vrr.add_argument("--task", help="task id of the sandbox (default: volume-<first config>-<timestamp>)")
+    vrr.add_argument("--ttl-minutes", type=int, default=60, help="time limit after which the reaper drops the sandbox should the run die (default 60)")
+    vrr.add_argument("--warehouse-size", default="MEDIUM", choices=WAREHOUSE_SIZES, help="the size this run measures against the 20-minute budget (default MEDIUM); the report records whichever size is chosen here")
+    vrr.add_argument("--repo", default=".", help="repository root: specs, rules and domains are read from it (default: current directory)")
+    vrr.add_argument("--bundle", dest="bundles", action="append", help="bundle deployed into the sandbox before the sources, relative to --repo; repeatable (default: releases/custodial-reference-data)")
+    vrr.add_argument("--gold-bundle", default="releases/custodial-gold", help="the Gold bundle deployed so CONTROL.PUBLISH_GOLD exists, relative to --repo (default: releases/custodial-gold)")
+    vrr.add_argument("--cdm-ddl", default="domains/custodial/cdm/rendered/1.0/ddl.sql", help="rendered canonical model DDL deployed first, relative to --repo; empty to skip")
+    vrr.add_argument("--out", default=os.environ.get("ASTRA_VOLUME_OUT", "work/volume"), help="reports are written under <out>/<task id>/ (default: work/volume)")
+    vrr.add_argument("--json", action="store_true")
+    vrr.set_defaults(func=cmd_volume_run)
 
     rp = sub.add_parser("replay", help="replay a config change against N days of already-captured history; a difference report grouped by rule and field says whether SME review is needed")
     rp.add_argument("--new", required=True, help="the drafted (new) config file")
