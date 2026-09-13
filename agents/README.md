@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers. Today: the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042) and the Pattern Matcher (S5.3.1, ADR 0043). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers. Today: the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043) and Rule Recovery (S5.4.1, ADR 0044). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
 
 ```bash
 cd agents
@@ -48,6 +48,19 @@ astra-agents pattern-matcher run --registry specs --id pershing_gcus --version 2
 Writes `report.md` next to `report.json` under `work/pattern-matcher/`. Exit 0 means every spec classified this run got a family; exit 1 means at least one is a new-pattern proposal for a person to decide.
 
 No LLM, no credentials: family similarity is a longest-common-subsequence comparison over detail records only (header and trailer are near-universal boilerplate and would swamp the real signal), gated to zero across a different file format or file type, and penalized when the count of detail record types differs (ADR 0043). The pattern list reuses `astra_knowledge.patterns.patterns_for` as-is. `agents/pattern_matcher/` is this agent's real gold set — not a stand-in like `agents/examples/spec_reader` — built from the real `specs/` directory with every family hidden but one sibling, so "assignment accuracy on known custodians" is measured against custodians already in this repository.
+
+## Rule Recovery (Astra RE Harness)
+
+Legacy Splitter/Loader Java turned into rule catalog entries (`rules/<group>/<name>.yaml`, the same shape the real catalog uses) with a file:line citation on every one, classified (`ingestion`/`business`/`normalisation`), with one or two candidate tests each. Every entry is written `status: recovered` — the agent has no way to mark one confirmed. Every rejection code the source actually defines, and every T-SQL idiom found, is checked against independently of the model; a gap is reported, not silently missed.
+
+```bash
+astra-agents rule-recovery run Splitter.java Loader.java \
+  --group pershing_loader --owner-name "Data steward, custodial" --owner-email steward@example.com
+```
+
+Writes one `rules/<group>/<name>.yaml` per entry, next to `candidate_tests.yaml` and `report.md`, under `work/rule-recovery/<group>/`. Exit 0 means every entry is valid, every rejection code is traced and every T-SQL line is routed; exit 1 means something needs a look.
+
+The real model call sits behind `astra_agents.rule_recovery.LlmClient`, the same one-method-interface shape Spec Reader's `AnthropicClient` uses (needs `ANTHROPIC_API_KEY` and `pip install "astra-agents[llm]"`); every test implements it with a fake. `agents/examples/rule_recovery/java/` is a hand-authored, clearly labeled illustrative Splitter/Loader — no real Envestnet source exists in this repository yet (ADR 0044).
 
 ## Evaluation
 

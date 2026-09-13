@@ -1,13 +1,15 @@
-"""Command line: `astra-agents spec-reader run`, `astra-agents profiler run` and
-`astra-agents pattern-matcher run`.
+"""Command line: `astra-agents spec-reader run`, `astra-agents profiler run`,
+`astra-agents pattern-matcher run` and `astra-agents rule-recovery run`.
 
-Needs no Snowflake connection. spec-reader's real Anthropic API call needs
-ANTHROPIC_API_KEY in the environment (astra_agents.spec_reader.AnthropicClient
-reads it the way the anthropic SDK always does); profiler and pattern-matcher
-are plain deterministic code, reading only the files given on the command
-line. Exit codes for all three: 0 nothing to review, 1 the run found
-something a person should look at (an invalid draft; a profile with drift;
-a new pattern proposal), 2 the run could not start.
+Needs no Snowflake connection. spec-reader's and rule-recovery's real
+Anthropic API calls need ANTHROPIC_API_KEY in the environment (both
+AnthropicClient classes read it the way the anthropic SDK always does);
+profiler and pattern-matcher are plain deterministic code, reading only
+the files given on the command line. Exit codes for all four: 0 nothing
+to review, 1 the run found something a person should look at (an
+invalid draft; a profile with drift; a new pattern proposal; an
+untraced rejection code or an unrouted T-SQL line), 2 the run could not
+start.
 """
 
 from __future__ import annotations
@@ -20,6 +22,9 @@ from pathlib import Path
 
 from astra_agents.pattern_matcher import FAMILY_THRESHOLD, PatternMatcherError, load_registry, run as run_pattern_matcher, write_assignments
 from astra_agents.profiler import TOP_N, ProfilerError, load_spec, run as run_profiler, write_profile
+from astra_agents.rule_recovery import DEFAULT_MODEL as RULE_RECOVERY_DEFAULT_MODEL, MAX_TOKENS as RULE_RECOVERY_MAX_TOKENS
+from astra_agents.rule_recovery import AnthropicClient as RuleRecoveryClient
+from astra_agents.rule_recovery import RuleRecoveryError, run as run_rule_recovery, write_draft as write_rule_recovery_draft
 from astra_agents.spec_reader import DEFAULT_MODEL, MAX_TOKENS, AnthropicClient, SpecReaderError, run as run_spec_reader, write_draft
 
 
@@ -112,6 +117,27 @@ def cmd_pattern_matcher_run(args: argparse.Namespace) -> int:
     return 0 if not any(a.new_pattern_proposal for a in assignments) else 1
 
 
+def cmd_rule_recovery_run(args: argparse.Namespace) -> int:
+    client = RuleRecoveryClient(model=args.model, max_tokens=args.max_tokens)
+    try:
+        draft = run_rule_recovery([Path(p) for p in args.source], client, group=args.group, owner_name=args.owner_name, owner_email=args.owner_email)
+    except RuleRecoveryError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out) / args.group
+    _rules_dir, report_path = write_rule_recovery_draft(draft, out)
+    if args.json:
+        print(json.dumps(draft.to_dict(), indent=2))
+    else:
+        print(f"{args.group}: {len(draft.entries)} entry(ies) recovered, valid: {'yes' if draft.valid else 'no'}, ready to review: {'yes' if draft.ok else 'no'}")
+        if draft.rejection_codes_untraced:
+            print(f"  {len(draft.rejection_codes_untraced)} rejection code(s) not traced to any entry: {', '.join(draft.rejection_codes_untraced)}")
+        if draft.tsql_lines_unrouted:
+            print(f"  {len(draft.tsql_lines_unrouted)} T-SQL line(s) not routed to any embedded_sql entry")
+        print(f"  report: {report_path}")
+    return 0 if draft.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -164,6 +190,20 @@ def build_parser() -> argparse.ArgumentParser:
     pmr.add_argument("--out", default="work/pattern-matcher", help="the report is written under <out>/ (default: work/pattern-matcher)")
     pmr.add_argument("--json", action="store_true")
     pmr.set_defaults(func=cmd_pattern_matcher_run)
+
+    rr = sub.add_parser("rule-recovery", help="legacy Splitter/Loader Java turned into rule catalog entries with file:line citations, classified, with candidate tests")
+    rrsub = rr.add_subparsers(dest="rule_recovery_command", required=True)
+
+    rrr = rrsub.add_parser("run", help="recover a draft rule catalog from Java source; never writes into rules/ directly, never marks an entry confirmed")
+    rrr.add_argument("source", nargs="+", help="one or more Java source files (for example Splitter.java Loader.java)")
+    rrr.add_argument("--group", required=True, help="the catalog group these rules belong to (rules/<group>/); a custodian, spec id or domain")
+    rrr.add_argument("--owner-name", required=True, help="who would confirm or reject these entries")
+    rrr.add_argument("--owner-email", required=True)
+    rrr.add_argument("--model", default=os.environ.get("ASTRA_RULE_RECOVERY_MODEL", RULE_RECOVERY_DEFAULT_MODEL), help=f"the model to call (default {RULE_RECOVERY_DEFAULT_MODEL})")
+    rrr.add_argument("--max-tokens", type=int, default=int(os.environ.get("ASTRA_RULE_RECOVERY_MAX_TOKENS", RULE_RECOVERY_MAX_TOKENS)), help=f"raise this if the model's response is cut off before finishing (default {RULE_RECOVERY_MAX_TOKENS})")
+    rrr.add_argument("--out", default=os.environ.get("ASTRA_RULE_RECOVERY_OUT", "work/rule-recovery"), help="the draft is written under <out>/<group>/ (default: work/rule-recovery)")
+    rrr.add_argument("--json", action="store_true")
+    rrr.set_defaults(func=cmd_rule_recovery_run)
 
     return parser
 
