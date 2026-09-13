@@ -1,20 +1,22 @@
 """Command line: `astra-agents spec-reader run`, `astra-agents profiler run`,
 `astra-agents pattern-matcher run`, `astra-agents rule-recovery run`,
 `astra-agents modeler run`, `astra-agents dq-generator run`,
-`astra-agents test-generator run` and `astra-agents exception-triage run`.
+`astra-agents test-generator run`, `astra-agents exception-triage run`
+and `astra-agents drift-watcher run`.
 
 Needs no Snowflake connection. spec-reader's, rule-recovery's and
 modeler's real Anthropic API calls need ANTHROPIC_API_KEY in the
 environment (every AnthropicClient class reads it the way the anthropic
 SDK always does); profiler, pattern-matcher, dq-generator,
-test-generator and exception-triage are plain deterministic code,
-reading only the files given on the command line. Exit codes for all
-eight: 0 nothing to review, 1 the run found something a person should
-look at (an invalid draft; a profile with drift; a new pattern
-proposal; an untraced rejection code or an unrouted T-SQL line; a
-breaking CDM change request or a rule tagged CONFIRM_WITH_LOADER; a
+test-generator, exception-triage and drift-watcher are plain
+deterministic code, reading only the files given on the command line.
+Exit codes for all nine: 0 nothing to review, 1 the run found something
+a person should look at (an invalid draft; a profile with drift; a new
+pattern proposal; an untraced rejection code or an unrouted T-SQL line;
+a breaking CDM change request or a rule tagged CONFIRM_WITH_LOADER; a
 dq_rule this agent could not synthesize a branch for; an exception code
-with no taxonomy entry), 2 the run could not start.
+with no taxonomy entry; a record-length or code-set drift against the
+spec), 2 the run could not start.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import sys
 from pathlib import Path
 
 from astra_agents.dq_generator import DqGeneratorError, run as run_dq_generator, write_draft as write_dq_draft
+from astra_agents.drift_watcher import DriftWatcherError, run as run_drift_watcher, write_draft as write_drift_draft
 from astra_agents.exception_triage import AUTO_APPLY_CONFIDENCE, ExceptionTriageError, record_decision, run as run_exception_triage, write_draft as write_triage_draft
 from astra_agents.modeler import DEFAULT_MODEL as MODELER_DEFAULT_MODEL, MAX_TOKENS as MODELER_MAX_TOKENS
 from astra_agents.modeler import AnthropicClient as ModelerClient
@@ -240,6 +243,24 @@ def cmd_exception_triage_record_decision(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_drift_watcher_run(args: argparse.Namespace) -> int:
+    try:
+        draft = run_drift_watcher(Path(args.spec), Path(args.sample))
+    except DriftWatcherError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out) / draft.spec_id / draft.spec_version
+    report_path, _data_path = write_drift_draft(draft, out)
+    if args.json:
+        print(json.dumps(draft.to_dict(), indent=2))
+    else:
+        print(f"{draft.spec_id} {draft.spec_version}: {draft.lines_checked} line(s) checked, drift detected: {'yes' if draft.drift_detected else 'no'}")
+        for f in draft.findings:
+            print(f"  {f.kind}: {f.description}")
+        print(f"  report: {report_path}")
+    return 0 if draft.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -362,6 +383,16 @@ def build_parser() -> argparse.ArgumentParser:
     etd.add_argument("--decision", required=True, help="accepted or rejected")
     etd.add_argument("--by", required=True, help="who made the decision")
     etd.set_defaults(func=cmd_exception_triage_record_decision)
+
+    dw = sub.add_parser("drift-watcher", help="a new file's layout compared against its spec, with a proposed delta; never modifies the spec")
+    dwsub = dw.add_subparsers(dest="drift_watcher_command", required=True)
+
+    dwr = dwsub.add_parser("run", help="detect record-length and code-set drift; deterministic, no model call")
+    dwr.add_argument("--spec", required=True, help="path to the Source Spec YAML file")
+    dwr.add_argument("--sample", required=True, help="path to the fixed-width sample file to check")
+    dwr.add_argument("--out", default="work/drift-watcher", help="the report is written under <out>/<spec id>/<spec version>/ (default: work/drift-watcher)")
+    dwr.add_argument("--json", action="store_true")
+    dwr.set_defaults(func=cmd_drift_watcher_run)
 
     return parser
 

@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047) and Exception Triage (S5.8.1, ADR 0048) — the whole Agents plane (E5). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047), Exception Triage (S5.8.1, ADR 0048) and the Drift Watcher (S5.9.1, ADR 0049), with more of the Agents plane (E5) still to come (F5.10-F5.13). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
 
 ```bash
 cd agents
@@ -111,6 +111,18 @@ astra-agents exception-triage record-decision --decisions decisions.yaml --code 
 Writes `report.md` and `report.json` under `work/exception-triage/`. Exit 0 means every exception's code is in the taxonomy; exit 1 means at least one code has no taxonomy entry.
 
 No LLM: the three named codes (`ACCOUNT_NOT_FOUND`, `SECURITY_NOT_FOUND` for the backlog's "NEW_SECURITY", `TRANSACTION_CODE_UNMAPPED` for "MISSING_TX_CODE") each have a single, mechanical, already-reviewed resolution; auto-apply requires both the whitelist and a confidence that has actually earned it (`>= 80%`), so a freshly whitelisted code with no track record does not auto-apply on day one. `agents/examples/exception_triage/` is a committed illustrative fixture — no real exception data exists anywhere in this repository (ADR 0048).
+
+## Drift Watcher
+
+A delivered file compared against its Source Spec: a record-length disagreement, a code a field never declared. Proposes a structured delta — never writes to the spec. Deterministic — no model call, no credentials.
+
+```bash
+astra-agents drift-watcher run --spec specs/pershing_gcus/2017-07-25.yaml --sample GCUS_20260915.dat
+```
+
+Writes `report.md` and `report.json` under `work/drift-watcher/<spec id>/<spec version>/`. Exit 0 means nothing found, safe to proceed to Silver; exit 1 means drift was detected.
+
+Both detectors reuse `astra_knowledge.patterns.fixed_width.record_type_of`, the same function the reference parser itself uses, so a field is read from the position its own record type declares even after a file has grown a few characters longer. `agents/examples/drift_watcher/` is the real, committed `pershing_gcus` spec against a clean baseline sample and a sample with both an injected record-length change and an injected new code, exactly the way the product spec's own test methodology describes (ADR 0049).
 
 ## Evaluation
 

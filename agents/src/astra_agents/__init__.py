@@ -2,13 +2,16 @@
 
 Today: the Spec Reader (S5.1.1), the Profiler (S5.2.1), the Pattern
 Matcher (S5.3.1), Rule Recovery (S5.4.1), the Modeler (S5.5.1), the DQ
-Generator (S5.6.1), the Test Generator (S5.7.1) and Exception Triage
-(S5.8.1). Each agent is a bounded worker; every one is scored against
-its own gold set by astra_verification.agent_eval (S4.3.4).
+Generator (S5.6.1), the Test Generator (S5.7.1), Exception Triage
+(S5.8.1) and the Drift Watcher (S5.9.1). Each agent is a bounded
+worker; every one is scored against its own gold set by
+astra_verification.agent_eval (S4.3.4).
 """
 
 from astra_agents.dq_generator import DqDraft, DqGeneratorError, DqRule
 from astra_agents.dq_generator import run as run_dq_generator
+from astra_agents.drift_watcher import DriftDraft, DriftFinding, DriftWatcherError
+from astra_agents.drift_watcher import run as run_drift_watcher
 from astra_agents.exception_triage import ExceptionTriageError, Suggestion, TriageDraft
 from astra_agents.exception_triage import run as run_exception_triage
 from astra_agents.modeler import CdmChangeRequest, ConfigDraft, ModelerError
@@ -36,6 +39,9 @@ __all__ = [
     "DqRule",
     "DraftEntry",
     "DraftSpec",
+    "DriftDraft",
+    "DriftFinding",
+    "DriftWatcherError",
     "EdgeCase",
     "ExceptionTriageError",
     "Extraction",
@@ -60,6 +66,7 @@ __all__ = [
     "build_draft",
     "run",
     "run_dq_generator",
+    "run_drift_watcher",
     "run_exception_triage",
     "run_modeler",
     "run_pattern_matcher",
