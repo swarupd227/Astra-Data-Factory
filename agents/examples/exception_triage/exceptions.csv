@@ -1,0 +1,13 @@
+exception_id,rejection_code,level,entity,custodian_id,field_name,raw_value,message,record_key,raised_at,status
+EX0001,ACCOUNT_NOT_FOUND,record,Account,pershing,account_number,ACC9999999,The custodian's account number is not in the account cross-reference.,ACC9999999|037833100,2026-09-10T09:00:00Z,NEW
+EX0002,ACCOUNT_NOT_FOUND,record,Account,pershing,account_number,ACC9999999,The custodian's account number is not in the account cross-reference.,ACC9999999|594918104,2026-09-10T09:00:05Z,NEW
+EX0003,ACCOUNT_NOT_FOUND,record,Account,pershing,account_number,ACC8888888,The custodian's account number is not in the account cross-reference.,ACC8888888|912828U40,2026-09-10T09:00:10Z,NEW
+EX0004,SECURITY_NOT_FOUND,record,Security,pershing,cusip,000000000,None of the identifiers the custodian sent is in the security master.,ACC0000001|000000000,2026-09-10T09:01:00Z,NEW
+EX0005,SECURITY_NOT_FOUND,record,Security,pershing,cusip,111111111,None of the identifiers the custodian sent is in the security master.,ACC0000002|111111111,2026-09-10T09:01:05Z,NEW
+EX0006,SECURITY_NOT_FOUND,record,Security,pershing,cusip,222222222,None of the identifiers the custodian sent is in the security master.,ACC0000003|222222222,2026-09-10T09:01:10Z,NEW
+EX0007,TRANSACTION_CODE_UNMAPPED,record,Transaction,pershing,transaction_type,ZZ,The custodian's transaction code has no mapping to a canonical transaction type.,TXN000001,2026-09-10T09:02:00Z,NEW
+EX0008,TRANSACTION_CODE_UNMAPPED,record,Transaction,pershing,transaction_type,ZZ,The custodian's transaction code has no mapping to a canonical transaction type.,TXN000002,2026-09-10T09:02:05Z,NEW
+EX0009,PRICE_MISSING,record,Price,pershing,price,,No price is available for the security on the business date from any configured source.,ACC0000004|333333333,2026-09-10T09:03:00Z,NEW
+EX0010,PRICE_STALE,record,Price,pershing,price,,The most recent price is older than the pricing policy allows.,ACC0000005|444444444,2026-09-10T09:03:05Z,NEW
+EX0011,PRICE_STALE,record,Price,pershing,price,,The most recent price is older than the pricing policy allows.,ACC0000006|555555555,2026-09-10T09:03:10Z,NEW
+EX0012,UNKNOWN_LOCAL_CODE,record,,pershing,,,"A code this illustrative fixture invented on purpose, to prove an unmapped code is reported honestly and not guessed at.",ACC0000007|666666666,2026-09-10T09:04:00Z,NEW

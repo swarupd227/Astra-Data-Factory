@@ -1,19 +1,20 @@
 """Command line: `astra-agents spec-reader run`, `astra-agents profiler run`,
 `astra-agents pattern-matcher run`, `astra-agents rule-recovery run`,
-`astra-agents modeler run`, `astra-agents dq-generator run` and
-`astra-agents test-generator run`.
+`astra-agents modeler run`, `astra-agents dq-generator run`,
+`astra-agents test-generator run` and `astra-agents exception-triage run`.
 
 Needs no Snowflake connection. spec-reader's, rule-recovery's and
 modeler's real Anthropic API calls need ANTHROPIC_API_KEY in the
 environment (every AnthropicClient class reads it the way the anthropic
-SDK always does); profiler, pattern-matcher, dq-generator and
-test-generator are plain deterministic code, reading only the files
-given on the command line. Exit codes for all seven: 0 nothing to
-review, 1 the run found something a person should look at (an invalid
-draft; a profile with drift; a new pattern proposal; an untraced
-rejection code or an unrouted T-SQL line; a breaking CDM change request
-or a rule tagged CONFIRM_WITH_LOADER; a dq_rule this agent could not
-synthesize a branch for), 2 the run could not start.
+SDK always does); profiler, pattern-matcher, dq-generator,
+test-generator and exception-triage are plain deterministic code,
+reading only the files given on the command line. Exit codes for all
+eight: 0 nothing to review, 1 the run found something a person should
+look at (an invalid draft; a profile with drift; a new pattern
+proposal; an untraced rejection code or an unrouted T-SQL line; a
+breaking CDM change request or a rule tagged CONFIRM_WITH_LOADER; a
+dq_rule this agent could not synthesize a branch for; an exception code
+with no taxonomy entry), 2 the run could not start.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ import sys
 from pathlib import Path
 
 from astra_agents.dq_generator import DqGeneratorError, run as run_dq_generator, write_draft as write_dq_draft
+from astra_agents.exception_triage import AUTO_APPLY_CONFIDENCE, ExceptionTriageError, record_decision, run as run_exception_triage, write_draft as write_triage_draft
 from astra_agents.modeler import DEFAULT_MODEL as MODELER_DEFAULT_MODEL, MAX_TOKENS as MODELER_MAX_TOKENS
 from astra_agents.modeler import AnthropicClient as ModelerClient
 from astra_agents.modeler import ModelerError, load_domain_pack, load_known_rule_ids
@@ -210,6 +212,34 @@ def cmd_test_generator_run(args: argparse.Namespace) -> int:
     return 0 if draft.ok else 1
 
 
+def cmd_exception_triage_run(args: argparse.Namespace) -> int:
+    try:
+        draft = run_exception_triage(Path(args.exceptions), Path(args.rejections), Path(args.decisions) if args.decisions else None)
+    except ExceptionTriageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out)
+    report_path, _data_path = write_triage_draft(draft, out)
+    if args.json:
+        print(json.dumps(draft.to_dict(), indent=2))
+    else:
+        print(f"{len(draft.suggestions)} root cause(s), {len(draft.auto_apply_suggestions)} eligible to auto-apply (whitelisted and confidence >= {AUTO_APPLY_CONFIDENCE:.0%})")
+        if draft.unresolved_codes:
+            print(f"  no taxonomy entry: {', '.join(draft.unresolved_codes)}")
+        print(f"  report: {report_path}")
+    return 0 if draft.ok else 1
+
+
+def cmd_exception_triage_record_decision(args: argparse.Namespace) -> int:
+    try:
+        record_decision(Path(args.decisions), code=args.code, decision=args.decision, by=args.by)
+    except ExceptionTriageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"recorded: {args.code} {args.decision} by {args.by}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -314,6 +344,24 @@ def build_parser() -> argparse.ArgumentParser:
     tgr.add_argument("--out", default="work/test-generator", help="the draft is written under <out>/<config id>/ (default: work/test-generator)")
     tgr.add_argument("--json", action="store_true")
     tgr.set_defaults(func=cmd_test_generator_run)
+
+    et = sub.add_parser("exception-triage", help="suggested resolutions per exception, with confidence, grouped by root cause; auto-apply only for whitelisted classes at L3")
+    etsub = et.add_subparsers(dest="exception_triage_command", required=True)
+
+    etr = etsub.add_parser("run", help="propose resolutions from a batch of exceptions; deterministic, no model call")
+    etr.add_argument("--exceptions", required=True, help="a CSV of exception rows (the CDM Exception entity's own columns)")
+    etr.add_argument("--rejections", required=True, help="path to the domain pack's rejections.yaml")
+    etr.add_argument("--decisions", help="a decisions log to compute confidence from (default: no history, every code starts at 50%%)")
+    etr.add_argument("--out", default="work/exception-triage", help="the draft is written under <out>/ (default: work/exception-triage)")
+    etr.add_argument("--json", action="store_true")
+    etr.set_defaults(func=cmd_exception_triage_run)
+
+    etd = etsub.add_parser("record-decision", help="append one accepted or rejected decision to a decisions log, so future confidence reflects it")
+    etd.add_argument("--decisions", required=True, help="path to the decisions log (created if it does not exist)")
+    etd.add_argument("--code", required=True, help="the rejection code this decision is about")
+    etd.add_argument("--decision", required=True, help="accepted or rejected")
+    etd.add_argument("--by", required=True, help="who made the decision")
+    etd.set_defaults(func=cmd_exception_triage_record_decision)
 
     return parser
 

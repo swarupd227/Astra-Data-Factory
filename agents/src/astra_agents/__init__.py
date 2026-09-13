@@ -2,13 +2,15 @@
 
 Today: the Spec Reader (S5.1.1), the Profiler (S5.2.1), the Pattern
 Matcher (S5.3.1), Rule Recovery (S5.4.1), the Modeler (S5.5.1), the DQ
-Generator (S5.6.1) and the Test Generator (S5.7.1) — the last agent of
-this plane. Each agent is a bounded worker; every one is scored against
+Generator (S5.6.1), the Test Generator (S5.7.1) and Exception Triage
+(S5.8.1). Each agent is a bounded worker; every one is scored against
 its own gold set by astra_verification.agent_eval (S4.3.4).
 """
 
 from astra_agents.dq_generator import DqDraft, DqGeneratorError, DqRule
 from astra_agents.dq_generator import run as run_dq_generator
+from astra_agents.exception_triage import ExceptionTriageError, Suggestion, TriageDraft
+from astra_agents.exception_triage import run as run_exception_triage
 from astra_agents.modeler import CdmChangeRequest, ConfigDraft, ModelerError
 from astra_agents.modeler import AnthropicClient as ModelerClient
 from astra_agents.modeler import run as run_modeler
@@ -35,6 +37,7 @@ __all__ = [
     "DraftEntry",
     "DraftSpec",
     "EdgeCase",
+    "ExceptionTriageError",
     "Extraction",
     "FamilyMatch",
     "FieldProfile",
@@ -50,11 +53,14 @@ __all__ = [
     "RuleRecoveryClient",
     "RuleRecoveryError",
     "SpecReaderError",
+    "Suggestion",
     "TestDraft",
     "TestGeneratorError",
+    "TriageDraft",
     "build_draft",
     "run",
     "run_dq_generator",
+    "run_exception_triage",
     "run_modeler",
     "run_pattern_matcher",
     "run_profiler",

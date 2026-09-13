@@ -1,0 +1,22 @@
+# Illustrative decisions log (S5.8.1, ADR 0048) -- a fabricated track record, not real ops
+# history, showing both sides of the auto-apply gate on two codes the real taxonomy already
+# whitelists (auto_resolve: true): PRICE_STALE has earned a high measured acceptance rate,
+# PRICE_MISSING has not, so only PRICE_STALE crosses AUTO_APPLY_CONFIDENCE even though both are
+# whitelisted -- the whitelist alone is not enough.
+decisions_version: 0
+
+decisions:
+  - { code: PRICE_STALE, decision: accepted, at: "2026-08-01T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_STALE, decision: accepted, at: "2026-08-02T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_STALE, decision: accepted, at: "2026-08-03T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_STALE, decision: accepted, at: "2026-08-04T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_STALE, decision: accepted, at: "2026-08-05T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_STALE, decision: accepted, at: "2026-08-06T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_STALE, decision: accepted, at: "2026-08-07T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_STALE, decision: accepted, at: "2026-08-08T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_STALE, decision: rejected, at: "2026-08-09T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_MISSING, decision: accepted, at: "2026-08-01T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_MISSING, decision: rejected, at: "2026-08-02T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_MISSING, decision: rejected, at: "2026-08-03T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_MISSING, decision: rejected, at: "2026-08-04T09:00:00Z", by: "ops@example.com" }
+  - { code: PRICE_MISSING, decision: rejected, at: "2026-08-05T09:00:00Z", by: "ops@example.com" }

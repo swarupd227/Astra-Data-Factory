@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046) and the Test Generator (S5.7.1, ADR 0047) — the whole Agents plane (E5). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047) and Exception Triage (S5.8.1, ADR 0048) — the whole Agents plane (E5). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
 
 ```bash
 cd agents
@@ -98,6 +98,19 @@ astra-agents test-generator run --config configs/examples/pershing_position.yaml
 Writes `tests/unit/`, `tests/edge/`, `report.md` and `report.json` under `work/test-generator/<config id>/`. Exit 0 means every rule this agent's generators support is covered.
 
 No LLM: every branch is read off a `dq_rule`'s own typed fields; the one free-form kind (`condition`) is only synthesized for the one SQL shape the DQ Generator itself is known to produce. `agents/test_generator/` is a real gold set (not a stand-in), scoring branch coverage against the real, already-committed `configs/examples/pershing_position.yaml` (ADR 0047).
+
+## Exception Triage
+
+Suggested resolutions per exception, with confidence, grouped by root cause, and auto-apply only for whitelisted classes at autonomy level L3. A suggestion's text is the domain pack's own rejection taxonomy `resolution` field — never invented; whitelisting is the taxonomy's own `auto_resolve` flag; confidence is a real, Laplace-smoothed acceptance rate from a decisions log, not a model's opinion.
+
+```bash
+astra-agents exception-triage run --exceptions exceptions.csv --rejections domains/custodial/rejections.yaml --decisions decisions.yaml
+astra-agents exception-triage record-decision --decisions decisions.yaml --code SECURITY_NOT_FOUND --decision accepted --by steward@example.com
+```
+
+Writes `report.md` and `report.json` under `work/exception-triage/`. Exit 0 means every exception's code is in the taxonomy; exit 1 means at least one code has no taxonomy entry.
+
+No LLM: the three named codes (`ACCOUNT_NOT_FOUND`, `SECURITY_NOT_FOUND` for the backlog's "NEW_SECURITY", `TRANSACTION_CODE_UNMAPPED` for "MISSING_TX_CODE") each have a single, mechanical, already-reviewed resolution; auto-apply requires both the whitelist and a confidence that has actually earned it (`>= 80%`), so a freshly whitelisted code with no track record does not auto-apply on day one. `agents/examples/exception_triage/` is a committed illustrative fixture — no real exception data exists anywhere in this repository (ADR 0048).
 
 ## Evaluation
 

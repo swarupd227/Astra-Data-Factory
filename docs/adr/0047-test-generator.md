@@ -6,7 +6,7 @@ Story: S5.7.1 Test Generator: build and evaluate (E5, F5.7, WBS 2.5.13, 2.5.14)
 
 ## Context
 
-This is the last agent of the Agents plane (E5). A config's own `dq_rules` already name every outcome a table's rows must not violate; a person turning each into a unit test and a sample file that actually trips it is mechanical but slow. Two things did not exist anywhere in this repository before this story: a way to render a spec's fields *backward* into a fixed-width line (every pattern so far only parses forward), and a "branch coverage" metric for rules at all (a real term in the product spec's own agent table, never implemented).
+A config's own `dq_rules` already name every outcome a table's rows must not violate; a person turning each into a unit test and a sample file that actually trips it is mechanical but slow. Two things did not exist anywhere in this repository before this story: a way to render a spec's fields *backward* into a fixed-width line (every pattern so far only parses forward), and a "branch coverage" metric for rules at all (a real term in the product spec's own agent table, never implemented).
 
 ## Decision
 
