@@ -25,7 +25,7 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | `infra/terraform/bootstrap` | Control (E1) | Once per AWS account: the bucket that holds Terraform state for every environment |
 | `tools/opencatalog` | Control (E1) | Provisions and verifies Snowflake Open Catalog, which has no Terraform provider |
 | `.github` | Control (E1) | `ci` on every pull request; `deploy` to dev on merge and to qa on approval |
-| `docs` | | Specification, backlog, architecture decision records and runbooks. `docs/ux` holds UX research drafts awaiting real stakeholder validation (personas and task flows today) — clearly marked as drafts, never as a completed story on their own |
+| `docs` | | Specification, backlog, architecture decision records and runbooks. `docs/ux` holds UX and Control-plane design work: personas and task flows (S6.0.1, a draft still awaiting real Envestnet validation — clearly marked as such) and the workbench design system (S6.0.3, complete on its own — components, states, colour and error-message rules) |
 
 The workbench (Control, E1) is added as its own epic starts.
 
