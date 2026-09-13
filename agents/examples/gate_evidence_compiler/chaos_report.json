@@ -1,0 +1,17 @@
+{
+  "custodian": "pershing",
+  "sandbox": "sb-pershing-chaos-20260911",
+  "task_id": "TASK_PERSHING_POSITION_PARSE",
+  "started_at": "2026-09-11T02:00:00Z",
+  "business_date": "2026-09-11",
+  "status": "ran",
+  "proven": true,
+  "scenarios": [
+    {"scenario": "late_file", "detail": "expected file withheld past cutoff", "code": "FILE_LATE", "severity": "warning", "fault_count": 1, "fault_detected": true, "alert_raised": true, "alert_kind": "late", "retry_applicable": false, "retried": false, "recovered": null},
+    {"scenario": "malformed_record", "detail": "one detail line truncated mid-field", "code": "FIELD_NOT_NUMERIC", "severity": "error", "fault_count": 1, "fault_detected": true, "alert_raised": true, "alert_kind": "exception", "retry_applicable": true, "retried": true, "recovered": true}
+  ],
+  "phases": [],
+  "seconds": 210.4,
+  "destroyed": true,
+  "error": null
+}

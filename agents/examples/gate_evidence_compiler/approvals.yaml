@@ -1,0 +1,6 @@
+# Illustrative approvals log (S5.11.1, ADR 0051) -- a fabricated approval, not a real release
+# sign-off, in the same shape astra_agents.gate_evidence_compiler.record_approval writes.
+approvals_version: 0
+
+approvals:
+  - { release: "pershing_position-2026-09-13", approver: "steward@example.com", at: "2026-09-13T09:00:00Z", note: "Every gate criterion met; approved for release." }

@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047), Exception Triage (S5.8.1, ADR 0048), the Drift Watcher (S5.9.1, ADR 0049) and the Parity / Break Explainer (S5.10.1, ADR 0050), with more of the Agents plane (E5) still to come (F5.11-F5.13). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047), Exception Triage (S5.8.1, ADR 0048), the Drift Watcher (S5.9.1, ADR 0049), the Parity / Break Explainer (S5.10.1, ADR 0050) and the Gate Evidence Compiler (S5.11.1, ADR 0051), with more of the Agents plane (E5) still to come (F5.12-F5.13). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
 
 ```bash
 cd agents
@@ -136,6 +136,20 @@ astra-agents break-explainer run --config configs/examples/pershing_position.yam
 Writes `report.md` and `report.json` under `work/break-explainer/<custodian>/<business date>/`. Exit 0 means every difference was explained.
 
 No LLM: cause is one of four structural signals, checked in a fixed order so a column that is both a real mapping and a resolution column (`CUSTODIAN_SECURITY_ID` in the real example) is not misclassified. `agents/break_explainer/` is a real gold set — scored against the real `configs/examples/pershing_position.yaml`, `golden/pershing/parity.yaml` and rule catalog — with a committed illustrative row fixture standing in for a real dual-run, since no captured golden dataset with real differences exists in this repository yet (ADR 0050).
+
+## Gate Evidence Compiler
+
+A gate pack assembled from verification results, approvals and metrics — seven named criteria (DQ, parity, volume, chaos, DR, agent evaluation, approval), each read from the exact report shape the owning tool already produces. Nothing is re-scored; a criterion with no evidence is always listed, always shown NOT MET, never silently dropped.
+
+```bash
+astra-agents gate-evidence-compiler run --release pershing_position-2026-09-13 \
+  --dq-report work/dq/.../report.json --parity-report work/parity-report/.../report.json --approvals approvals.yaml
+astra-agents gate-evidence-compiler record-approval --approvals approvals.yaml --release pershing_position-2026-09-13 --approver steward@example.com
+```
+
+Every `--*-report` flag is optional. Writes `gate_pack.md` and `gate_pack.json` under `work/gate-evidence-compiler/<release>/`. Exit 0 means every criterion is met.
+
+No LLM, no credentials: each criterion reads one already-computed field (`meets_target`, `proven`, `status`, `all_passed`) from a tool's own committed output shape. `agents/examples/gate_evidence_compiler/` is a committed illustrative evidence set, hand-authored to match each real tool's own `to_dict()` shape exactly (ADR 0051).
 
 ## Evaluation
 

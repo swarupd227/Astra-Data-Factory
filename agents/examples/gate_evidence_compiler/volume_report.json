@@ -1,0 +1,23 @@
+{
+  "custodian": "pershing",
+  "sandbox": "sb-pershing-volume-20260910",
+  "warehouse_size": "LARGE",
+  "task_id": "TASK_PERSHING_POSITION_PARSE",
+  "started_at": "2026-09-10T02:00:00Z",
+  "factor": 3,
+  "business_date": "2026-09-10",
+  "status": "published",
+  "sources": [{"config": "pershing_position", "id": "pershing_position", "files_loaded": 3, "lines_loaded": 375000, "run_id": "run-1"}],
+  "phases": [],
+  "total_files": 3,
+  "total_lines": 375000,
+  "last_file_loaded_at": "2026-09-10T02:05:00Z",
+  "publish_result": "SILVER.POSITION",
+  "gold_rows": 375000,
+  "watermark_published_at": "2026-09-10T02:11:00Z",
+  "seconds_end_to_end": 640.2,
+  "budget_seconds": 900,
+  "destroyed": true,
+  "seconds": 640.2,
+  "error": null
+}

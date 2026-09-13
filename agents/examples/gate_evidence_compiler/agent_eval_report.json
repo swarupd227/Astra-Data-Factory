@@ -1,0 +1,10 @@
+{
+  "generated_at": "2026-09-13T08:00:00Z",
+  "agents_scored": ["pattern_matcher", "test_generator", "break_explainer"],
+  "skipped": ["spec_reader", "modeler"],
+  "by_tier": {
+    "medium": {"tier": "medium", "cases": 5, "precision": 1.0, "recall": 1.0}
+  },
+  "results": [],
+  "all_passed": true
+}

@@ -2,22 +2,24 @@
 `astra-agents pattern-matcher run`, `astra-agents rule-recovery run`,
 `astra-agents modeler run`, `astra-agents dq-generator run`,
 `astra-agents test-generator run`, `astra-agents exception-triage run`,
-`astra-agents drift-watcher run` and `astra-agents break-explainer run`.
+`astra-agents drift-watcher run`, `astra-agents break-explainer run` and
+`astra-agents gate-evidence-compiler run`.
 
 Needs no Snowflake connection. spec-reader's, rule-recovery's and
 modeler's real Anthropic API calls need ANTHROPIC_API_KEY in the
 environment (every AnthropicClient class reads it the way the anthropic
 SDK always does); profiler, pattern-matcher, dq-generator,
-test-generator, exception-triage, drift-watcher and break-explainer are
-plain deterministic code, reading only the files given on the command
-line. Exit codes for all ten: 0 nothing to review, 1 the run found
-something a person should look at (an invalid draft; a profile with
-drift; a new pattern proposal; an untraced rejection code or an
-unrouted T-SQL line; a breaking CDM change request or a rule tagged
-CONFIRM_WITH_LOADER; a dq_rule this agent could not synthesize a branch
-for; an exception code with no taxonomy entry; a record-length or
-code-set drift against the spec; a dual-run difference this agent could
-not explain), 2 the run could not start.
+test-generator, exception-triage, drift-watcher, break-explainer and
+gate-evidence-compiler are plain deterministic code, reading only the
+files given on the command line. Exit codes for all eleven: 0 nothing
+to review, 1 the run found something a person should look at (an
+invalid draft; a profile with drift; a new pattern proposal; an
+untraced rejection code or an unrouted T-SQL line; a breaking CDM
+change request or a rule tagged CONFIRM_WITH_LOADER; a dq_rule this
+agent could not synthesize a branch for; an exception code with no
+taxonomy entry; a record-length or code-set drift against the spec; a
+dual-run difference this agent could not explain; a gate criterion with
+no evidence), 2 the run could not start.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ from astra_agents.break_explainer import BreakExplainerError, run as run_break_e
 from astra_agents.dq_generator import DqGeneratorError, run as run_dq_generator, write_draft as write_dq_draft
 from astra_agents.drift_watcher import DriftWatcherError, run as run_drift_watcher, write_draft as write_drift_draft
 from astra_agents.exception_triage import AUTO_APPLY_CONFIDENCE, ExceptionTriageError, record_decision, run as run_exception_triage, write_draft as write_triage_draft
+from astra_agents.gate_evidence_compiler import EvidenceSources, GateEvidenceCompilerError, record_approval, run as run_gate_evidence_compiler, write_pack
 from astra_agents.modeler import DEFAULT_MODEL as MODELER_DEFAULT_MODEL, MAX_TOKENS as MODELER_MAX_TOKENS
 from astra_agents.modeler import AnthropicClient as ModelerClient
 from astra_agents.modeler import ModelerError, load_domain_pack, load_known_rule_ids
@@ -291,6 +294,39 @@ def cmd_break_explainer_run(args: argparse.Namespace) -> int:
     return 0 if draft.explained_rate == 1.0 else 1
 
 
+def cmd_gate_evidence_compiler_run(args: argparse.Namespace) -> int:
+    sources = EvidenceSources(
+        dq_report=Path(args.dq_report) if args.dq_report else None,
+        parity_report=Path(args.parity_report) if args.parity_report else None,
+        volume_report=Path(args.volume_report) if args.volume_report else None,
+        chaos_report=Path(args.chaos_report) if args.chaos_report else None,
+        dr_report=Path(args.dr_report) if args.dr_report else None,
+        agent_eval_report=Path(args.agent_eval_report) if args.agent_eval_report else None,
+        approvals=Path(args.approvals) if args.approvals else None,
+    )
+    pack = run_gate_evidence_compiler(args.release, sources)
+    out = Path(args.out) / pack.release
+    report_path, _data_path = write_pack(pack, out)
+    if args.json:
+        print(json.dumps(pack.to_dict(), indent=2))
+    else:
+        print(f"{pack.release}: {len(pack.criteria)} criteria, ready to release: {'yes' if pack.all_met else 'no'}")
+        for c in pack.criteria:
+            print(f"  {c.status}: {c.name}")
+        print(f"  pack: {report_path}")
+    return 0 if pack.all_met else 1
+
+
+def cmd_gate_evidence_compiler_record_approval(args: argparse.Namespace) -> int:
+    try:
+        record_approval(Path(args.approvals), release=args.release, approver=args.approver, note=args.note)
+    except GateEvidenceCompilerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"recorded: {args.release} approved by {args.approver}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -439,6 +475,29 @@ def build_parser() -> argparse.ArgumentParser:
     ber.add_argument("--out", default="work/break-explainer", help="the draft is written under <out>/<custodian>/<business date>/ (default: work/break-explainer)")
     ber.add_argument("--json", action="store_true")
     ber.set_defaults(func=cmd_break_explainer_run)
+
+    gc = sub.add_parser("gate-evidence-compiler", help="a gate pack assembled from verification results, approvals and metrics, against named criteria")
+    gcsub = gc.add_subparsers(dest="gate_evidence_compiler_command", required=True)
+
+    gcr = gcsub.add_parser("run", help="assemble a gate pack for one release; deterministic, no model call")
+    gcr.add_argument("--release", required=True, help="the release this pack is for, for example pershing_position-2026-09-13")
+    gcr.add_argument("--dq-report", help="path to a DQ runner report.json")
+    gcr.add_argument("--parity-report", help="path to a parity report.json")
+    gcr.add_argument("--volume-report", help="path to a volume test report.json")
+    gcr.add_argument("--chaos-report", help="path to a chaos scenarios report.json")
+    gcr.add_argument("--dr-report", help="path to a DR drill report.json")
+    gcr.add_argument("--agent-eval-report", help="path to an agent-eval report.json (per-agent or the weekly rollup)")
+    gcr.add_argument("--approvals", help="path to the approvals log to check for this release")
+    gcr.add_argument("--out", default="work/gate-evidence-compiler", help="the pack is written under <out>/<release>/ (default: work/gate-evidence-compiler)")
+    gcr.add_argument("--json", action="store_true")
+    gcr.set_defaults(func=cmd_gate_evidence_compiler_run)
+
+    gca = gcsub.add_parser("record-approval", help="append one release approval to the approvals log")
+    gca.add_argument("--approvals", required=True, help="path to the approvals log (created if it does not exist)")
+    gca.add_argument("--release", required=True, help="the release being approved")
+    gca.add_argument("--approver", required=True, help="who approved it")
+    gca.add_argument("--note", help="an optional note")
+    gca.set_defaults(func=cmd_gate_evidence_compiler_record_approval)
 
     return parser
 

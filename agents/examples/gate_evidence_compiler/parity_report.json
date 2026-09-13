@@ -1,0 +1,15 @@
+{
+  "custodian": "pershing",
+  "legacy_output": "positions",
+  "table": "POSITION",
+  "cycles": 5,
+  "first_business_date": "2026-09-08",
+  "last_business_date": "2026-09-12",
+  "legacy_rows": 12500,
+  "lakehouse_rows": 12500,
+  "matched": 12475,
+  "match_rate": 0.998,
+  "meets_target": true,
+  "target": 0.995,
+  "trend": "improving"
+}

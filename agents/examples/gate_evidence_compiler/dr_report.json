@@ -1,0 +1,16 @@
+{
+  "custodian": "pershing",
+  "sandbox": "sb-pershing-dr-20260912",
+  "task_id": "TASK_PERSHING_POSITION_PARSE",
+  "started_at": "2026-09-12T02:00:00Z",
+  "rto_minutes": 60,
+  "rpo_minutes": 15,
+  "baseline": {"SILVER.POSITION": 375000},
+  "restored": {"SILVER.POSITION": 375000},
+  "rows_lost": {},
+  "seconds_to_restore": 1820.5,
+  "within_rto": true,
+  "within_rpo": true,
+  "status": "restored",
+  "proven": true
+}
