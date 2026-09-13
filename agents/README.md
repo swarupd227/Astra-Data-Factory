@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047), Exception Triage (S5.8.1, ADR 0048), the Drift Watcher (S5.9.1, ADR 0049), the Parity / Break Explainer (S5.10.1, ADR 0050) and the Gate Evidence Compiler (S5.11.1, ADR 0051), with more of the Agents plane (E5) still to come (F5.12-F5.13). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047), Exception Triage (S5.8.1, ADR 0048), the Drift Watcher (S5.9.1, ADR 0049), the Parity / Break Explainer (S5.10.1, ADR 0050), the Gate Evidence Compiler (S5.11.1, ADR 0051) and the Docs & Runbook Writer (S5.12.1, ADR 0052), with more of the Agents plane (E5) still to come (F5.13). The first eleven are each scored against their own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11); the Docs & Runbook Writer renders straight into `docs/` instead, with nothing to score.
 
 ```bash
 cd agents
@@ -150,6 +150,19 @@ astra-agents gate-evidence-compiler record-approval --approvals approvals.yaml -
 Every `--*-report` flag is optional. Writes `gate_pack.md` and `gate_pack.json` under `work/gate-evidence-compiler/<release>/`. Exit 0 means every criterion is met.
 
 No LLM, no credentials: each criterion reads one already-computed field (`meets_target`, `proven`, `status`, `all_passed`) from a tool's own committed output shape. `agents/examples/gate_evidence_compiler/` is a committed illustrative evidence set, hand-authored to match each real tool's own `to_dict()` shape exactly (ADR 0051).
+
+## Docs & Runbook Writer
+
+A per-source doc rendered straight from what is already approved — the compiled config, its spec, its domain pack's rejection taxonomy and its rule catalog entries — not a draft. It writes directly into `docs/runbooks/sources/`, the same way `astra_knowledge.cdm.write_rendered`/`check_rendered` already render the canonical model's own DDL: there is nothing here for a person to approve, only to keep current.
+
+```bash
+astra-agents docs-writer render configs --specs specs --rules rules --domains domains --out docs/runbooks/sources
+astra-agents docs-writer render configs --specs specs --rules rules --domains domains --out docs/runbooks/sources --check   # fails when a doc is missing or stale
+```
+
+Writes one `<release bundle name>.md` per config. Two things every doc answers: what the chaos drill's four fixed scenarios (`docs/runbooks/chaos-drill.md`) mean for this specific source — what each detects, its taxonomy code or dq_rule, how to resolve it — and what this source's own `delivery`/`alerts` blocks mean against ADR 0007's fixed alerting rules. Exit codes follow `astra-spec cdm render`, not the other eleven agents: plain `render` exits 0 once written; `--check` exits 1 only when a doc is missing, stale or orphaned.
+
+No LLM: every fact already exists as a typed field on the compiled config, a rejection code or a rule catalog entry; `chaos_scenarios_for` reads the exact codes `astra_verification.chaos`'s own drill uses (`RECORD_TYPE_UNKNOWN`, `MERGE_DUPLICATE_KEY`), and says so honestly rather than guessing when a source has no `control_total` dq_rule for the truncated scenario. No eval gold set: this agent has no draft to score precision or recall against (ADR 0052).
 
 ## Evaluation
 

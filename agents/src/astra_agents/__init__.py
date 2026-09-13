@@ -4,13 +4,20 @@ Today: the Spec Reader (S5.1.1), the Profiler (S5.2.1), the Pattern
 Matcher (S5.3.1), Rule Recovery (S5.4.1), the Modeler (S5.5.1), the DQ
 Generator (S5.6.1), the Test Generator (S5.7.1), Exception Triage
 (S5.8.1), the Drift Watcher (S5.9.1), the Parity / Break Explainer
-(S5.10.1) and the Gate Evidence Compiler (S5.11.1). Each agent is a
-bounded worker; every one is scored against its own gold set by
-astra_verification.agent_eval (S4.3.4).
+(S5.10.1), the Gate Evidence Compiler (S5.11.1) and the Docs & Runbook
+Writer (S5.12.1). Each of the first eleven is a bounded worker scored
+against its own gold set by astra_verification.agent_eval (S4.3.4); the
+Docs & Runbook Writer renders straight into `docs/` instead, the same
+way astra_knowledge.cdm renders the canonical model's own DDL.
 """
 
 from astra_agents.break_explainer import BreakExplainerError, ExplainDraft, Explanation
 from astra_agents.break_explainer import run as run_break_explainer
+from astra_agents.docs_writer import ChaosScenarioDoc, DocsWriterError
+from astra_agents.docs_writer import check_rendered as check_rendered_docs
+from astra_agents.docs_writer import load_compiled_configs as load_docs_writer_configs
+from astra_agents.docs_writer import render_markdown as render_source_doc
+from astra_agents.docs_writer import write_rendered as write_rendered_docs
 from astra_agents.dq_generator import DqDraft, DqGeneratorError, DqRule
 from astra_agents.dq_generator import run as run_dq_generator
 from astra_agents.drift_watcher import DriftDraft, DriftFinding, DriftWatcherError
@@ -38,9 +45,11 @@ __all__ = [
     "Assignment",
     "BreakExplainerError",
     "CdmChangeRequest",
+    "ChaosScenarioDoc",
     "ConfigDraft",
     "ConnectionTestResult",
     "Criterion",
+    "DocsWriterError",
     "DqDraft",
     "DqGeneratorError",
     "DqRule",
@@ -76,6 +85,9 @@ __all__ = [
     "TestGeneratorError",
     "TriageDraft",
     "build_draft",
+    "check_rendered_docs",
+    "load_docs_writer_configs",
+    "render_source_doc",
     "run",
     "run_break_explainer",
     "run_dq_generator",
@@ -87,4 +99,5 @@ __all__ = [
     "run_profiler",
     "run_rule_recovery",
     "run_test_generator",
+    "write_rendered_docs",
 ]

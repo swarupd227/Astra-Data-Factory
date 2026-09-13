@@ -200,6 +200,12 @@ jobs:
       - run: python -m pip install -e ../core -e ../knowledge -e ../generation -e ../verification -e ".[dev]"
       - run: python -m pytest -q
 
+      # docs-writer renders straight into docs/, like astra-spec cdm render and astra-data
+      # reference|gold render already do; --check fails the build when a source's doc has
+      # gone stale instead of silently drifting from its config.
+      - name: Check that source docs are rendered and current
+        run: astra-agents docs-writer render ../configs --specs ../specs --rules ../rules --domains ../domains --root .. --out ../docs/runbooks/sources --check
+
   opencatalog:
     name: opencatalog tests
     runs-on: ubuntu-latest

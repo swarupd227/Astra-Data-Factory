@@ -2,24 +2,30 @@
 `astra-agents pattern-matcher run`, `astra-agents rule-recovery run`,
 `astra-agents modeler run`, `astra-agents dq-generator run`,
 `astra-agents test-generator run`, `astra-agents exception-triage run`,
-`astra-agents drift-watcher run`, `astra-agents break-explainer run` and
-`astra-agents gate-evidence-compiler run`.
+`astra-agents drift-watcher run`, `astra-agents break-explainer run`,
+`astra-agents gate-evidence-compiler run` and `astra-agents docs-writer render`.
 
 Needs no Snowflake connection. spec-reader's, rule-recovery's and
 modeler's real Anthropic API calls need ANTHROPIC_API_KEY in the
 environment (every AnthropicClient class reads it the way the anthropic
-SDK always does); profiler, pattern-matcher, dq-generator,
+SDK always does); every other command is plain deterministic code,
+reading only the files given on the command line. Exit codes for the
+eleven draft agents (profiler, pattern-matcher, dq-generator,
 test-generator, exception-triage, drift-watcher, break-explainer and
-gate-evidence-compiler are plain deterministic code, reading only the
-files given on the command line. Exit codes for all eleven: 0 nothing
-to review, 1 the run found something a person should look at (an
-invalid draft; a profile with drift; a new pattern proposal; an
+gate-evidence-compiler, plus spec-reader, rule-recovery and modeler):
+0 nothing to review, 1 the run found something a person should look at
+(an invalid draft; a profile with drift; a new pattern proposal; an
 untraced rejection code or an unrouted T-SQL line; a breaking CDM
 change request or a rule tagged CONFIRM_WITH_LOADER; a dq_rule this
 agent could not synthesize a branch for; an exception code with no
 taxonomy entry; a record-length or code-set drift against the spec; a
 dual-run difference this agent could not explain; a gate criterion with
-no evidence), 2 the run could not start.
+no evidence), 2 the run could not start. docs-writer is not a draft
+agent — it renders straight into `docs/`, the way `astra-spec cdm
+render` and `astra-data reference|gold render` already do, so its exit
+codes match theirs instead: 0 rendered (or, with `--check`, already
+current), 1 with `--check` when a doc is missing or stale, 2 the run
+could not start.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ import sys
 from pathlib import Path
 
 from astra_agents.break_explainer import BreakExplainerError, run as run_break_explainer, write_draft as write_explain_draft
+from astra_agents.docs_writer import DocsWriterError, check_rendered as check_rendered_docs, load_compiled_configs, write_rendered as write_rendered_docs
 from astra_agents.dq_generator import DqGeneratorError, run as run_dq_generator, write_draft as write_dq_draft
 from astra_agents.drift_watcher import DriftWatcherError, run as run_drift_watcher, write_draft as write_drift_draft
 from astra_agents.exception_triage import AUTO_APPLY_CONFIDENCE, ExceptionTriageError, record_decision, run as run_exception_triage, write_draft as write_triage_draft
@@ -327,6 +334,36 @@ def cmd_gate_evidence_compiler_record_approval(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_docs_writer_render(args: argparse.Namespace) -> int:
+    try:
+        configs = load_compiled_configs(args.paths, specs_dir=Path(args.specs), rules_dir=Path(args.rules), domains_dir=Path(args.domains), root=Path(args.root))
+    except DocsWriterError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out)
+    if args.check:
+        problems = check_rendered_docs(configs, out, repo_root=Path(args.root))
+        if problems:
+            if args.json:
+                print(json.dumps([{"path": p.path, "message": p.message} for p in problems], indent=2))
+            else:
+                for p in problems:
+                    print(p.format())
+                print(f"{len(problems)} doc file(s) out of date; run astra-agents docs-writer render")
+            return 1
+        if not args.json:
+            print(f"docs are current for {len(configs)} source(s)")
+        return 0
+    written = write_rendered_docs(configs, out)
+    if args.json:
+        print(json.dumps([str(p) for p in written], indent=2))
+    else:
+        print(f"rendered {len(written)} doc(s) for {len(configs)} source(s) -> {out}")
+        for path in written:
+            print(f"  {path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -498,6 +535,20 @@ def build_parser() -> argparse.ArgumentParser:
     gca.add_argument("--approver", required=True, help="who approved it")
     gca.add_argument("--note", help="an optional note")
     gca.set_defaults(func=cmd_gate_evidence_compiler_record_approval)
+
+    dcw = sub.add_parser("docs-writer", help="a per-source doc rendered from its own already-approved config, spec, taxonomy and rule catalog; not a draft, like astra-spec cdm render")
+    dcwsub = dcw.add_subparsers(dest="docs_writer_command", required=True)
+
+    dcwr = dcwsub.add_parser("render", help="render every source's doc under --out; --check fails when one is missing or stale instead of writing it")
+    dcwr.add_argument("paths", nargs="*", default=["configs"], help="config files or directories (default: configs)")
+    dcwr.add_argument("--specs", default="specs", help="the spec registry directory (default: specs)")
+    dcwr.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+    dcwr.add_argument("--domains", default="domains", help="the domain packs directory (default: domains)")
+    dcwr.add_argument("--root", default=".", help="repository root used to display paths (default: current directory)")
+    dcwr.add_argument("--out", default="docs/runbooks/sources", help="docs are written here, one file per source (default: docs/runbooks/sources)")
+    dcwr.add_argument("--check", action="store_true", help="fail when a doc is missing or stale instead of writing it")
+    dcwr.add_argument("--json", action="store_true")
+    dcwr.set_defaults(func=cmd_docs_writer_render)
 
     return parser
 
