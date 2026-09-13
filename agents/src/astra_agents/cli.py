@@ -1,16 +1,16 @@
 """Command line: `astra-agents spec-reader run`, `astra-agents profiler run`,
-`astra-agents pattern-matcher run`, `astra-agents rule-recovery run` and
-`astra-agents modeler run`.
+`astra-agents pattern-matcher run`, `astra-agents rule-recovery run`,
+`astra-agents modeler run` and `astra-agents dq-generator run`.
 
 Needs no Snowflake connection. spec-reader's, rule-recovery's and
 modeler's real Anthropic API calls need ANTHROPIC_API_KEY in the
 environment (every AnthropicClient class reads it the way the anthropic
-SDK always does); profiler and pattern-matcher are plain deterministic
-code, reading only the files given on the command line. Exit codes for
-all five: 0 nothing to review, 1 the run found something a person
-should look at (an invalid draft; a profile with drift; a new pattern
-proposal; an untraced rejection code or an unrouted T-SQL line; a
-breaking CDM change request or a rule tagged CONFIRM_WITH_LOADER), 2
+SDK always does); profiler, pattern-matcher and dq-generator are plain
+deterministic code, reading only the files given on the command line.
+Exit codes for all six: 0 nothing to review, 1 the run found something
+a person should look at (an invalid draft; a profile with drift; a new
+pattern proposal; an untraced rejection code or an unrouted T-SQL line;
+a breaking CDM change request or a rule tagged CONFIRM_WITH_LOADER), 2
 the run could not start.
 """
 
@@ -22,6 +22,7 @@ import os
 import sys
 from pathlib import Path
 
+from astra_agents.dq_generator import DqGeneratorError, run as run_dq_generator, write_draft as write_dq_draft
 from astra_agents.modeler import DEFAULT_MODEL as MODELER_DEFAULT_MODEL, MAX_TOKENS as MODELER_MAX_TOKENS
 from astra_agents.modeler import AnthropicClient as ModelerClient
 from astra_agents.modeler import ModelerError, load_domain_pack, load_known_rule_ids
@@ -169,6 +170,25 @@ def cmd_modeler_run(args: argparse.Namespace) -> int:
     return 0 if draft.ok else 1
 
 
+def cmd_dq_generator_run(args: argparse.Namespace) -> int:
+    try:
+        draft = run_dq_generator(Path(args.spec), targets_path=Path(args.targets) if args.targets else None)
+    except DqGeneratorError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out) / draft.spec_id / draft.spec_version
+    report_path, _data_path = write_dq_draft(draft, out)
+    if args.json:
+        print(json.dumps(draft.to_dict(), indent=2))
+    else:
+        by_category = draft.by_category
+        print(f"{draft.spec_id} {draft.spec_version}: {len(draft.rules)} rule(s), valid: {'yes' if draft.valid else 'no'}")
+        for category in ("control_total", "sign_field", "date", "key", "pairing"):
+            print(f"  {category}: {len(by_category[category])}")
+        print(f"  report: {report_path}")
+    return 0 if draft.valid else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -253,6 +273,16 @@ def build_parser() -> argparse.ArgumentParser:
     mdr.add_argument("--out", default=os.environ.get("ASTRA_MODELER_OUT", "work/modeler"), help="the draft is written under <out>/<spec id>/<spec version>/ (default: work/modeler)")
     mdr.add_argument("--json", action="store_true")
     mdr.set_defaults(func=cmd_modeler_run)
+
+    dq = sub.add_parser("dq-generator", help="file, record and pair-level DQ rules proposed from a Source Spec")
+    dqsub = dq.add_subparsers(dest="dq_generator_command", required=True)
+
+    dqr = dqsub.add_parser("run", help="propose DQ rules from a Source Spec; deterministic, no model call")
+    dqr.add_argument("--spec", required=True, help="path to the Source Spec YAML file")
+    dqr.add_argument("--targets", help="a client's own severity targets by category (control_total, sign_field, date, key, pairing); default severity is error when not given")
+    dqr.add_argument("--out", default="work/dq-generator", help="the draft is written under <out>/<spec id>/<spec version>/ (default: work/dq-generator)")
+    dqr.add_argument("--json", action="store_true")
+    dqr.set_defaults(func=cmd_dq_generator_run)
 
     return parser
 

@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers. Today: the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044) and the Modeler (S5.5.1, ADR 0045). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers. Today: the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045) and the DQ Generator (S5.6.1, ADR 0046). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
 
 ```bash
 cd agents
@@ -74,6 +74,18 @@ astra-agents modeler run --spec specs/pershing_gcus/2017-07-25.yaml --domain dom
 Writes `report.md` next to `report.json` (and any new rule proposed, as a real `rules/<group>/<name>.yaml`) under `work/modeler/<spec id>/<spec version>/`. Exit 0 means nothing needs a look; exit 1 means an invalid mapping, a breaking CDM change request, or a rule tagged CONFIRM_WITH_LOADER.
 
 The real model call sits behind `astra_agents.modeler.LlmClient`, the same shape Spec Reader's and Rule Recovery's use; every test implements it with a fake. `agents/examples/modeler/` scores mapping precision/recall against the real, human-written `configs/examples/pershing_position.yaml` — illustrative predictions, the same as Spec Reader's own example, since a real model run needs a live account this session does not have (ADR 0045).
+
+## DQ Generator
+
+File, record and pair-level DQ rules proposed straight from a Source Spec's own structure: a trailer's control total, a sign field's declared codes, a date field, a merge or pairing's natural key, a pairing's completeness. Deterministic — no model call, no credentials. Severity defaults to `error` (the same fallback `astra_data.dq` already uses) unless a client's own `--targets` file overrides it by category; nothing is ever a fabricated threshold.
+
+```bash
+astra-agents dq-generator run --spec specs/pershing_gcus/2017-07-25.yaml
+```
+
+Writes `report.md`, `report.json` and a paste-ready `dq_rules.yaml` under `work/dq-generator/<spec id>/<spec version>/`. Exit 0 means every generated rule is valid against the real config schema.
+
+No eval gold set: this story's acceptance criteria are behavioral (which rule categories are generated for GCUS), the same shape Profiler's and Rule Recovery's own acceptance criteria took, both without a formal `eval.yaml` either (ADR 0046).
 
 ## Evaluation
 

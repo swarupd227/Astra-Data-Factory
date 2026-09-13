@@ -1,11 +1,14 @@
 """Astra Data Factory agents plane (E5).
 
 Today: the Spec Reader (S5.1.1), the Profiler (S5.2.1), the Pattern
-Matcher (S5.3.1), Rule Recovery (S5.4.1) and the Modeler (S5.5.1). Each
-agent is a bounded worker; every one is scored against its own gold set
-by astra_verification.agent_eval (S4.3.4).
+Matcher (S5.3.1), Rule Recovery (S5.4.1), the Modeler (S5.5.1) and the
+DQ Generator (S5.6.1). Each agent is a bounded worker; every one is
+scored against its own gold set by astra_verification.agent_eval
+(S4.3.4).
 """
 
+from astra_agents.dq_generator import DqDraft, DqGeneratorError, DqRule
+from astra_agents.dq_generator import run as run_dq_generator
 from astra_agents.modeler import CdmChangeRequest, ConfigDraft, ModelerError
 from astra_agents.modeler import AnthropicClient as ModelerClient
 from astra_agents.modeler import run as run_modeler
@@ -24,6 +27,9 @@ __all__ = [
     "CdmChangeRequest",
     "ConfigDraft",
     "ConnectionTestResult",
+    "DqDraft",
+    "DqGeneratorError",
+    "DqRule",
     "DraftEntry",
     "DraftSpec",
     "Extraction",
@@ -43,6 +49,7 @@ __all__ = [
     "SpecReaderError",
     "build_draft",
     "run",
+    "run_dq_generator",
     "run_modeler",
     "run_pattern_matcher",
     "run_profiler",
