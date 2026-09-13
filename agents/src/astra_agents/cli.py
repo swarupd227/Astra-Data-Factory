@@ -1,15 +1,17 @@
 """Command line: `astra-agents spec-reader run`, `astra-agents profiler run`,
-`astra-agents pattern-matcher run` and `astra-agents rule-recovery run`.
+`astra-agents pattern-matcher run`, `astra-agents rule-recovery run` and
+`astra-agents modeler run`.
 
-Needs no Snowflake connection. spec-reader's and rule-recovery's real
-Anthropic API calls need ANTHROPIC_API_KEY in the environment (both
-AnthropicClient classes read it the way the anthropic SDK always does);
-profiler and pattern-matcher are plain deterministic code, reading only
-the files given on the command line. Exit codes for all four: 0 nothing
-to review, 1 the run found something a person should look at (an
-invalid draft; a profile with drift; a new pattern proposal; an
-untraced rejection code or an unrouted T-SQL line), 2 the run could not
-start.
+Needs no Snowflake connection. spec-reader's, rule-recovery's and
+modeler's real Anthropic API calls need ANTHROPIC_API_KEY in the
+environment (every AnthropicClient class reads it the way the anthropic
+SDK always does); profiler and pattern-matcher are plain deterministic
+code, reading only the files given on the command line. Exit codes for
+all five: 0 nothing to review, 1 the run found something a person
+should look at (an invalid draft; a profile with drift; a new pattern
+proposal; an untraced rejection code or an unrouted T-SQL line; a
+breaking CDM change request or a rule tagged CONFIRM_WITH_LOADER), 2
+the run could not start.
 """
 
 from __future__ import annotations
@@ -20,6 +22,11 @@ import os
 import sys
 from pathlib import Path
 
+from astra_agents.modeler import DEFAULT_MODEL as MODELER_DEFAULT_MODEL, MAX_TOKENS as MODELER_MAX_TOKENS
+from astra_agents.modeler import AnthropicClient as ModelerClient
+from astra_agents.modeler import ModelerError, load_domain_pack, load_known_rule_ids
+from astra_agents.modeler import load_spec as load_modeler_spec
+from astra_agents.modeler import run as run_modeler, write_draft as write_modeler_draft
 from astra_agents.pattern_matcher import FAMILY_THRESHOLD, PatternMatcherError, load_registry, run as run_pattern_matcher, write_assignments
 from astra_agents.profiler import TOP_N, ProfilerError, load_spec, run as run_profiler, write_profile
 from astra_agents.rule_recovery import DEFAULT_MODEL as RULE_RECOVERY_DEFAULT_MODEL, MAX_TOKENS as RULE_RECOVERY_MAX_TOKENS
@@ -138,6 +145,30 @@ def cmd_rule_recovery_run(args: argparse.Namespace) -> int:
     return 0 if draft.ok else 1
 
 
+def cmd_modeler_run(args: argparse.Namespace) -> int:
+    try:
+        spec = load_modeler_spec(Path(args.spec))
+        pack = load_domain_pack(Path(args.domain))
+        known_rule_ids = load_known_rule_ids(Path(args.rules)) if args.rules else frozenset()
+        client = ModelerClient(model=args.model, max_tokens=args.max_tokens)
+        draft = run_modeler(spec, pack, client, custodian=args.custodian, group=args.group or spec.id, owner_name=args.owner_name, owner_email=args.owner_email, tier=args.tier, known_rule_ids=known_rule_ids)
+    except ModelerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out) / spec.id / spec.version
+    report_path, _data_path = write_modeler_draft(draft, out)
+    if args.json:
+        print(json.dumps(draft.to_dict(), indent=2))
+    else:
+        print(f"{spec.id} {spec.version} ({args.custodian}): {len(draft.mappings)} mapping(s), tier {draft.tier}, valid: {'yes' if draft.valid else 'no'}, ready to review: {'yes' if draft.ok else 'no'}")
+        if draft.breaking_change_requests:
+            print(f"  {len(draft.breaking_change_requests)} breaking CDM change request(s)")
+        if draft.confirm_with_loader:
+            print(f"  {len(draft.confirm_with_loader)} rule(s) tagged CONFIRM_WITH_LOADER")
+        print(f"  report: {report_path}")
+    return 0 if draft.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -204,6 +235,24 @@ def build_parser() -> argparse.ArgumentParser:
     rrr.add_argument("--out", default=os.environ.get("ASTRA_RULE_RECOVERY_OUT", "work/rule-recovery"), help="the draft is written under <out>/<group>/ (default: work/rule-recovery)")
     rrr.add_argument("--json", action="store_true")
     rrr.set_defaults(func=cmd_rule_recovery_run)
+
+    md = sub.add_parser("modeler", help="a Source Spec mapped to the canonical model, with resolution parameters, DQ suggestions and a draft config")
+    mdsub = md.add_subparsers(dest="modeler_command", required=True)
+
+    mdr = mdsub.add_parser("run", help="draft a config from a Source Spec; never writes into configs/ or the domain pack directly")
+    mdr.add_argument("--spec", required=True, help="path to the Source Spec YAML file to map")
+    mdr.add_argument("--domain", required=True, help="the domain pack directory (for example domains/custodial)")
+    mdr.add_argument("--rules", default="rules", help="the rule catalog directory, to check existing_rule references against (default: rules)")
+    mdr.add_argument("--custodian", required=True, help="the custodian this config is for")
+    mdr.add_argument("--group", help="catalog group for any new rule proposed (default: the spec id)")
+    mdr.add_argument("--tier", choices=["simple", "medium", "complex"], help="default: the Pattern Matcher's own assign_tier(spec)")
+    mdr.add_argument("--owner-name", required=True, help="who would confirm or reject a proposed rule")
+    mdr.add_argument("--owner-email", required=True)
+    mdr.add_argument("--model", default=os.environ.get("ASTRA_MODELER_MODEL", MODELER_DEFAULT_MODEL), help=f"the model to call (default {MODELER_DEFAULT_MODEL})")
+    mdr.add_argument("--max-tokens", type=int, default=int(os.environ.get("ASTRA_MODELER_MAX_TOKENS", MODELER_MAX_TOKENS)), help=f"raise this if the model's response is cut off before finishing (default {MODELER_MAX_TOKENS})")
+    mdr.add_argument("--out", default=os.environ.get("ASTRA_MODELER_OUT", "work/modeler"), help="the draft is written under <out>/<spec id>/<spec version>/ (default: work/modeler)")
+    mdr.add_argument("--json", action="store_true")
+    mdr.set_defaults(func=cmd_modeler_run)
 
     return parser
 

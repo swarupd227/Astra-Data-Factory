@@ -1,11 +1,14 @@
 """Astra Data Factory agents plane (E5).
 
 Today: the Spec Reader (S5.1.1), the Profiler (S5.2.1), the Pattern
-Matcher (S5.3.1) and Rule Recovery (S5.4.1). Each agent is a bounded
-worker; every one is scored against its own gold set by
-astra_verification.agent_eval (S4.3.4).
+Matcher (S5.3.1), Rule Recovery (S5.4.1) and the Modeler (S5.5.1). Each
+agent is a bounded worker; every one is scored against its own gold set
+by astra_verification.agent_eval (S4.3.4).
 """
 
+from astra_agents.modeler import CdmChangeRequest, ConfigDraft, ModelerError
+from astra_agents.modeler import AnthropicClient as ModelerClient
+from astra_agents.modeler import run as run_modeler
 from astra_agents.pattern_matcher import Assignment, FamilyMatch, PatternMatcherError
 from astra_agents.pattern_matcher import run as run_pattern_matcher
 from astra_agents.profiler import FieldProfile, Profile, ProfilerError, RecordProfile
@@ -18,6 +21,8 @@ from astra_agents.spec_reader import AnthropicClient, ConnectionTestResult, Draf
 __all__ = [
     "AnthropicClient",
     "Assignment",
+    "CdmChangeRequest",
+    "ConfigDraft",
     "ConnectionTestResult",
     "DraftEntry",
     "DraftSpec",
@@ -25,6 +30,8 @@ __all__ = [
     "FamilyMatch",
     "FieldProfile",
     "LlmClient",
+    "ModelerClient",
+    "ModelerError",
     "Page",
     "PatternMatcherError",
     "Profile",
@@ -36,6 +43,7 @@ __all__ = [
     "SpecReaderError",
     "build_draft",
     "run",
+    "run_modeler",
     "run_pattern_matcher",
     "run_profiler",
     "run_rule_recovery",

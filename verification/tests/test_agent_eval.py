@@ -222,10 +222,12 @@ def test_run_weekly_skips_an_agent_with_no_predictions_yet(tmp_path):
 def test_run_weekly_scores_the_example_and_reports_the_regression():
     report, problems = run_weekly(AGENTS_EXAMPLES, REPO)
     assert problems == []
-    assert [r.agent for r in report.results] == ["spec_reader"]
+    assert [r.agent for r in report.results] == ["modeler", "spec_reader"]
     assert report.skipped == ()
     assert report.all_passed is False
-    assert report.by_tier["medium"].recall == pytest.approx(8 / 9)
+    # medium tier, micro-averaged across both agents' own deliberately-imperfect examples:
+    # spec_reader's detail case (8/9) and modeler's config case (8/10).
+    assert report.by_tier["medium"].recall == pytest.approx(16 / 19)
 
 
 def test_write_weekly_report_writes_markdown_and_json(tmp_path):

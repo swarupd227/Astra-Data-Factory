@@ -1,0 +1,20 @@
+# Example predictions, committed only so `astra-verify agent-eval score|report` has something to
+# score in this repo's own CI smoke test. A real agent's predictions.yaml is produced fresh on
+# each run by that agent's own wrapper, not committed as fixed data.
+#
+# Deliberately imperfect: the not_null DQ suggestion for cusip and the security resolution
+# suggestion are both missing, so this example demonstrates a real regression — medium tier's
+# recall falls under its 90% threshold — the exact case S4.3.4 asks the harness to catch.
+predictions_version: 0
+agent: modeler
+run: illustrative-example
+predictions:
+  pershing_position_config:
+    - "map:position.account_number<-account_number"
+    - "map:position.custodian_security_id<-cusip"
+    - "map:position.as_of_date<-as_of_date"
+    - "map:position.quantity<-quantity~signed_implied_decimal(13, 5)"
+    - "map:position.price<-price~implied_decimal(6)"
+    - "map:position.position_type<-const:LONG"
+    - "map:position.currency<-const:USD"
+    - "resolution:account.source=account_number"

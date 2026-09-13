@@ -272,7 +272,7 @@ def _covers(citation: dict, file: str, line: int) -> bool:
 # -- assembling and validating the draft ---------------------------------------
 
 
-def _dedupe_name(name: str, taken: set[str]) -> str:
+def dedupe_name(name: str, taken: set[str]) -> str:
     candidate, n = name, 2
     while candidate in taken:
         candidate = f"{name}_{n}"
@@ -281,7 +281,7 @@ def _dedupe_name(name: str, taken: set[str]) -> str:
 
 
 def _translate_entry(raw: dict, *, group: str, owner: Owner, taken: set[str], at: datetime) -> "DraftEntry":
-    name = _dedupe_name(raw["name"], taken)
+    name = dedupe_name(raw["name"], taken)
     taken.add(name)
     citation_data = raw["citation"]
     citation = Citation("code", file=citation_data["file"], line=citation_data["line"], end_line=citation_data.get("end_line"))
@@ -298,10 +298,10 @@ def _translate_entry(raw: dict, *, group: str, owner: Owner, taken: set[str], at
         path=Path("rules") / group / f"{name}.yaml",
         tags=tags,
     )
-    return DraftEntry(rule=rule, rejection_codes=rejection_codes, candidate_tests=tuple(raw.get("candidate_tests") or ()), problems=tuple(validate_rule(_rule_to_dict(rule))))
+    return DraftEntry(rule=rule, rejection_codes=rejection_codes, candidate_tests=tuple(raw.get("candidate_tests") or ()), problems=tuple(validate_rule(rule_to_dict(rule))))
 
 
-def _rule_to_dict(rule: Rule) -> dict:
+def rule_to_dict(rule: Rule) -> dict:
     r: dict[str, Any] = {
         "id": rule.id,
         "text": rule.text,

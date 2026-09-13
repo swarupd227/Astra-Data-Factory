@@ -1,0 +1,32 @@
+# Example gold set. Validated in CI as a smoke test of the eval schema, against the real
+# pershing_gcus spec and the real configs/examples/pershing_position.yaml config already in this
+# repo — that config was written by a person, so its mappings, resolution and one of its
+# not_null-shaped DQ rules are the reviewed, correct answer here; never scored as a claim about
+# the real Modeler, because no Modeler agent existed until S5.5.1 built one.
+eval_version: 0
+agent: modeler
+description: >-
+  What the Modeler agent (S5.5.1) should draft from the pershing_gcus 2017-07-25 spec against
+  the custodial domain pack's canonical model: the same mappings, resolution and one DQ
+  suggestion configs/examples/pershing_position.yaml already carries, as canonical items.
+  thresholds are illustrative starting points, not a pilot-measured baseline.
+thresholds:
+  medium:
+    precision: 0.9
+    recall: 0.9
+
+cases:
+  - id: pershing_position_config
+    tier: medium
+    input: specs/pershing_gcus/2017-07-25.yaml + domains/custodial/cdm/1.0.yaml
+    expected:
+      - "map:position.account_number<-account_number"
+      - "map:position.custodian_security_id<-cusip"
+      - "map:position.as_of_date<-as_of_date"
+      - "map:position.quantity<-quantity~signed_implied_decimal(13, 5)"
+      - "map:position.price<-price~implied_decimal(6)"
+      - "map:position.position_type<-const:LONG"
+      - "map:position.currency<-const:USD"
+      - "resolution:account.source=account_number"
+      - "resolution:security.by=CUSIP:cusip"
+      - "dq:not_null:cusip"

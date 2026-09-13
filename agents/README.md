@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers. Today: the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043) and Rule Recovery (S5.4.1, ADR 0044). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers. Today: the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044) and the Modeler (S5.5.1, ADR 0045). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
 
 ```bash
 cd agents
@@ -62,6 +62,19 @@ Writes one `rules/<group>/<name>.yaml` per entry, next to `candidate_tests.yaml`
 
 The real model call sits behind `astra_agents.rule_recovery.LlmClient`, the same one-method-interface shape Spec Reader's `AnthropicClient` uses (needs `ANTHROPIC_API_KEY` and `pip install "astra-agents[llm]"`); every test implements it with a fake. `agents/examples/rule_recovery/java/` is a hand-authored, clearly labeled illustrative Splitter/Loader — no real Envestnet source exists in this repository yet (ADR 0044).
 
+## Modeler
+
+A Source Spec mapped to the domain pack's canonical model, with resolution parameters, a conservative set of DQ suggestions and a draft of the config the pipeline generator will eventually render from. A mapping can only target a real CDM column (a closed vocabulary read from the domain pack itself) and only use a transform the renderers actually implement; a field with no home in the model becomes a CDM change request, never a silent write to the model. A rule the mapping depends on that is not confidently supported by the spec alone is tagged `CONFIRM_WITH_LOADER`.
+
+```bash
+astra-agents modeler run --spec specs/pershing_gcus/2017-07-25.yaml --domain domains/custodial --rules rules \
+  --custodian pershing --owner-name "Data steward, custodial" --owner-email steward@example.com
+```
+
+Writes `report.md` next to `report.json` (and any new rule proposed, as a real `rules/<group>/<name>.yaml`) under `work/modeler/<spec id>/<spec version>/`. Exit 0 means nothing needs a look; exit 1 means an invalid mapping, a breaking CDM change request, or a rule tagged CONFIRM_WITH_LOADER.
+
+The real model call sits behind `astra_agents.modeler.LlmClient`, the same shape Spec Reader's and Rule Recovery's use; every test implements it with a fake. `agents/examples/modeler/` scores mapping precision/recall against the real, human-written `configs/examples/pershing_position.yaml` — illustrative predictions, the same as Spec Reader's own example, since a real model run needs a live account this session does not have (ADR 0045).
+
 ## Evaluation
 
 ```
@@ -80,6 +93,6 @@ astra-verify agent-eval report agents                                      # eve
 
 `score` exits 0 when every tier the agent's cases touch meets its own threshold and every case has a prediction; a tier below threshold, or a case with no prediction at all, fails the check and blocks release. `report` runs that same scoring for every agent under the directory that has both files, rolls precision and recall up by tier across every agent (micro-averaged: true positives, predicted and expected summed across the tier's cases before dividing, not the mean of each case's own rate — the same reason S4.2.2's parity report is weighted by rows), and is what `.github/workflows/agent-eval-weekly.yml` publishes every Monday.
 
-`agents/examples/spec_reader` is a worked example against the real `pershing_gcus` spec already in this repository — never a claim about the real Spec Reader above, but checked and scored by name in the test suite, and deliberately imperfect (one field is missing from its predictions) to show the gate catching a real regression. The Spec Reader's own gold set — reviewed, correct output for a real layout document — is not built yet: it needs a person to review a real extraction first (ADR 0041's own consequences).
+`agents/examples/spec_reader` is a worked example against the real `pershing_gcus` spec already in this repository — never a claim about the real Spec Reader above, but checked and scored by name in the test suite, and deliberately imperfect (one field is missing from its predictions) to show the gate catching a real regression. The Spec Reader's own gold set — reviewed, correct output for a real layout document — is not built yet: it needs a person to review a real extraction first (ADR 0041's own consequences). `agents/examples/modeler` is the same kind of stand-in, against the real `configs/examples/pershing_position.yaml` (ADR 0045), also deliberately imperfect.
 
 `agents/pattern_matcher/eval.yaml` and `predictions.yaml` are not a stand-in: they are the Pattern Matcher's real gold set, scored by the exact `score` command above, against `agents/pattern_matcher/gold/` — the real `specs/` registry with every family hidden but one sibling (ADR 0043).
