@@ -1,9 +1,12 @@
-"""Command line: `astra-agents spec-reader run <document> ...`.
+"""Command line: `astra-agents spec-reader run <document> ...` and `astra-agents profiler run <sample> ...`.
 
-Needs no Snowflake connection; the real Anthropic API needs ANTHROPIC_API_KEY
-in the environment (astra_agents.spec_reader.AnthropicClient reads it the way
-the anthropic SDK always does). Exit codes: 0 a valid draft, 1 the draft has
-schema problems, 2 the run could not start.
+Needs no Snowflake connection. spec-reader's real Anthropic API call needs
+ANTHROPIC_API_KEY in the environment (astra_agents.spec_reader.AnthropicClient
+reads it the way the anthropic SDK always does); profiler is plain
+deterministic code, reading only the sample file and spec given on the
+command line. Exit codes for both: 0 nothing to review, 1 the run found
+something a person should look at (an invalid draft; a profile with drift),
+2 the run could not start.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import os
 import sys
 from pathlib import Path
 
+from astra_agents.profiler import TOP_N, ProfilerError, load_spec, run as run_profiler, write_profile
 from astra_agents.spec_reader import DEFAULT_MODEL, MAX_TOKENS, AnthropicClient, SpecReaderError, run as run_spec_reader, write_draft
 
 
@@ -66,6 +70,26 @@ def cmd_spec_reader_run(args: argparse.Namespace) -> int:
     return 0 if draft.valid else 1
 
 
+def cmd_profiler_run(args: argparse.Namespace) -> int:
+    try:
+        spec = load_spec(Path(args.spec))
+        profile = run_profiler(Path(args.sample), spec, top_n=args.top_n)
+    except ProfilerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out) / profile.spec_id / profile.spec_version
+    report_path, _data_path = write_profile(profile, out)
+    if args.json:
+        print(json.dumps(profile.to_dict(), indent=2))
+    else:
+        print(f"{profile.spec_id} {profile.spec_version}: {profile.lines} line(s), {len(profile.records)} record type(s), drift: {'yes' if not profile.ok else 'no'}")
+        if profile.flagged:
+            for label, name in profile.flagged:
+                print(f"  flagged: {label}.{name}")
+        print(f"  report: {report_path}")
+    return 0 if profile.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -95,6 +119,17 @@ def build_parser() -> argparse.ArgumentParser:
     srr.add_argument("--out", default=os.environ.get("ASTRA_SPEC_READER_OUT", "work/spec-reader"), help="the draft is written under <out>/<id>/<version>/ (default: work/spec-reader)")
     srr.add_argument("--json", action="store_true")
     srr.set_defaults(func=cmd_spec_reader_run)
+
+    pr = sub.add_parser("profiler", help="a sample file profiled for types, nulls, value sets and record types, with drift against the spec flagged")
+    prsub = pr.add_subparsers(dest="profiler_command", required=True)
+
+    prr = prsub.add_parser("run", help="profile a fixed-width sample against a Source Spec; read-only, writes no registry change")
+    prr.add_argument("sample", help="the fixed-width sample file")
+    prr.add_argument("--spec", required=True, help="path to the Source Spec YAML file to profile against")
+    prr.add_argument("--top-n", type=int, default=TOP_N, help=f"how many of each field's most common values to keep (default {TOP_N})")
+    prr.add_argument("--out", default=os.environ.get("ASTRA_PROFILER_OUT", "work/profiler"), help="the report is written under <out>/<spec id>/<spec version>/ (default: work/profiler)")
+    prr.add_argument("--json", action="store_true")
+    prr.set_defaults(func=cmd_profiler_run)
 
     return parser
 

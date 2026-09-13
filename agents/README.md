@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers. Today: the Spec Reader (S5.1.1, ADR 0041). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers. Today: the Spec Reader (S5.1.1, ADR 0041) and the Profiler (S5.2.1, ADR 0042). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
 
 ```bash
 cd agents
@@ -23,6 +23,18 @@ astra-agents spec-reader run GCUS.pdf \
 `test-connection` lists the account's models (free, generates nothing) to prove the key authenticates and the configured model is available, without ever sending a document. `run` writes `spec.yaml` next to `report.md` / `report.json` under `work/spec-reader/<id>/<version>/`. The draft is never written into `specs/` directly — "agents propose, humans approve" — promoting it is a person's decision after reviewing the report's citation coverage and unparsed list.
 
 The real model call sits behind `astra_agents.spec_reader.LlmClient`, a one-method interface: `AnthropicClient` implements it against the real Anthropic API (needs `ANTHROPIC_API_KEY` in the environment and `pip install "astra-agents[llm]"`); every test in this story implements it with a fake returning a canned response, the same way every Snowflake-touching command in `astra_verification` is tested against a fake executor rather than a live account.
+
+## Profiler
+
+A fixed-width sample file profiled against a Source Spec already in the registry: record-type counts, per-field null rate, distinct values, top values, and any field whose observed data does not fit the type the spec declares for it, flagged with a citation to the offending line. Read-only — it never writes into the registry, never touches production data.
+
+```bash
+astra-agents profiler run sample.dat --spec specs/pershing_gcus/2017-07-25.yaml
+```
+
+Writes `report.md` next to `report.json` under `work/profiler/<spec id>/<spec version>/`. Exit 0 means nothing to review; exit 1 means a field is flagged or a record type is missing.
+
+No LLM, no credentials: the agent reuses `astra_knowledge.patterns.fixed_width.parse_fixed_width`, the same reference parser generation and verification are held to, and reads "observed type disagrees with the spec" straight off that parser's own field-level conversion problems (ADR 0042) rather than a second, parallel reading of the file. `agents/examples/profiler/` is a self-contained, committed 750-character example with two deliberately corrupted values, so the flagging behavior can be seen without a real document.
 
 ## Evaluation
 

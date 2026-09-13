@@ -1,0 +1,122 @@
+# Source Spec: illustrative 750-character fixed-width layout, built for the
+# Profiler's own example and tests (S5.2.1) — not a real custodian's spec and
+# never promoted into specs/. It exists so the story's "profile produced for
+# a 750-char fixed-width sample" acceptance criterion has a real, reproducible
+# fixture instead of relying on a document only present on one machine.
+spec_version: 0
+
+spec:
+  id: profiler_demo
+  version: "2026-01-01"
+  effective_from: 2026-01-01
+  file_type: position
+  custodians: [demo]
+  description: Illustrative wide position file used to demonstrate and test the Profiler.
+
+document:
+  title: Profiler demo layout
+  reference: illustrative, no real document
+
+file:
+  format: fixed_width
+  record_length: 750
+  encoding: ASCII
+  line_ending: any
+
+records:
+  - type: header
+    match: { position: { start: 1, length: 3 }, value: HDR }
+    fields:
+      - name: record_type
+        position: { start: 1, length: 3 }
+        picture: X(3)
+        type: code
+        citation: { document: illustrative, page: 1 }
+        codes:
+          - { value: HDR, meaning: header record }
+      - name: file_date
+        position: { start: 4, length: 8 }
+        picture: 9(8)
+        type: date
+        format: YYYYMMDD
+        citation: { document: illustrative, page: 1 }
+      - name: filler
+        position: { start: 12, length: 739 }
+        picture: X(739)
+        citation: { document: illustrative, page: 1 }
+
+  - type: detail
+    match: { position: { start: 1, length: 3 }, value: DTL }
+    fields:
+      - name: record_type
+        position: { start: 1, length: 3 }
+        picture: X(3)
+        type: code
+        citation: { document: illustrative, page: 2 }
+        codes:
+          - { value: DTL, meaning: position detail }
+      - name: account_number
+        position: { start: 4, length: 10 }
+        picture: X(10)
+        required: true
+        citation: { document: illustrative, page: 2 }
+      - name: cusip
+        position: { start: 14, length: 9 }
+        picture: X(9)
+        required: true
+        citation: { document: illustrative, page: 2 }
+      - name: quantity
+        position: { start: 23, length: 18 }
+        picture: 9(13)V9(5)
+        sign_field: quantity_sign
+        citation: { document: illustrative, page: 2 }
+      - name: quantity_sign
+        position: { start: 41, length: 1 }
+        picture: X(1)
+        type: code
+        citation: { document: illustrative, page: 2 }
+        codes:
+          - { value: "+", meaning: long, sign: positive }
+          - { value: "-", meaning: short, sign: negative }
+      - name: price
+        position: { start: 42, length: 15 }
+        picture: 9(9)V9(6)
+        citation: { document: illustrative, page: 2 }
+      - name: as_of_date
+        position: { start: 57, length: 8 }
+        picture: 9(8)
+        type: date
+        format: YYYYMMDD
+        citation: { document: illustrative, page: 2 }
+      - name: security_type
+        position: { start: 65, length: 2 }
+        picture: X(2)
+        type: code
+        citation: { document: illustrative, page: 2 }
+        codes:
+          - { value: EQ, meaning: equity }
+          - { value: FI, meaning: fixed income }
+          - { value: MF, meaning: mutual fund }
+      - name: filler
+        position: { start: 67, length: 684 }
+        picture: X(684)
+        citation: { document: illustrative, page: 2 }
+
+  - type: trailer
+    match: { position: { start: 1, length: 3 }, value: TRL }
+    fields:
+      - name: record_type
+        position: { start: 1, length: 3 }
+        picture: X(3)
+        type: code
+        citation: { document: illustrative, page: 3 }
+        codes:
+          - { value: TRL, meaning: trailer record }
+      - name: detail_count
+        position: { start: 4, length: 9 }
+        picture: 9(9)
+        citation: { document: illustrative, page: 3 }
+      - name: filler
+        position: { start: 13, length: 738 }
+        picture: X(738)
+        citation: { document: illustrative, page: 3 }
