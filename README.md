@@ -2,7 +2,7 @@
 
 An Artizent platform where agents generate, test and operate data pipelines, migrations and data quality, and people approve. Give it a source description, a target profile and a domain pack; it produces running, tested, governed pipelines with the evidence behind them.
 
-Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). Backlog: [docs/backlog-v0.2.md](docs/backlog-v0.2.md). Decisions: [docs/adr](docs/adr).
+Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). Backlog: [docs/backlog-v0.2.md](docs/backlog-v0.2.md). Decisions: [docs/adr](docs/adr). UX research: [docs/ux](docs/ux).
 
 ## Repository layout
 
@@ -25,7 +25,7 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | `infra/terraform/bootstrap` | Control (E1) | Once per AWS account: the bucket that holds Terraform state for every environment |
 | `tools/opencatalog` | Control (E1) | Provisions and verifies Snowflake Open Catalog, which has no Terraform provider |
 | `.github` | Control (E1) | `ci` on every pull request; `deploy` to dev on merge and to qa on approval |
-| `docs` | | Specification, backlog, architecture decision records and runbooks |
+| `docs` | | Specification, backlog, architecture decision records and runbooks. `docs/ux` holds UX research drafts awaiting real stakeholder validation (personas and task flows today) — clearly marked as drafts, never as a completed story on their own |
 
 The workbench (Control, E1) is added as its own epic starts.
 
