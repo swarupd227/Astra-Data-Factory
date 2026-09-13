@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047), Exception Triage (S5.8.1, ADR 0048) and the Drift Watcher (S5.9.1, ADR 0049), with more of the Agents plane (E5) still to come (F5.10-F5.13). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047), Exception Triage (S5.8.1, ADR 0048), the Drift Watcher (S5.9.1, ADR 0049) and the Parity / Break Explainer (S5.10.1, ADR 0050), with more of the Agents plane (E5) still to come (F5.11-F5.13). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
 
 ```bash
 cd agents
@@ -124,6 +124,19 @@ Writes `report.md` and `report.json` under `work/drift-watcher/<spec id>/<spec v
 
 Both detectors reuse `astra_knowledge.patterns.fixed_width.record_type_of`, the same function the reference parser itself uses, so a field is read from the position its own record type declares even after a file has grown a few characters longer. `agents/examples/drift_watcher/` is the real, committed `pershing_gcus` spec against a clean baseline sample and a sample with both an injected record-length change and an injected new code, exactly the way the product spec's own test methodology describes (ADR 0049).
 
+## Parity / Break Explainer
+
+Every dual-run difference explained by rule, field and cause. Reuses `astra_verification.parity.compare_rows` to find differences and `astra_data.compiler.compile_config` to resolve each field's own rule — this agent's only new work is classifying *why*, from the mapping's own structure (a transform, a resolution column, no mapping at all, or genuinely unexplained), and citing the rule when there is one.
+
+```bash
+astra-agents break-explainer run --config configs/examples/pershing_position.yaml --parity golden/pershing/parity.yaml \
+  --legacy legacy_rows.csv --lakehouse lakehouse_rows.csv --business-date 2026-09-01
+```
+
+Writes `report.md` and `report.json` under `work/break-explainer/<custodian>/<business date>/`. Exit 0 means every difference was explained.
+
+No LLM: cause is one of four structural signals, checked in a fixed order so a column that is both a real mapping and a resolution column (`CUSTODIAN_SECURITY_ID` in the real example) is not misclassified. `agents/break_explainer/` is a real gold set — scored against the real `configs/examples/pershing_position.yaml`, `golden/pershing/parity.yaml` and rule catalog — with a committed illustrative row fixture standing in for a real dual-run, since no captured golden dataset with real differences exists in this repository yet (ADR 0050).
+
 ## Evaluation
 
 ```
@@ -144,4 +157,4 @@ astra-verify agent-eval report agents                                      # eve
 
 `agents/examples/spec_reader` is a worked example against the real `pershing_gcus` spec already in this repository — never a claim about the real Spec Reader above, but checked and scored by name in the test suite, and deliberately imperfect (one field is missing from its predictions) to show the gate catching a real regression. The Spec Reader's own gold set — reviewed, correct output for a real layout document — is not built yet: it needs a person to review a real extraction first (ADR 0041's own consequences). `agents/examples/modeler` is the same kind of stand-in, against the real `configs/examples/pershing_position.yaml` (ADR 0045), also deliberately imperfect.
 
-`agents/pattern_matcher/eval.yaml` and `predictions.yaml` are not a stand-in: they are the Pattern Matcher's real gold set, scored by the exact `score` command above, against `agents/pattern_matcher/gold/` — the real `specs/` registry with every family hidden but one sibling (ADR 0043). `agents/test_generator/eval.yaml` and `predictions.yaml` are the same: a real gold set scoring branch coverage against the real, already-committed `configs/examples/pershing_position.yaml` (ADR 0047).
+`agents/pattern_matcher/eval.yaml` and `predictions.yaml` are not a stand-in: they are the Pattern Matcher's real gold set, scored by the exact `score` command above, against `agents/pattern_matcher/gold/` — the real `specs/` registry with every family hidden but one sibling (ADR 0043). `agents/test_generator/eval.yaml` and `predictions.yaml` are the same: a real gold set scoring branch coverage against the real, already-committed `configs/examples/pershing_position.yaml` (ADR 0047). `agents/break_explainer/eval.yaml` and `predictions.yaml` score against that same real config plus the real `golden/pershing/parity.yaml` and rule catalog (ADR 0050).

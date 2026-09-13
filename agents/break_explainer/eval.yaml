@@ -1,0 +1,26 @@
+# The Break Explainer's real gold set (S5.10.1, ADR 0050) — like agents/pattern_matcher and
+# agents/test_generator, this is not a stand-in: it scores against the real, already-committed
+# configs/examples/pershing_position.yaml, golden/pershing/parity.yaml and rule catalog, with a
+# committed, clearly-labeled illustrative row fixture (agents/examples/break_explainer/) standing
+# in for a real dual-run, since no real captured dataset with real differences exists in this
+# repository (no `astra-verify golden capture` has ever been run here).
+eval_version: 0
+agent: break_explainer
+description: >-
+  Every difference between the illustrative legacy and lakehouse row sets should be explained,
+  and the one field whose mapping is governed by a real rule catalog entry (QUANTITY) should cite
+  it by id. thresholds are illustrative starting points, not a pilot-measured baseline.
+thresholds:
+  medium:
+    precision: 1.0
+    recall: 1.0
+
+cases:
+  - id: pershing_2026_09_01
+    tier: medium
+    input: configs/examples/pershing_position.yaml + golden/pershing/parity.yaml + agents/examples/break_explainer/
+    expected:
+      - "explained:QUANTITY"
+      - "explained:PRICE"
+      - "explained:MARKET_VALUE"
+      - "rule:QUANTITY=pershing_gcus.quantity_sign"

@@ -1,0 +1,16 @@
+# A real run of astra_agents.break_explainer against the real configs/examples/
+# pershing_position.yaml, golden/pershing/parity.yaml and rule catalog, with the committed
+# agents/examples/break_explainer/ row fixture (`astra-agents break-explainer run --config
+# configs/examples/pershing_position.yaml --parity golden/pershing/parity.yaml --legacy
+# agents/examples/break_explainer/legacy_rows.csv --lakehouse
+# agents/examples/break_explainer/lakehouse_rows.csv --business-date 2026-09-01 --json`),
+# transcribed into eval.yaml's canonical items — not hand-typed to match.
+predictions_version: 0
+agent: break_explainer
+run: real-2026-09-13
+predictions:
+  pershing_2026_09_01:
+    - "explained:QUANTITY"
+    - "explained:PRICE"
+    - "explained:MARKET_VALUE"
+    - "rule:QUANTITY=pershing_gcus.quantity_sign"

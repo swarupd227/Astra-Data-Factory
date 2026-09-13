@@ -1,22 +1,23 @@
 """Command line: `astra-agents spec-reader run`, `astra-agents profiler run`,
 `astra-agents pattern-matcher run`, `astra-agents rule-recovery run`,
 `astra-agents modeler run`, `astra-agents dq-generator run`,
-`astra-agents test-generator run`, `astra-agents exception-triage run`
-and `astra-agents drift-watcher run`.
+`astra-agents test-generator run`, `astra-agents exception-triage run`,
+`astra-agents drift-watcher run` and `astra-agents break-explainer run`.
 
 Needs no Snowflake connection. spec-reader's, rule-recovery's and
 modeler's real Anthropic API calls need ANTHROPIC_API_KEY in the
 environment (every AnthropicClient class reads it the way the anthropic
 SDK always does); profiler, pattern-matcher, dq-generator,
-test-generator, exception-triage and drift-watcher are plain
-deterministic code, reading only the files given on the command line.
-Exit codes for all nine: 0 nothing to review, 1 the run found something
-a person should look at (an invalid draft; a profile with drift; a new
-pattern proposal; an untraced rejection code or an unrouted T-SQL line;
-a breaking CDM change request or a rule tagged CONFIRM_WITH_LOADER; a
-dq_rule this agent could not synthesize a branch for; an exception code
-with no taxonomy entry; a record-length or code-set drift against the
-spec), 2 the run could not start.
+test-generator, exception-triage, drift-watcher and break-explainer are
+plain deterministic code, reading only the files given on the command
+line. Exit codes for all ten: 0 nothing to review, 1 the run found
+something a person should look at (an invalid draft; a profile with
+drift; a new pattern proposal; an untraced rejection code or an
+unrouted T-SQL line; a breaking CDM change request or a rule tagged
+CONFIRM_WITH_LOADER; a dq_rule this agent could not synthesize a branch
+for; an exception code with no taxonomy entry; a record-length or
+code-set drift against the spec; a dual-run difference this agent could
+not explain), 2 the run could not start.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import os
 import sys
 from pathlib import Path
 
+from astra_agents.break_explainer import BreakExplainerError, run as run_break_explainer, write_draft as write_explain_draft
 from astra_agents.dq_generator import DqGeneratorError, run as run_dq_generator, write_draft as write_dq_draft
 from astra_agents.drift_watcher import DriftWatcherError, run as run_drift_watcher, write_draft as write_drift_draft
 from astra_agents.exception_triage import AUTO_APPLY_CONFIDENCE, ExceptionTriageError, record_decision, run as run_exception_triage, write_draft as write_triage_draft
@@ -261,6 +263,34 @@ def cmd_drift_watcher_run(args: argparse.Namespace) -> int:
     return 0 if draft.ok else 1
 
 
+def cmd_break_explainer_run(args: argparse.Namespace) -> int:
+    try:
+        draft = run_break_explainer(
+            Path(args.config),
+            Path(args.parity),
+            Path(args.legacy),
+            Path(args.lakehouse),
+            args.business_date,
+            specs_dir=Path(args.specs),
+            rules_dir=Path(args.rules),
+            domains_dir=Path(args.domains),
+        )
+    except BreakExplainerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out) / draft.custodian / draft.business_date
+    report_path, _data_path = write_explain_draft(draft, out)
+    if args.json:
+        print(json.dumps(draft.to_dict(), indent=2))
+    else:
+        print(f"{draft.custodian} {draft.business_date}: {len(draft.explanations)} difference(s), {draft.explained_count} explained ({draft.explained_rate:.0%})")
+        for cause, items in draft.by_cause.items():
+            if items:
+                print(f"  {cause}: {len(items)}")
+        print(f"  report: {report_path}")
+    return 0 if draft.explained_rate == 1.0 else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -393,6 +423,22 @@ def build_parser() -> argparse.ArgumentParser:
     dwr.add_argument("--out", default="work/drift-watcher", help="the report is written under <out>/<spec id>/<spec version>/ (default: work/drift-watcher)")
     dwr.add_argument("--json", action="store_true")
     dwr.set_defaults(func=cmd_drift_watcher_run)
+
+    be = sub.add_parser("break-explainer", help="every dual-run difference explained by rule, field and cause")
+    besub = be.add_subparsers(dest="break_explainer_command", required=True)
+
+    ber = besub.add_parser("run", help="explain parity differences between a legacy and a lakehouse row set; deterministic, no model call")
+    ber.add_argument("--config", required=True, help="path to the source config YAML file")
+    ber.add_argument("--parity", required=True, help="path to the golden/<custodian>/parity.yaml mapping")
+    ber.add_argument("--legacy", required=True, help="CSV of legacy rows, the parity mapping's own legacy column names")
+    ber.add_argument("--lakehouse", required=True, help="CSV of lakehouse rows, the parity mapping's own lakehouse column names")
+    ber.add_argument("--business-date", required=True, help="YYYY-MM-DD the two row sets are for")
+    ber.add_argument("--specs", default="specs", help="the spec registry directory (default: specs)")
+    ber.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+    ber.add_argument("--domains", default="domains", help="the domain packs directory (default: domains)")
+    ber.add_argument("--out", default="work/break-explainer", help="the draft is written under <out>/<custodian>/<business date>/ (default: work/break-explainer)")
+    ber.add_argument("--json", action="store_true")
+    ber.set_defaults(func=cmd_break_explainer_run)
 
     return parser
 
