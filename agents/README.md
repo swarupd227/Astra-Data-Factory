@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047), Exception Triage (S5.8.1, ADR 0048), the Drift Watcher (S5.9.1, ADR 0049), the Parity / Break Explainer (S5.10.1, ADR 0050), the Gate Evidence Compiler (S5.11.1, ADR 0051) and the Docs & Runbook Writer (S5.12.1, ADR 0052), with more of the Agents plane (E5) still to come (F5.13). The first eleven are each scored against their own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11); the Docs & Runbook Writer renders straight into `docs/` instead, with nothing to score.
+`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046), the Test Generator (S5.7.1, ADR 0047), Exception Triage (S5.8.1, ADR 0048), the Drift Watcher (S5.9.1, ADR 0049), the Parity / Break Explainer (S5.10.1, ADR 0050), the Gate Evidence Compiler (S5.11.1, ADR 0051), the Docs & Runbook Writer (S5.12.1, ADR 0052) and Guardrails and autonomy (S5.13.1, ADR 0053) — the Agents plane (E5) is now complete. The first eleven are each scored against their own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11); the Docs & Runbook Writer renders straight into `docs/` instead, with nothing to score; Guardrails enforces the L0-L3 autonomy level of every (agent, task class) pair, with nothing to score either.
 
 ```bash
 cd agents
@@ -110,7 +110,7 @@ astra-agents exception-triage record-decision --decisions decisions.yaml --code 
 
 Writes `report.md` and `report.json` under `work/exception-triage/`. Exit 0 means every exception's code is in the taxonomy; exit 1 means at least one code has no taxonomy entry.
 
-No LLM: the three named codes (`ACCOUNT_NOT_FOUND`, `SECURITY_NOT_FOUND` for the backlog's "NEW_SECURITY", `TRANSACTION_CODE_UNMAPPED` for "MISSING_TX_CODE") each have a single, mechanical, already-reviewed resolution; auto-apply requires both the whitelist and a confidence that has actually earned it (`>= 80%`), so a freshly whitelisted code with no track record does not auto-apply on day one. `agents/examples/exception_triage/` is a committed illustrative fixture — no real exception data exists anywhere in this repository (ADR 0048).
+No LLM: the three named codes (`ACCOUNT_NOT_FOUND`, `SECURITY_NOT_FOUND` for the backlog's "NEW_SECURITY", `TRANSACTION_CODE_UNMAPPED` for "MISSING_TX_CODE") each have a single, mechanical, already-reviewed resolution; auto-apply requires both the whitelist and a confidence that has actually earned it (`>= 80%`), so a freshly whitelisted code with no track record does not auto-apply on day one. `agents/examples/exception_triage/` is a committed illustrative fixture — no real exception data exists anywhere in this repository (ADR 0048). `run --guardrails autonomy.yaml` additionally requires the whitelisted-exception-classes task class itself to be authorized at L3 in the [Guardrails](#guardrails-and-autonomy) log before anything auto-applies — optional, and unchanged without it (ADR 0053).
 
 ## Drift Watcher
 
@@ -163,6 +163,22 @@ astra-agents docs-writer render configs --specs specs --rules rules --domains do
 Writes one `<release bundle name>.md` per config. Two things every doc answers: what the chaos drill's four fixed scenarios (`docs/runbooks/chaos-drill.md`) mean for this specific source — what each detects, its taxonomy code or dq_rule, how to resolve it — and what this source's own `delivery`/`alerts` blocks mean against ADR 0007's fixed alerting rules. Exit codes follow `astra-spec cdm render`, not the other eleven agents: plain `render` exits 0 once written; `--check` exits 1 only when a doc is missing, stale or orphaned.
 
 No LLM: every fact already exists as a typed field on the compiled config, a rejection code or a rule catalog entry; `chaos_scenarios_for` reads the exact codes `astra_verification.chaos`'s own drill uses (`RECORD_TYPE_UNKNOWN`, `MERGE_DUPLICATE_KEY`), and says so honestly rather than guessing when a source has no `control_total` dq_rule for the truncated scenario. No eval gold set: this agent has no draft to score precision or recall against (ADR 0052).
+
+## Guardrails and autonomy
+
+The L0–L3 autonomy level of every (agent, task class) pair — Observe, Suggest, Prepare, Act with audit, the product spec's own closed vocabulary (Section 8) — as an append-only log of changes, the same shape Exception Triage's decisions log and the Gate Evidence Compiler's approvals log already use. A pair never mentioned is L0 by default.
+
+```bash
+astra-agents guardrails set-level --changes autonomy.yaml --agent rule-recovery --task-class rule_recovery \
+  --level L1 --approver architect@example.com --reason "matches the product spec's own table"
+astra-agents guardrails set-level --changes autonomy.yaml --agent exception-triage --task-class whitelisted_exception_classes \
+  --level L3 --approver architect@example.com --reason "Q3 review" --acceptance-rate 0.9 --sample-size 40 --window "trailing 90 days"
+astra-agents guardrails status --changes autonomy.yaml
+```
+
+Every change needs an approver and a reason, or it is refused and nothing is written. A change *to* L3 additionally needs evidence — a measured acceptance rate, the sample size, the window it covers — checked against a fixed threshold (80%, over at least 20 decisions) before it is written; evidence that does not clear the bar is refused the same way, never recorded and flagged for later.
+
+No LLM, no credentials: this is a governance log, not a draft, so there is nothing to review and nothing to score against a gold set. Enforcement is a real call site, not only a data structure — Exception Triage's own `run --guardrails` (above) is the one agent retrofitted so far, additively: omitted, it behaves exactly as it always has (ADR 0053).
 
 ## Evaluation
 

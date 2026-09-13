@@ -19,13 +19,20 @@ once — the taxonomy's own whitelist (`auto_resolve: true`) and a confidence th
 earned it (`>= AUTO_APPLY_CONFIDENCE`) — so a newly whitelisted class with no track record yet
 does not auto-apply on day one, matching the product spec's own text: "Promotion to L3 requires a
 measured acceptance rate above a threshold over a stated window."
+
+That per-code confidence gate is this agent's own, always applied. Whether this agent's whitelisted-
+exception-classes task class is authorized to act at L3 *at all* is a separate, architect-level
+decision — `astra_agents.guardrails`' own registry (S5.13.1, ADR 0053). `gate_auto_apply` applies
+it on top: `astra-agents exception-triage run --guardrails ...` forces every auto_apply back to
+False when the registry says this task class is not currently at L3, whatever a code's own
+confidence says.
 """
 
 from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -267,6 +274,15 @@ def generate(exceptions: tuple[ExceptionRecord, ...], taxonomy: Taxonomy, decisi
     acceptance_by_code = {code: acceptance_rate(code, decisions) for code in all_codes}
 
     return TriageDraft(suggestions=tuple(suggestions), unresolved_codes=tuple(sorted(unresolved)), acceptance_by_code=acceptance_by_code)
+
+
+def gate_auto_apply(draft: TriageDraft, *, authorized: bool) -> TriageDraft:
+    """astra_agents.guardrails' own enforcement, applied on top of this agent's per-code
+    confidence gate, never instead of it: when this task class is not currently authorized to
+    act at L3, every suggestion's auto_apply is forced False, whatever its own confidence says."""
+    if authorized:
+        return draft
+    return replace(draft, suggestions=tuple(replace(s, auto_apply=False) for s in draft.suggestions))
 
 
 def run(exceptions_path: Path, rejections_path: Path, decisions_path: Path | None = None) -> TriageDraft:

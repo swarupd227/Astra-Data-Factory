@@ -4,11 +4,15 @@ Today: the Spec Reader (S5.1.1), the Profiler (S5.2.1), the Pattern
 Matcher (S5.3.1), Rule Recovery (S5.4.1), the Modeler (S5.5.1), the DQ
 Generator (S5.6.1), the Test Generator (S5.7.1), Exception Triage
 (S5.8.1), the Drift Watcher (S5.9.1), the Parity / Break Explainer
-(S5.10.1), the Gate Evidence Compiler (S5.11.1) and the Docs & Runbook
-Writer (S5.12.1). Each of the first eleven is a bounded worker scored
-against its own gold set by astra_verification.agent_eval (S4.3.4); the
-Docs & Runbook Writer renders straight into `docs/` instead, the same
-way astra_knowledge.cdm renders the canonical model's own DDL.
+(S5.10.1), the Gate Evidence Compiler (S5.11.1), the Docs & Runbook
+Writer (S5.12.1) and Guardrails and autonomy (S5.13.1) — the last of
+this plane. The first eleven are each a bounded worker scored against
+its own gold set by astra_verification.agent_eval (S4.3.4); the Docs &
+Runbook Writer renders straight into `docs/` instead, the same way
+astra_knowledge.cdm renders the canonical model's own DDL; Guardrails
+enforces the L0-L3 autonomy level of every (agent, task class) pair,
+the same append-only, approval-logged shape the Gate Evidence
+Compiler's own approvals already use.
 """
 
 from astra_agents.break_explainer import BreakExplainerError, ExplainDraft, Explanation
@@ -23,9 +27,16 @@ from astra_agents.dq_generator import run as run_dq_generator
 from astra_agents.drift_watcher import DriftDraft, DriftFinding, DriftWatcherError
 from astra_agents.drift_watcher import run as run_drift_watcher
 from astra_agents.exception_triage import ExceptionTriageError, Suggestion, TriageDraft
+from astra_agents.exception_triage import gate_auto_apply as gate_exception_triage_auto_apply
 from astra_agents.exception_triage import run as run_exception_triage
 from astra_agents.gate_evidence_compiler import Criterion, EvidenceSources, GateEvidenceCompilerError, GatePack
 from astra_agents.gate_evidence_compiler import run as run_gate_evidence_compiler
+from astra_agents.guardrails import Evidence as GuardrailsEvidence
+from astra_agents.guardrails import GuardrailsError, Level, LevelChange
+from astra_agents.guardrails import current_level as guardrails_current_level
+from astra_agents.guardrails import load_changes as load_guardrails_changes
+from astra_agents.guardrails import permits as guardrails_permits
+from astra_agents.guardrails import record_change as record_guardrails_change
 from astra_agents.modeler import CdmChangeRequest, ConfigDraft, ModelerError
 from astra_agents.modeler import AnthropicClient as ModelerClient
 from astra_agents.modeler import run as run_modeler
@@ -68,6 +79,10 @@ __all__ = [
     "FieldProfile",
     "GateEvidenceCompilerError",
     "GatePack",
+    "GuardrailsError",
+    "GuardrailsEvidence",
+    "Level",
+    "LevelChange",
     "LlmClient",
     "ModelerClient",
     "ModelerError",
@@ -86,7 +101,12 @@ __all__ = [
     "TriageDraft",
     "build_draft",
     "check_rendered_docs",
+    "gate_exception_triage_auto_apply",
+    "guardrails_current_level",
+    "guardrails_permits",
     "load_docs_writer_configs",
+    "load_guardrails_changes",
+    "record_guardrails_change",
     "render_source_doc",
     "run",
     "run_break_explainer",

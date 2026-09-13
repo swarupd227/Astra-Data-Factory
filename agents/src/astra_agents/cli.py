@@ -3,7 +3,8 @@
 `astra-agents modeler run`, `astra-agents dq-generator run`,
 `astra-agents test-generator run`, `astra-agents exception-triage run`,
 `astra-agents drift-watcher run`, `astra-agents break-explainer run`,
-`astra-agents gate-evidence-compiler run` and `astra-agents docs-writer render`.
+`astra-agents gate-evidence-compiler run`, `astra-agents docs-writer
+render` and `astra-agents guardrails set-level`.
 
 Needs no Snowflake connection. spec-reader's, rule-recovery's and
 modeler's real Anthropic API calls need ANTHROPIC_API_KEY in the
@@ -25,7 +26,11 @@ agent — it renders straight into `docs/`, the way `astra-spec cdm
 render` and `astra-data reference|gold render` already do, so its exit
 codes match theirs instead: 0 rendered (or, with `--check`, already
 current), 1 with `--check` when a doc is missing or stale, 2 the run
-could not start.
+could not start. guardrails is not a draft agent either — `set-level`
+and `status` exit 0 on success and 2 when a change is rejected (missing
+approver or reason, or a change to L3 with no evidence or evidence
+below the bar); there is no exit 1, since a rejected change is refused
+outright, never recorded and flagged for later.
 """
 
 from __future__ import annotations
@@ -40,8 +45,10 @@ from astra_agents.break_explainer import BreakExplainerError, run as run_break_e
 from astra_agents.docs_writer import DocsWriterError, check_rendered as check_rendered_docs, load_compiled_configs, write_rendered as write_rendered_docs
 from astra_agents.dq_generator import DqGeneratorError, run as run_dq_generator, write_draft as write_dq_draft
 from astra_agents.drift_watcher import DriftWatcherError, run as run_drift_watcher, write_draft as write_drift_draft
-from astra_agents.exception_triage import AUTO_APPLY_CONFIDENCE, ExceptionTriageError, record_decision, run as run_exception_triage, write_draft as write_triage_draft
+from astra_agents.exception_triage import AUTO_APPLY_CONFIDENCE, ExceptionTriageError, gate_auto_apply, record_decision, run as run_exception_triage, write_draft as write_triage_draft
 from astra_agents.gate_evidence_compiler import EvidenceSources, GateEvidenceCompilerError, record_approval, run as run_gate_evidence_compiler, write_pack
+from astra_agents.guardrails import Evidence as GuardrailsEvidence
+from astra_agents.guardrails import GuardrailsError, Level, every_current_level, load_changes, permits, record_change, render_status
 from astra_agents.modeler import DEFAULT_MODEL as MODELER_DEFAULT_MODEL, MAX_TOKENS as MODELER_MAX_TOKENS
 from astra_agents.modeler import AnthropicClient as ModelerClient
 from astra_agents.modeler import ModelerError, load_domain_pack, load_known_rule_ids
@@ -233,12 +240,19 @@ def cmd_exception_triage_run(args: argparse.Namespace) -> int:
     except ExceptionTriageError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    authorized = None
+    if args.guardrails:
+        changes = load_changes(Path(args.guardrails))
+        authorized = permits(changes, args.agent_id, args.task_class, Level.L3)
+        draft = gate_auto_apply(draft, authorized=authorized)
     out = Path(args.out)
     report_path, _data_path = write_triage_draft(draft, out)
     if args.json:
         print(json.dumps(draft.to_dict(), indent=2))
     else:
         print(f"{len(draft.suggestions)} root cause(s), {len(draft.auto_apply_suggestions)} eligible to auto-apply (whitelisted and confidence >= {AUTO_APPLY_CONFIDENCE:.0%})")
+        if authorized is False:
+            print(f"  guardrails: {args.agent_id}/{args.task_class} is not authorized at L3; auto-apply forced off")
         if draft.unresolved_codes:
             print(f"  no taxonomy entry: {', '.join(draft.unresolved_codes)}")
         print(f"  report: {report_path}")
@@ -364,6 +378,33 @@ def cmd_docs_writer_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_guardrails_set_level(args: argparse.Namespace) -> int:
+    evidence = None
+    if args.acceptance_rate is not None or args.sample_size is not None or args.window is not None:
+        if args.acceptance_rate is None or args.sample_size is None or args.window is None:
+            print("error: --acceptance-rate, --sample-size and --window must be given together", file=sys.stderr)
+            return 2
+        evidence = GuardrailsEvidence(acceptance_rate=args.acceptance_rate, sample_size=args.sample_size, window=args.window)
+    try:
+        record_change(Path(args.changes), agent=args.agent, task_class=args.task_class, level=args.level, approver=args.approver, reason=args.reason, evidence=evidence)
+    except GuardrailsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"recorded: {args.agent}/{args.task_class} -> {args.level}, approved by {args.approver}")
+    return 0
+
+
+def cmd_guardrails_status(args: argparse.Namespace) -> int:
+    changes = load_changes(Path(args.changes) if args.changes else None)
+    if args.json:
+        latest = every_current_level(changes)
+        rows = [c for (a, t), c in sorted(latest.items()) if (args.agent is None or a == args.agent) and (args.task_class is None or t == args.task_class)]
+        print(json.dumps([c.to_dict() for c in rows], indent=2))
+    else:
+        print(render_status(changes, agent=args.agent, task_class=args.task_class))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -476,6 +517,9 @@ def build_parser() -> argparse.ArgumentParser:
     etr.add_argument("--exceptions", required=True, help="a CSV of exception rows (the CDM Exception entity's own columns)")
     etr.add_argument("--rejections", required=True, help="path to the domain pack's rejections.yaml")
     etr.add_argument("--decisions", help="a decisions log to compute confidence from (default: no history, every code starts at 50%%)")
+    etr.add_argument("--guardrails", help="a guardrails changes log (astra-agents guardrails set-level); when given, auto-apply also needs this task class authorized at L3")
+    etr.add_argument("--agent-id", default="exception-triage", help="this agent's own id in the guardrails log (default: exception-triage)")
+    etr.add_argument("--task-class", default="whitelisted_exception_classes", help="this task class's own id in the guardrails log (default: whitelisted_exception_classes)")
     etr.add_argument("--out", default="work/exception-triage", help="the draft is written under <out>/ (default: work/exception-triage)")
     etr.add_argument("--json", action="store_true")
     etr.set_defaults(func=cmd_exception_triage_run)
@@ -549,6 +593,28 @@ def build_parser() -> argparse.ArgumentParser:
     dcwr.add_argument("--check", action="store_true", help="fail when a doc is missing or stale instead of writing it")
     dcwr.add_argument("--json", action="store_true")
     dcwr.set_defaults(func=cmd_docs_writer_render)
+
+    gr = sub.add_parser("guardrails", help="L0-L3 autonomy levels enforced per agent per task class; a level change needs an approver, a reason, and, for L3, measured evidence")
+    grsub = gr.add_subparsers(dest="guardrails_command", required=True)
+
+    grs = grsub.add_parser("set-level", help="change the level of one agent's task class; rejected outright when L3's own evidence bar is not met")
+    grs.add_argument("--changes", required=True, help="path to the changes log (created if it does not exist)")
+    grs.add_argument("--agent", required=True, help="the agent id, for example exception-triage")
+    grs.add_argument("--task-class", required=True, help="the task class within that agent, for example whitelisted_exception_classes")
+    grs.add_argument("--level", required=True, choices=[lvl.value for lvl in Level], help="the level to change to")
+    grs.add_argument("--approver", required=True, help="who approved this change")
+    grs.add_argument("--reason", required=True, help="why, in a sentence")
+    grs.add_argument("--acceptance-rate", type=float, help="required with --sample-size and --window for a change to L3: the measured acceptance rate")
+    grs.add_argument("--sample-size", type=int, help="required with --acceptance-rate and --window for a change to L3: how many decisions it was measured over")
+    grs.add_argument("--window", help="required with --acceptance-rate and --sample-size for a change to L3: what period or sample was measured, for example 'trailing 90 days'")
+    grs.set_defaults(func=cmd_guardrails_set_level)
+
+    grst = grsub.add_parser("status", help="the current level of every (agent, task class) the log has ever mentioned; anything not listed is L0")
+    grst.add_argument("--changes", help="path to the changes log (default: nothing recorded, so everything is L0)")
+    grst.add_argument("--agent", help="show only this agent")
+    grst.add_argument("--task-class", help="show only this task class")
+    grst.add_argument("--json", action="store_true")
+    grst.set_defaults(func=cmd_guardrails_status)
 
     return parser
 

@@ -11,6 +11,7 @@ from astra_agents.exception_triage import (
     ExceptionRecord,
     ExceptionTriageError,
     acceptance_rate,
+    gate_auto_apply,
     generate,
     load_decisions,
     load_exceptions,
@@ -20,6 +21,8 @@ from astra_agents.exception_triage import (
     run,
     write_draft,
 )
+from astra_agents.guardrails import Evidence as GuardrailsEvidence
+from astra_agents.guardrails import record_change
 
 REPO = Path(__file__).resolve().parents[2]
 REJECTIONS = REPO / "domains" / "custodial" / "rejections.yaml"
@@ -221,6 +224,23 @@ def test_acceptance_by_code_is_reported_even_for_a_code_with_no_current_exceptio
     assert "SOME_OTHER_CODE" in draft.acceptance_by_code
 
 
+# ---------------------------------------------------------------- gate_auto_apply (guardrails)
+
+
+def test_gate_auto_apply_leaves_the_draft_unchanged_when_authorized():
+    draft = run(EXCEPTIONS, REJECTIONS, DECISIONS)
+    gated = gate_auto_apply(draft, authorized=True)
+    assert gated is draft
+
+
+def test_gate_auto_apply_forces_every_auto_apply_false_when_not_authorized():
+    draft = run(EXCEPTIONS, REJECTIONS, DECISIONS)
+    assert any(s.auto_apply for s in draft.suggestions)  # PRICE_STALE, before gating
+    gated = gate_auto_apply(draft, authorized=False)
+    assert not any(s.auto_apply for s in gated.suggestions)
+    assert len(gated.suggestions) == len(draft.suggestions)  # nothing dropped, only downgraded
+
+
 # ---------------------------------------------------------------- run() / report / files
 
 
@@ -295,6 +315,39 @@ def test_cli_record_decision_reports_a_clear_error_for_a_bad_decision(tmp_path, 
     code = cli.main(["exception-triage", "record-decision", "--decisions", str(tmp_path / "d.yaml"), "--code", "X", "--decision", "maybe", "--by", "a@example.com"])
     assert code == 2
     assert capsys.readouterr().err
+
+
+def test_cli_run_with_guardrails_not_authorized_forces_auto_apply_off(tmp_path, capsys):
+    import astra_agents.cli as cli
+
+    changes = tmp_path / "changes.yaml"  # nothing recorded: L0 by default
+    out = tmp_path / "out"
+    code = cli.main(["exception-triage", "run", "--exceptions", str(EXCEPTIONS), "--rejections", str(REJECTIONS), "--decisions", str(DECISIONS), "--guardrails", str(changes), "--out", str(out)])
+    assert code == 1
+    data = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert not any(s["auto_apply"] for s in data["suggestions"])
+    text = capsys.readouterr().out
+    assert "not authorized at L3" in text
+
+
+def test_cli_run_with_guardrails_authorized_at_l3_keeps_auto_apply(tmp_path, capsys):
+    import astra_agents.cli as cli
+
+    changes = tmp_path / "changes.yaml"
+    record_change(
+        changes,
+        agent="exception-triage",
+        task_class="whitelisted_exception_classes",
+        level="L3",
+        approver="architect@example.com",
+        reason="measured over Q3",
+        evidence=GuardrailsEvidence(acceptance_rate=0.9, sample_size=40, window="trailing 90 days"),
+    )
+    out = tmp_path / "out"
+    code = cli.main(["exception-triage", "run", "--exceptions", str(EXCEPTIONS), "--rejections", str(REJECTIONS), "--decisions", str(DECISIONS), "--guardrails", str(changes), "--out", str(out)])
+    assert code == 1  # UNKNOWN_LOCAL_CODE is still unresolved
+    data = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert any(s["auto_apply"] for s in data["suggestions"])  # PRICE_STALE, unaffected by an authorized gate
 
 
 # ---------------------------------------------------------------- the story's own acceptance criteria
