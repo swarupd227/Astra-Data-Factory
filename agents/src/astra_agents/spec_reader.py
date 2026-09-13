@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +38,7 @@ from astra_core.schema import describe_error, load_validator, sorted_errors
 
 SPEC_SCHEMA = "source-spec-v0.schema.json"
 DEFAULT_MODEL = "claude-sonnet-5"
-MAX_TOKENS = 16000
+MAX_TOKENS = 32000  # a real ~90-field, two-detail-record layout (Pershing GCUS) needs well over 16,000 to avoid truncating mid-call
 
 EXTRACTION_TOOL_NAME = "extract_source_spec"
 
@@ -206,8 +207,10 @@ def system_prompt(file_type: str, custodians: list[str]) -> str:
         "position's own `codes` a `sign` of positive, negative or unknown to match.\n"
         "- A record-type token (for example the first few characters of every line) becomes that record's `match`, "
         "not a field of it, unless the document also gives it a citation as a field in its own right.\n"
-        "- Copy every picture exactly as printed (X(10), 9(13)V9(05), and so on); do not normalise or guess a "
-        "picture the document does not state.\n\n"
+        "- Copy every picture's letters and digits exactly as printed (X(10), 9(13)v9(05), and so on) — do not "
+        "guess a picture the document does not state; do not invent digits it does not show. Zero-padding in the "
+        "length (X(02) vs X(2)) and the case of the decimal marker (v vs V) do not matter and are normalised "
+        "afterward.\n\n"
         f"The file type is {file_type}; it is delivered by: {', '.join(custodians)}."
     )
 
@@ -230,7 +233,15 @@ def _document_text(pages: list[Page]) -> str:
     return "\n\n".join(f"--- page {p.number if p.number is not None else '?'} ---\n{p.text}" for p in pages)
 
 
-def _extraction_from_tool_input(data: dict) -> Extraction:
+def _extraction_from_tool_input(data: dict, *, stop_reason: str | None = None) -> Extraction:
+    missing = [k for k in ("file", "records") if k not in data]
+    if missing:
+        if stop_reason == "max_tokens":
+            raise SpecReaderError(
+                f"the model's response was cut off at the token limit before it finished calling {EXTRACTION_TOOL_NAME} "
+                f"(missing {', '.join(missing)}); pass a higher --max-tokens, or split the document by record type"
+            )
+        raise SpecReaderError(f"the model's {EXTRACTION_TOOL_NAME} call is missing {', '.join(missing)}; stop reason {stop_reason or 'unknown'}")
     return Extraction(file=data["file"], records=data["records"], unparsed=data.get("unparsed", []))
 
 
@@ -277,21 +288,37 @@ class AnthropicClient:
         except ImportError as exc:
             raise SpecReaderError("calling the model needs the anthropic package; pip install 'astra-agents[llm]'") from exc
         client = anthropic.Anthropic(api_key=self._api_key)
-        message = client.messages.create(
+        # Streamed rather than a plain create(): the SDK itself refuses a non-streaming call once
+        # max_tokens is large enough that generation could plausibly run past its 10-minute
+        # non-streaming timeout — a real ~90-field layout already crosses that line.
+        with client.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
             system=system,
             messages=[{"role": "user", "content": _document_text(pages)}],
             tools=[EXTRACTION_TOOL],
             tool_choice={"type": "tool", "name": EXTRACTION_TOOL_NAME},
-        )
+        ) as stream:
+            message = stream.get_final_message()
+        stop_reason = getattr(message, "stop_reason", None)
         for block in message.content:
             if getattr(block, "type", None) == "tool_use" and block.name == EXTRACTION_TOOL_NAME:
-                return _extraction_from_tool_input(block.input)
-        raise SpecReaderError(f"the model did not call {EXTRACTION_TOOL_NAME}; stop reason {getattr(message, 'stop_reason', 'unknown')}")
+                return _extraction_from_tool_input(block.input, stop_reason=stop_reason)
+        raise SpecReaderError(f"the model did not call {EXTRACTION_TOOL_NAME}; stop reason {stop_reason or 'unknown'}")
 
 
 # -- assembling and validating the draft spec ------------------------------------
+
+_PICTURE_LENGTH = re.compile(r"\((\d+)\)")
+
+
+def _normalize_picture(picture: str) -> str:
+    """The schema's picture length has no leading zero and an upper-case V; a real layout document's own notation
+    often has both (X(02) not X(2), 9(13)v9(05) not 9(13)V9(5)) — same meaning, just a different, equally valid
+    printed convention. Normalizing this in code is more reliable than asking the model to reformat 90+ pictures
+    consistently by hand, and it changes nothing about what a field actually is."""
+    picture = _PICTURE_LENGTH.sub(lambda m: f"({int(m.group(1))})", picture)
+    return picture.replace("v9(", "V9(")
 
 
 def _translate_match(raw: dict | None) -> dict | None:
@@ -309,7 +336,7 @@ def _translate_field(raw: dict) -> dict:
         out["position"] = {"start": raw["start"], "length": raw["length"]}
     for key in ("picture", "type", "format", "sign_field", "required", "description"):
         if raw.get(key) is not None:
-            out[key] = raw[key]
+            out[key] = _normalize_picture(raw[key]) if key == "picture" else raw[key]
     if raw.get("citation"):
         out["citation"] = raw["citation"]
     if raw.get("codes"):
@@ -317,8 +344,45 @@ def _translate_field(raw: dict) -> dict:
     return out
 
 
+_MAX_IDENTIFIER = 63  # the registry's identifier pattern: ^[a-z][a-z0-9_]{0,62}$
+
+
+def _shorten(name: str, taken: set[str]) -> str:
+    candidate = name[:_MAX_IDENTIFIER]
+    if len(name) > _MAX_IDENTIFIER and "_" in candidate:
+        candidate = candidate.rsplit("_", 1)[0]
+    base, suffixed, n = candidate, candidate, 2
+    while suffixed in taken:
+        suffix = f"_{n}"
+        suffixed = base[: _MAX_IDENTIFIER - len(suffix)] + suffix
+        n += 1
+    return suffixed
+
+
+def _fit_identifiers(fields: list[dict]) -> list[dict]:
+    """A real column label can be longer than the registry's 63-character identifier limit (page 11's
+    corporate_executive_services_collateral_pledge_liquidating_value is, snake-cased faithfully) — cut at a word
+    boundary rather than mid-word, disambiguate a collision within the record, and carry a shortened name into any
+    sign_field that referenced it, so the reference still resolves."""
+    renamed: dict[str, str] = {}
+    taken: set[str] = set()
+    for field in fields:
+        name = field["name"]
+        if len(name) > _MAX_IDENTIFIER:
+            new_name = _shorten(name, taken)
+            renamed[name] = new_name
+            field["name"] = new_name
+            name = new_name
+        taken.add(name)
+    for field in fields:
+        sign_field = field.get("sign_field")
+        if sign_field in renamed:
+            field["sign_field"] = renamed[sign_field]
+    return fields
+
+
 def _translate_record(raw: dict) -> dict:
-    out: dict = {"type": raw["type"], "fields": [_translate_field(f) for f in raw["fields"]]}
+    out: dict = {"type": raw["type"], "fields": _fit_identifiers([_translate_field(f) for f in raw["fields"]])}
     if raw.get("name"):
         out["name"] = raw["name"]
     if raw.get("description"):

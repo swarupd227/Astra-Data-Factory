@@ -24,6 +24,12 @@ venv/
 build/
 dist/
 
+# Working output: astra-data, astra-verify and astra-agents all default to writing
+# reports, drafts and rendered bundles under work/<command>/ — generated evidence, never
+# committed. A draft this repository does want (a promoted spec, an exported evidence
+# pack) is moved out of here by hand as part of that review.
+work/
+
 # Credentials and keys must never be committed
 *.p8
 *.pem

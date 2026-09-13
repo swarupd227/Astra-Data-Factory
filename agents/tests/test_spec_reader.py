@@ -171,6 +171,87 @@ def test_build_draft_translates_positions_citations_and_sign_fields():
     assert detail["fields"][2]["codes"][0] == {"value": "+", "meaning": "long", "sign": "positive"}
 
 
+def test_picture_zero_padded_lengths_are_normalized():
+    """A real finding from the first live run: Pershing's own layout documents print X(02), not X(2) — a valid, common notation the schema's own pattern still rejects unless it is normalized."""
+    from astra_agents.spec_reader import _normalize_picture
+
+    assert _normalize_picture("X(02)") == "X(2)"
+    assert _normalize_picture("9(08)") == "9(8)"
+    assert _normalize_picture("X(10)") == "X(10)"  # already no leading zero: unchanged
+    assert _normalize_picture("9(13)v9(05)") == "9(13)V9(5)"  # lower-case decimal marker uppercased too
+    assert _normalize_picture("9(16)V9(02)") == "9(16)V9(2)"  # already upper-case: still normalizes the length
+
+
+def test_build_draft_normalizes_a_zero_padded_picture_into_a_valid_draft():
+    record = {
+        "type": "detail",
+        "match": {"start": 1, "length": 3, "value": "DTL"},
+        "fields": [{"name": "account_number", "start": 1, "length": 10, "picture": "X(10)", "citation": {"page": 3}}, {"name": "quantity", "start": 11, "length": 18, "picture": "9(13)v9(05)", "citation": {"page": 3}}],
+    }
+    extraction = Extraction(file=GOOD_EXTRACTION.file, records=[record], unparsed=[])
+    draft = _draft(extraction=extraction)
+    assert draft.valid is True, draft.problems
+    assert draft.data["records"][0]["fields"][1]["picture"] == "9(13)V9(5)"
+
+
+def test_shorten_cuts_at_a_word_boundary_within_the_identifier_limit():
+    from astra_agents.spec_reader import _MAX_IDENTIFIER, _shorten
+
+    long_name = "corporate_executive_services_collateral_pledge_liquidating_value"
+    assert len(long_name) > _MAX_IDENTIFIER
+    short_name = _shorten(long_name, set())
+    assert len(short_name) <= _MAX_IDENTIFIER
+    assert long_name.startswith(short_name.rstrip("_"))
+    assert not short_name.endswith("_")  # cut at the boundary itself, not mid-word
+
+
+def test_shorten_disambiguates_a_collision_against_taken_names():
+    from astra_agents.spec_reader import _shorten
+
+    taken = {"corporate_executive_services_collateral_pledge_liquidating"}
+    short_name = _shorten("corporate_executive_services_collateral_pledge_liquidating_value", taken)
+    assert short_name not in taken
+    assert short_name.endswith("_2")
+
+
+def test_fit_identifiers_renames_a_too_long_field_and_remaps_its_sign_field_reference():
+    """A real finding from the second live run: a 68-character column label produced both a too-long field name and a
+    too-long sign_field naming that same field — fixing the name alone would leave sign_field pointing at nothing."""
+    from astra_agents.spec_reader import _MAX_IDENTIFIER, _fit_identifiers
+
+    long_name = "corporate_executive_services_collateral_pledge_liquidating_value"
+    sign_name = long_name + "_sign"
+    fields = [
+        {"name": long_name, "sign_field": sign_name, "citation": {"page": 11}},
+        {"name": sign_name, "citation": {"page": 11}},
+    ]
+    fitted = _fit_identifiers(fields)
+    assert all(len(f["name"]) <= _MAX_IDENTIFIER for f in fitted)
+    assert fitted[0]["sign_field"] == fitted[1]["name"]
+    assert fitted[0]["name"] != fitted[1]["name"]
+
+
+def test_build_draft_fits_two_colliding_over_long_names_with_a_cross_reference():
+    long_name = "corporate_executive_services_collateral_pledge_liquidating_value"
+    sign_name = long_name + "_sign"
+    record = {
+        "type": "detail",
+        "match": {"start": 1, "length": 3, "value": "DTL"},
+        "fields": [
+            {"name": "account_number", "start": 1, "length": 10, "picture": "X(10)", "citation": {"page": 3}},
+            {"name": long_name, "start": 11, "length": 18, "picture": "9(13)V9(5)", "sign_field": sign_name, "citation": {"page": 11}},
+            {"name": sign_name, "start": 29, "length": 1, "picture": "X(1)", "type": "code", "citation": {"page": 11}},
+        ],
+    }
+    extraction = Extraction(file=GOOD_EXTRACTION.file, records=[record], unparsed=[])
+    draft = _draft(extraction=extraction)
+    assert draft.valid is True, draft.problems
+    names = [f["name"] for f in draft.data["records"][0]["fields"]]
+    assert len(names) == len(set(names))  # no collision
+    renamed_value_field = next(f for f in draft.data["records"][0]["fields"] if f["name"] != "account_number" and "sign_field" in f)
+    assert renamed_value_field["sign_field"] == names[2]
+
+
 def test_build_draft_is_valid_against_the_registry_schema():
     draft = _draft()
     assert draft.valid is True and draft.problems == ()
@@ -272,6 +353,75 @@ def test_write_draft_writes_a_reloadable_yaml_spec_and_reports(tmp_path):
     assert report_path.read_text(encoding="utf-8") == render_markdown(draft)
     payload = json.loads(data_path.read_text(encoding="utf-8"))
     assert payload["valid"] is True and payload["field_count"] == 5
+
+
+# ---------------------------------------------------------------- AnthropicClient.extract
+
+
+def _fake_message(*, tool_input: dict | None, stop_reason: str = "tool_use", tool_name: str = "extract_source_spec"):
+    reason = stop_reason  # class bodies don't see an enclosing name being reassigned to itself
+
+    class FakeToolUseBlock:
+        type = "tool_use"
+        name = tool_name
+        input = tool_input or {}
+
+    class FakeMessage:
+        content = [FakeToolUseBlock()] if tool_input is not None else []
+        stop_reason = reason
+
+    return FakeMessage()
+
+
+def _fake_anthropic_for_extract(message):
+    class FakeStream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get_final_message(self):
+            return message
+
+    class FakeMessages:
+        def stream(self, **kwargs):
+            return FakeStream()
+
+    class FakeAnthropic:
+        def __init__(self, api_key=None):
+            self.messages = FakeMessages()
+
+    return type("anthropic", (), {"Anthropic": FakeAnthropic})
+
+
+def test_extract_returns_the_extraction_from_a_complete_tool_call(monkeypatch):
+    message = _fake_message(tool_input={"file": {"format": "fixed_width"}, "records": [HEADER_RECORD], "unparsed": []})
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", _fake_anthropic_for_extract(message))
+    extraction = AnthropicClient().extract(system="sys", pages=[Page(1, "text")])
+    assert extraction.records == [HEADER_RECORD]
+
+
+def test_extract_raises_a_clear_error_when_truncated_at_the_token_limit(monkeypatch):
+    """A real finding from the first live run: a large document's response can be cut off mid-call before `records` is written; this must not surface as a raw KeyError."""
+    message = _fake_message(tool_input={"file": {"format": "fixed_width"}}, stop_reason="max_tokens")
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", _fake_anthropic_for_extract(message))
+    with pytest.raises(SpecReaderError, match="cut off at the token limit"):
+        AnthropicClient().extract(system="sys", pages=[Page(1, "text")])
+
+
+def test_extract_raises_a_clear_error_when_incomplete_for_another_reason(monkeypatch):
+    message = _fake_message(tool_input={"file": {"format": "fixed_width"}}, stop_reason="end_turn")
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", _fake_anthropic_for_extract(message))
+    with pytest.raises(SpecReaderError, match="missing records; stop reason end_turn"):
+        AnthropicClient().extract(system="sys", pages=[Page(1, "text")])
+
+
+def test_extract_raises_when_the_model_never_calls_the_tool(monkeypatch):
+    message = _fake_message(tool_input=None, stop_reason="end_turn")
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", _fake_anthropic_for_extract(message))
+    with pytest.raises(SpecReaderError, match="did not call extract_source_spec"):
+        AnthropicClient().extract(system="sys", pages=[Page(1, "text")])
 
 
 # ---------------------------------------------------------------- AnthropicClient.test_connection
@@ -430,7 +580,7 @@ def test_cli_runs_with_a_fake_client(tmp_path, monkeypatch, capsys):
     import astra_agents.cli as cli
 
     monkeypatch.setattr("astra_agents.spec_reader.extract_pages", lambda path: [Page(1, "text")])
-    monkeypatch.setattr(cli, "AnthropicClient", lambda model=None: FakeClient(extraction=GOOD_EXTRACTION))
+    monkeypatch.setattr(cli, "AnthropicClient", lambda model=None, max_tokens=None: FakeClient(extraction=GOOD_EXTRACTION))
     doc = tmp_path / "GCUS.pdf"
     doc.write_bytes(b"%PDF-1.4")
     out = tmp_path / "out"
@@ -453,7 +603,7 @@ def test_cli_exits_nonzero_on_an_invalid_draft(tmp_path, monkeypatch):
     bad_field = {"name": "mystery_field"}
     bad_record = {"type": "detail", "match": {"value": "DTL"}, "fields": [bad_field]}
     bad_extraction = Extraction(file=GOOD_EXTRACTION.file, records=[bad_record], unparsed=[])
-    monkeypatch.setattr(cli, "AnthropicClient", lambda model=None: FakeClient(extraction=bad_extraction))
+    monkeypatch.setattr(cli, "AnthropicClient", lambda model=None, max_tokens=None: FakeClient(extraction=bad_extraction))
     doc = tmp_path / "GCUS.pdf"
     doc.write_bytes(b"%PDF-1.4")
     code = cli.main([
@@ -469,7 +619,7 @@ def test_cli_reports_a_start_error(tmp_path, monkeypatch, capsys):
     import astra_agents.cli as cli
 
     monkeypatch.setattr("astra_agents.spec_reader.extract_pages", lambda path: [Page(1, "text")])
-    monkeypatch.setattr(cli, "AnthropicClient", lambda model=None: FakeClient(error=SpecReaderError("boom")))
+    monkeypatch.setattr(cli, "AnthropicClient", lambda model=None, max_tokens=None: FakeClient(error=SpecReaderError("boom")))
     doc = tmp_path / "GCUS.pdf"
     doc.write_bytes(b"%PDF-1.4")
     code = cli.main([

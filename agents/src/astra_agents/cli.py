@@ -14,7 +14,7 @@ import os
 import sys
 from pathlib import Path
 
-from astra_agents.spec_reader import DEFAULT_MODEL, AnthropicClient, SpecReaderError, run as run_spec_reader, write_draft
+from astra_agents.spec_reader import DEFAULT_MODEL, MAX_TOKENS, AnthropicClient, SpecReaderError, run as run_spec_reader, write_draft
 
 
 def cmd_spec_reader_test_connection(args: argparse.Namespace) -> int:
@@ -35,7 +35,7 @@ def cmd_spec_reader_test_connection(args: argparse.Namespace) -> int:
 
 
 def cmd_spec_reader_run(args: argparse.Namespace) -> int:
-    client = AnthropicClient(model=args.model)
+    client = AnthropicClient(model=args.model, max_tokens=args.max_tokens)
     try:
         draft = run_spec_reader(
             Path(args.document),
@@ -91,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     srr.add_argument("--provider", help="who publishes the layout, for example the clearing firm")
     srr.add_argument("--description", help="a short description of the layout")
     srr.add_argument("--model", default=os.environ.get("ASTRA_SPEC_READER_MODEL", DEFAULT_MODEL), help=f"the model to call (default {DEFAULT_MODEL})")
+    srr.add_argument("--max-tokens", type=int, default=int(os.environ.get("ASTRA_SPEC_READER_MAX_TOKENS", MAX_TOKENS)), help=f"raise this if the model's response is cut off before finishing (default {MAX_TOKENS})")
     srr.add_argument("--out", default=os.environ.get("ASTRA_SPEC_READER_OUT", "work/spec-reader"), help="the draft is written under <out>/<id>/<version>/ (default: work/spec-reader)")
     srr.add_argument("--json", action="store_true")
     srr.set_defaults(func=cmd_spec_reader_run)

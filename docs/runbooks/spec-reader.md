@@ -43,5 +43,6 @@ Read the report in order:
 ## Notes
 
 - The real model call needs `ANTHROPIC_API_KEY`; there is no offline mode. `astra_agents.spec_reader.LlmClient` is the interface a test double implements instead, for CI and local development without an account.
+- A large document (Pershing's own GCUS layout, ~90 fields across two detail records, is a real example) can produce a tool call big enough to hit the token budget before the model finishes it — the error names this specifically ("cut off at the token limit") rather than failing obscurely. Pass `--max-tokens` with a higher number and re-run.
 - Word documents have no reliable page concept outside a renderer; a Word-sourced draft's `document.pages` is left unset, and citations from it name no page.
 - `merge`, `split`, `lifecycle` and `pairing` (how a file changes Silver, split and lifecycle rules, pairing) are out of scope for this agent — they need the Modeler's and Rule Recovery's own reasoning, not a first pass at reading a layout.
