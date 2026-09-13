@@ -1,0 +1,27 @@
+# The Test Generator's real gold set (S5.7.1, ADR 0047) — like agents/pattern_matcher, this is
+# not a stand-in: it scores branch coverage against the real, already-committed
+# configs/examples/pershing_position.yaml and its real spec, both already in this repository.
+# "Branch coverage of rules" is a completeness metric this agent computes directly (every
+# declared dq_rule this agent's generators support should be covered by at least one generated
+# case), not a judgment call a person had to review first — so there is no illustrative stand-in
+# needed the way Spec Reader's and Modeler's examples are.
+eval_version: 0
+agent: test_generator
+description: >-
+  Every dq_rule in the real, already-reviewed configs/examples/pershing_position.yaml should be
+  covered by at least one generated branch. Precision and recall are 1.0 at this tier on purpose:
+  every kind this config uses (control_total, not_null, range) is one this agent fully supports,
+  so anything less than perfect coverage here is a real regression, not an expected shortfall.
+thresholds:
+  medium:
+    precision: 1.0
+    recall: 1.0
+
+cases:
+  - id: pershing_position_coverage
+    tier: medium
+    input: configs/examples/pershing_position.yaml + specs/pershing_gcus/2017-07-25.yaml
+    expected:
+      - "covered:trailer_control_total"
+      - "covered:cusip_present"
+      - "covered:price_not_negative"

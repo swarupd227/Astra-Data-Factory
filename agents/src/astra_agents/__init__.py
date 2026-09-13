@@ -1,10 +1,10 @@
 """Astra Data Factory agents plane (E5).
 
 Today: the Spec Reader (S5.1.1), the Profiler (S5.2.1), the Pattern
-Matcher (S5.3.1), Rule Recovery (S5.4.1), the Modeler (S5.5.1) and the
-DQ Generator (S5.6.1). Each agent is a bounded worker; every one is
-scored against its own gold set by astra_verification.agent_eval
-(S4.3.4).
+Matcher (S5.3.1), Rule Recovery (S5.4.1), the Modeler (S5.5.1), the DQ
+Generator (S5.6.1) and the Test Generator (S5.7.1) — the last agent of
+this plane. Each agent is a bounded worker; every one is scored against
+its own gold set by astra_verification.agent_eval (S4.3.4).
 """
 
 from astra_agents.dq_generator import DqDraft, DqGeneratorError, DqRule
@@ -20,6 +20,8 @@ from astra_agents.rule_recovery import DraftEntry, RecoveryDraft, RuleRecoveryEr
 from astra_agents.rule_recovery import AnthropicClient as RuleRecoveryClient
 from astra_agents.rule_recovery import run as run_rule_recovery
 from astra_agents.spec_reader import AnthropicClient, ConnectionTestResult, DraftSpec, Extraction, LlmClient, Page, SpecReaderError, build_draft, run
+from astra_agents.test_generator import EdgeCase, TestDraft, TestGeneratorError
+from astra_agents.test_generator import run as run_test_generator
 
 __all__ = [
     "AnthropicClient",
@@ -32,6 +34,7 @@ __all__ = [
     "DqRule",
     "DraftEntry",
     "DraftSpec",
+    "EdgeCase",
     "Extraction",
     "FamilyMatch",
     "FieldProfile",
@@ -47,6 +50,8 @@ __all__ = [
     "RuleRecoveryClient",
     "RuleRecoveryError",
     "SpecReaderError",
+    "TestDraft",
+    "TestGeneratorError",
     "build_draft",
     "run",
     "run_dq_generator",
@@ -54,4 +59,5 @@ __all__ = [
     "run_pattern_matcher",
     "run_profiler",
     "run_rule_recovery",
+    "run_test_generator",
 ]

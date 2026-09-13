@@ -1,6 +1,6 @@
 # Agents plane
 
-`astra-agents`: bounded agent workers. Today: the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045) and the DQ Generator (S5.6.1, ADR 0046). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
+`astra-agents`: bounded agent workers — the Spec Reader (S5.1.1, ADR 0041), the Profiler (S5.2.1, ADR 0042), the Pattern Matcher (S5.3.1, ADR 0043), Rule Recovery (S5.4.1, ADR 0044), the Modeler (S5.5.1, ADR 0045), the DQ Generator (S5.6.1, ADR 0046) and the Test Generator (S5.7.1, ADR 0047) — the whole Agents plane (E5). Every agent is scored against its own gold set by `astra-verify agent-eval` (S4.3.4, ADR 0040, product spec Section 11).
 
 ```bash
 cd agents
@@ -87,6 +87,18 @@ Writes `report.md`, `report.json` and a paste-ready `dq_rules.yaml` under `work/
 
 No eval gold set: this story's acceptance criteria are behavioral (which rule categories are generated for GCUS), the same shape Profiler's and Rule Recovery's own acceptance criteria took, both without a formal `eval.yaml` either (ADR 0046).
 
+## Test Generator
+
+SQL assertion tests and synthetic edge files generated from a config's own `dq_rules` — one branch at a time, entirely from this agent's own fixed synthetic vocabulary, never a real sample or reference data. `tests/unit/*.sql` mirrors `astra_knowledge.cdm.render_tests`'s own "a test returns failing rows" convention; `tests/edge/*.dat` is a complete, minimal, entirely synthetic file built to trip exactly one rule.
+
+```bash
+astra-agents test-generator run --config configs/examples/pershing_position.yaml --spec specs/pershing_gcus/2017-07-25.yaml
+```
+
+Writes `tests/unit/`, `tests/edge/`, `report.md` and `report.json` under `work/test-generator/<config id>/`. Exit 0 means every rule this agent's generators support is covered.
+
+No LLM: every branch is read off a `dq_rule`'s own typed fields; the one free-form kind (`condition`) is only synthesized for the one SQL shape the DQ Generator itself is known to produce. `agents/test_generator/` is a real gold set (not a stand-in), scoring branch coverage against the real, already-committed `configs/examples/pershing_position.yaml` (ADR 0047).
+
 ## Evaluation
 
 ```
@@ -107,4 +119,4 @@ astra-verify agent-eval report agents                                      # eve
 
 `agents/examples/spec_reader` is a worked example against the real `pershing_gcus` spec already in this repository — never a claim about the real Spec Reader above, but checked and scored by name in the test suite, and deliberately imperfect (one field is missing from its predictions) to show the gate catching a real regression. The Spec Reader's own gold set — reviewed, correct output for a real layout document — is not built yet: it needs a person to review a real extraction first (ADR 0041's own consequences). `agents/examples/modeler` is the same kind of stand-in, against the real `configs/examples/pershing_position.yaml` (ADR 0045), also deliberately imperfect.
 
-`agents/pattern_matcher/eval.yaml` and `predictions.yaml` are not a stand-in: they are the Pattern Matcher's real gold set, scored by the exact `score` command above, against `agents/pattern_matcher/gold/` — the real `specs/` registry with every family hidden but one sibling (ADR 0043).
+`agents/pattern_matcher/eval.yaml` and `predictions.yaml` are not a stand-in: they are the Pattern Matcher's real gold set, scored by the exact `score` command above, against `agents/pattern_matcher/gold/` — the real `specs/` registry with every family hidden but one sibling (ADR 0043). `agents/test_generator/eval.yaml` and `predictions.yaml` are the same: a real gold set scoring branch coverage against the real, already-committed `configs/examples/pershing_position.yaml` (ADR 0047).

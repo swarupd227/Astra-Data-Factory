@@ -1,0 +1,14 @@
+# A real run of astra_agents.test_generator against the real configs/examples/
+# pershing_position.yaml and specs/pershing_gcus/2017-07-25.yaml
+# (`astra-agents test-generator run --config configs/examples/pershing_position.yaml --spec
+# specs/pershing_gcus/2017-07-25.yaml`), transcribed into eval.yaml's canonical items — not
+# hand-typed to match. Committed as a snapshot rather than regenerated on every change, the same
+# way agents/pattern_matcher's and agents/modeler's examples are.
+predictions_version: 0
+agent: test_generator
+run: real-2026-09-13
+predictions:
+  pershing_position_coverage:
+    - "covered:trailer_control_total"
+    - "covered:cusip_present"
+    - "covered:price_not_negative"

@@ -1,17 +1,19 @@
 """Command line: `astra-agents spec-reader run`, `astra-agents profiler run`,
 `astra-agents pattern-matcher run`, `astra-agents rule-recovery run`,
-`astra-agents modeler run` and `astra-agents dq-generator run`.
+`astra-agents modeler run`, `astra-agents dq-generator run` and
+`astra-agents test-generator run`.
 
 Needs no Snowflake connection. spec-reader's, rule-recovery's and
 modeler's real Anthropic API calls need ANTHROPIC_API_KEY in the
 environment (every AnthropicClient class reads it the way the anthropic
-SDK always does); profiler, pattern-matcher and dq-generator are plain
-deterministic code, reading only the files given on the command line.
-Exit codes for all six: 0 nothing to review, 1 the run found something
-a person should look at (an invalid draft; a profile with drift; a new
-pattern proposal; an untraced rejection code or an unrouted T-SQL line;
-a breaking CDM change request or a rule tagged CONFIRM_WITH_LOADER), 2
-the run could not start.
+SDK always does); profiler, pattern-matcher, dq-generator and
+test-generator are plain deterministic code, reading only the files
+given on the command line. Exit codes for all seven: 0 nothing to
+review, 1 the run found something a person should look at (an invalid
+draft; a profile with drift; a new pattern proposal; an untraced
+rejection code or an unrouted T-SQL line; a breaking CDM change request
+or a rule tagged CONFIRM_WITH_LOADER; a dq_rule this agent could not
+synthesize a branch for), 2 the run could not start.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from astra_agents.rule_recovery import DEFAULT_MODEL as RULE_RECOVERY_DEFAULT_MO
 from astra_agents.rule_recovery import AnthropicClient as RuleRecoveryClient
 from astra_agents.rule_recovery import RuleRecoveryError, run as run_rule_recovery, write_draft as write_rule_recovery_draft
 from astra_agents.spec_reader import DEFAULT_MODEL, MAX_TOKENS, AnthropicClient, SpecReaderError, run as run_spec_reader, write_draft
+from astra_agents.test_generator import TestGeneratorError, run as run_test_generator, write_draft as write_test_draft
 
 
 def cmd_spec_reader_test_connection(args: argparse.Namespace) -> int:
@@ -189,6 +192,24 @@ def cmd_dq_generator_run(args: argparse.Namespace) -> int:
     return 0 if draft.valid else 1
 
 
+def cmd_test_generator_run(args: argparse.Namespace) -> int:
+    try:
+        draft = run_test_generator(Path(args.config), Path(args.spec))
+    except TestGeneratorError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out) / draft.config_id
+    report_path, _data_path = write_test_draft(draft, out)
+    if args.json:
+        print(json.dumps(draft.to_dict(), indent=2))
+    else:
+        print(f"{draft.config_id}: {len(draft.rule_ids)} rule(s), {len(draft.covered_rule_ids)} covered ({draft.coverage:.0%}), {len(draft.cases)} case(s)")
+        if draft.uncovered_rule_ids:
+            print(f"  not covered: {', '.join(draft.uncovered_rule_ids)}")
+        print(f"  report: {report_path}")
+    return 0 if draft.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -283,6 +304,16 @@ def build_parser() -> argparse.ArgumentParser:
     dqr.add_argument("--out", default="work/dq-generator", help="the draft is written under <out>/<spec id>/<spec version>/ (default: work/dq-generator)")
     dqr.add_argument("--json", action="store_true")
     dqr.set_defaults(func=cmd_dq_generator_run)
+
+    tg = sub.add_parser("test-generator", help="SQL assertion tests and synthetic edge files generated from a config's own dq_rules")
+    tgsub = tg.add_subparsers(dest="test_generator_command", required=True)
+
+    tgr = tgsub.add_parser("run", help="propose tests/unit/*.sql and tests/edge/*.dat from a config; deterministic, no model call, no real records")
+    tgr.add_argument("--config", required=True, help="path to the source config YAML file")
+    tgr.add_argument("--spec", required=True, help="path to the Source Spec YAML file the config references")
+    tgr.add_argument("--out", default="work/test-generator", help="the draft is written under <out>/<config id>/ (default: work/test-generator)")
+    tgr.add_argument("--json", action="store_true")
+    tgr.set_defaults(func=cmd_test_generator_run)
 
     return parser
 
