@@ -1,12 +1,13 @@
-"""Command line: `astra-agents spec-reader run <document> ...` and `astra-agents profiler run <sample> ...`.
+"""Command line: `astra-agents spec-reader run`, `astra-agents profiler run` and
+`astra-agents pattern-matcher run`.
 
 Needs no Snowflake connection. spec-reader's real Anthropic API call needs
 ANTHROPIC_API_KEY in the environment (astra_agents.spec_reader.AnthropicClient
-reads it the way the anthropic SDK always does); profiler is plain
-deterministic code, reading only the sample file and spec given on the
-command line. Exit codes for both: 0 nothing to review, 1 the run found
-something a person should look at (an invalid draft; a profile with drift),
-2 the run could not start.
+reads it the way the anthropic SDK always does); profiler and pattern-matcher
+are plain deterministic code, reading only the files given on the command
+line. Exit codes for all three: 0 nothing to review, 1 the run found
+something a person should look at (an invalid draft; a profile with drift;
+a new pattern proposal), 2 the run could not start.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import os
 import sys
 from pathlib import Path
 
+from astra_agents.pattern_matcher import FAMILY_THRESHOLD, PatternMatcherError, load_registry, run as run_pattern_matcher, write_assignments
 from astra_agents.profiler import TOP_N, ProfilerError, load_spec, run as run_profiler, write_profile
 from astra_agents.spec_reader import DEFAULT_MODEL, MAX_TOKENS, AnthropicClient, SpecReaderError, run as run_spec_reader, write_draft
 
@@ -90,6 +92,26 @@ def cmd_profiler_run(args: argparse.Namespace) -> int:
     return 0 if profile.ok else 1
 
 
+def cmd_pattern_matcher_run(args: argparse.Namespace) -> int:
+    try:
+        registry = load_registry(Path(args.registry))
+        assignments = run_pattern_matcher(registry, spec_id=args.id, spec_version=args.version, family_threshold=args.family_threshold)
+    except PatternMatcherError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out)
+    report_path, _data_path = write_assignments(assignments, out)
+    if args.json:
+        print(json.dumps([a.to_dict() for a in assignments], indent=2))
+    else:
+        proposals = [a for a in assignments if a.new_pattern_proposal]
+        print(f"{len(assignments)} spec(s) classified, {len(proposals)} new pattern proposal(s)")
+        for a in assignments:
+            print(f"  {a.spec_id} {a.spec_version}: family={a.family or '(none)'} tier={a.tier} patterns={','.join(a.patterns) or '-'}")
+        print(f"  report: {report_path}")
+    return 0 if not any(a.new_pattern_proposal for a in assignments) else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-agents", description="Astra Data Factory agents plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -130,6 +152,18 @@ def build_parser() -> argparse.ArgumentParser:
     prr.add_argument("--out", default=os.environ.get("ASTRA_PROFILER_OUT", "work/profiler"), help="the report is written under <out>/<spec id>/<spec version>/ (default: work/profiler)")
     prr.add_argument("--json", action="store_true")
     prr.set_defaults(func=cmd_profiler_run)
+
+    pm = sub.add_parser("pattern-matcher", help="a custodian's spec assigned a family, tier and pattern list; a new shape goes to the architect queue")
+    pmsub = pm.add_subparsers(dest="pattern_matcher_command", required=True)
+
+    pmr = pmsub.add_parser("run", help="classify every unclassified spec in the registry, or one named spec")
+    pmr.add_argument("--registry", required=True, help="the specs/ directory to load and classify against")
+    pmr.add_argument("--id", help="classify only this spec id (default: every spec the registry has no family for)")
+    pmr.add_argument("--version", help="with --id, this version (default: its latest)")
+    pmr.add_argument("--family-threshold", type=float, default=FAMILY_THRESHOLD, help=f"minimum similarity to reuse an existing family (default {FAMILY_THRESHOLD})")
+    pmr.add_argument("--out", default="work/pattern-matcher", help="the report is written under <out>/ (default: work/pattern-matcher)")
+    pmr.add_argument("--json", action="store_true")
+    pmr.set_defaults(func=cmd_pattern_matcher_run)
 
     return parser
 

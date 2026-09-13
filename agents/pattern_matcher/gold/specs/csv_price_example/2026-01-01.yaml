@@ -1,0 +1,73 @@
+# Source Spec: an illustrative comma-separated daily price file with a header
+# row and quoted text fields. It exists to exercise the delimited-file
+# pattern; the custodian and document are examples, not a real provider.
+spec_version: 0
+
+spec:
+  id: csv_price_example
+  version: "2026-01-01"
+  effective_from: 2026-01-01
+  file_type: price
+  custodians: [example_custodian]
+  provider: Example Custodian (illustrative)
+  description: Daily closing prices, one row per security, comma-separated with a header row.
+
+document:
+  title: Daily Price File Specification
+  reference: DailyPriceFile_v3.pdf
+  pages: 6
+
+file:
+  format: delimited
+  delimiter: ","
+  quote: '"'
+  header_rows: 1
+  column_count: 6
+  encoding: UTF-8
+  line_ending: any
+
+records:
+  - type: detail
+    fields:
+      - name: price_date
+        column: 1
+        label: Price Date
+        type: date
+        format: YYYY-MM-DD
+        required: true
+        citation: { page: 2, line: 4 }
+      - name: cusip
+        column: 2
+        label: CUSIP
+        type: string
+        required: true
+        citation: { page: 2, line: 6 }
+      - name: security_name
+        column: 3
+        label: Security Name
+        type: string
+        citation: { page: 2, line: 8 }
+        description: Free text; may contain commas and quotes, so it is always quoted.
+      - name: close_price
+        column: 4
+        label: Close Price
+        type: decimal
+        citation: { page: 3, line: 2 }
+        description: Explicit decimal, negative for short positions in derived files.
+      - name: currency
+        column: 5
+        label: Currency
+        type: code
+        citation: { page: 3, line: 5 }
+        codes:
+          - { value: USD, meaning: US dollar }
+          - { value: CAD, meaning: Canadian dollar }
+          - { value: GBP, meaning: pound sterling }
+      - name: price_source
+        column: 6
+        label: Source
+        type: code
+        citation: { page: 3, line: 9 }
+        codes:
+          - { value: EXCH, meaning: exchange close }
+          - { value: EVAL, meaning: evaluated price }

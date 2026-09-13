@@ -1,0 +1,29 @@
+# A real run of astra_agents.pattern_matcher against agents/pattern_matcher/gold/specs
+# (`astra-agents pattern-matcher run --registry agents/pattern_matcher/gold/specs --json`),
+# transcribed into eval.yaml's canonical items — not hand-typed to match. Committed as a snapshot
+# rather than regenerated on every change, the same way agents/examples/spec_reader's is; wiring a
+# CI step that reruns the agent and refreshes this file on every change is a natural follow-up, not
+# needed for this story's acceptance criteria.
+predictions_version: 0
+agent: pattern_matcher
+run: leave-one-out-2026-09-13
+predictions:
+  pershing_gcus_reuse:
+    - "family:pershing_gcus"
+    - "tier:medium"
+    - "pattern:fixed_width_multi_record"
+  split_position_new:
+    - "family:none"
+    - "tier:medium"
+    - "pattern:fixed_width_multi_record"
+    - "new_pattern_proposal:true"
+  drip_transaction_new:
+    - "family:none"
+    - "tier:medium"
+    - "pattern:fixed_width_multi_record"
+    - "new_pattern_proposal:true"
+  csv_price_new:
+    - "family:none"
+    - "tier:simple"
+    - "pattern:delimited_file"
+    - "new_pattern_proposal:true"

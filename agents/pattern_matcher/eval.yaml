@@ -1,0 +1,55 @@
+# The Pattern Matcher's real gold set (S5.3.1, ADR 0043) — unlike agents/examples/spec_reader,
+# this is not a stand-in: every case is a real spec already in this repository's own registry,
+# scored by running the real agent against the committed fixture in gold/specs (family hidden on
+# every spec but one). "Known custodians" means exactly this: the custodians the registry already
+# has an opinion about.
+eval_version: 0
+agent: pattern_matcher
+description: >-
+  Given the gold/specs fixture (a copy of the real specs/ registry with every spec's family hidden
+  except pershing_gcus/2026-01-01), does the Pattern Matcher reunite a spec with its own family
+  when one is already known, and correctly propose a new pattern instead of guessing when it is
+  not? thresholds are illustrative starting points, not a pilot-measured baseline.
+thresholds:
+  simple:
+    precision: 0.95
+    recall: 0.95
+  medium:
+    precision: 0.9
+    recall: 0.9
+
+cases:
+  - id: pershing_gcus_reuse
+    tier: medium
+    input: agents/pattern_matcher/gold/specs/pershing_gcus/2017-07-25.yaml
+    expected:
+      - "family:pershing_gcus"
+      - "tier:medium"
+      - "pattern:fixed_width_multi_record"
+
+  - id: split_position_new
+    tier: medium
+    input: agents/pattern_matcher/gold/specs/split_position_example/2026-01-01.yaml
+    expected:
+      - "family:none"
+      - "tier:medium"
+      - "pattern:fixed_width_multi_record"
+      - "new_pattern_proposal:true"
+
+  - id: drip_transaction_new
+    tier: medium
+    input: agents/pattern_matcher/gold/specs/drip_transaction_example/2026-01-01.yaml
+    expected:
+      - "family:none"
+      - "tier:medium"
+      - "pattern:fixed_width_multi_record"
+      - "new_pattern_proposal:true"
+
+  - id: csv_price_new
+    tier: simple
+    input: agents/pattern_matcher/gold/specs/csv_price_example/2026-01-01.yaml
+    expected:
+      - "family:none"
+      - "tier:simple"
+      - "pattern:delimited_file"
+      - "new_pattern_proposal:true"

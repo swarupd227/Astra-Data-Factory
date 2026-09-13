@@ -1,0 +1,82 @@
+# Source Spec: an illustrative fixed-width position file where each position
+# is split across two records, an A record with the holding and a B record
+# with valuation, sharing account and CUSIP. It exists to exercise the A/B
+# pairing pattern; the custodian and document are examples.
+spec_version: 0
+
+spec:
+  id: split_position_example
+  version: "2026-01-01"
+  effective_from: 2026-01-01
+  file_type: position
+  custodians: [example_custodian]
+  provider: Example Custodian (illustrative)
+  description: Positions as A and B records paired on account and CUSIP.
+
+document:
+  title: Split Position File Layout
+  reference: SplitPositionFile_v2.pdf
+  pages: 9
+
+file:
+  format: fixed_width
+  record_length: 60
+  encoding: ASCII
+
+pairing:
+  - name: position
+    records: [holding, valuation]
+    keys: [account_number, cusip]
+    description: One position is a holding record followed by its valuation record.
+
+records:
+  - type: header
+    match: { position: { start: 1, length: 1 }, value: H }
+    fields:
+      - { name: record_type, position: { start: 1, length: 1 }, picture: X(1), type: code, citation: { page: 2, line: 3 }, codes: [{ value: H, meaning: header }] }
+      - { name: file_date, position: { start: 2, length: 8 }, picture: 9(8), type: date, format: YYYYMMDD, citation: { page: 2, line: 5 } }
+      - { name: filler, position: { start: 10, length: 51 }, picture: X(51), citation: { page: 2, line: 7 } }
+
+  - type: detail
+    name: holding
+    match: { position: { start: 1, length: 1 }, value: A }
+    fields:
+      - { name: record_type, position: { start: 1, length: 1 }, picture: X(1), type: code, citation: { page: 3, line: 2 }, codes: [{ value: A, meaning: holding record }] }
+      - { name: account_number, position: { start: 2, length: 10 }, picture: X(10), required: true, citation: { page: 3, line: 4 } }
+      - { name: cusip, position: { start: 12, length: 9 }, picture: X(9), required: true, citation: { page: 3, line: 6 } }
+      - { name: quantity, position: { start: 21, length: 15 }, picture: 9(10)V9(5), sign_field: quantity_sign, citation: { page: 3, line: 8 } }
+      - name: quantity_sign
+        position: { start: 36, length: 1 }
+        picture: X(1)
+        type: code
+        citation: { page: 3, line: 10 }
+        codes:
+          - { value: "+", meaning: long, sign: positive }
+          - { value: "-", meaning: short, sign: negative }
+      - { name: filler, position: { start: 37, length: 24 }, picture: X(24), citation: { page: 3, line: 12 } }
+
+  - type: detail
+    name: valuation
+    match: { position: { start: 1, length: 1 }, value: B }
+    fields:
+      - { name: record_type, position: { start: 1, length: 1 }, picture: X(1), type: code, citation: { page: 4, line: 2 }, codes: [{ value: B, meaning: valuation record }] }
+      - { name: account_number, position: { start: 2, length: 10 }, picture: X(10), required: true, citation: { page: 4, line: 4 } }
+      - { name: cusip, position: { start: 12, length: 9 }, picture: X(9), required: true, citation: { page: 4, line: 6 } }
+      - { name: price, position: { start: 21, length: 13 }, picture: 9(7)V9(6), citation: { page: 4, line: 8 } }
+      - { name: market_value, position: { start: 34, length: 15 }, picture: 9(13)V9(2), sign_field: value_sign, citation: { page: 4, line: 10 } }
+      - name: value_sign
+        position: { start: 49, length: 1 }
+        picture: X(1)
+        type: code
+        citation: { page: 4, line: 12 }
+        codes:
+          - { value: "+", meaning: positive, sign: positive }
+          - { value: "-", meaning: negative, sign: negative }
+      - { name: filler, position: { start: 50, length: 11 }, picture: X(11), citation: { page: 4, line: 14 } }
+
+  - type: trailer
+    match: { position: { start: 1, length: 1 }, value: T }
+    fields:
+      - { name: record_type, position: { start: 1, length: 1 }, picture: X(1), type: code, citation: { page: 8, line: 3 }, codes: [{ value: T, meaning: trailer }] }
+      - { name: record_count, position: { start: 2, length: 9 }, picture: 9(9), citation: { page: 8, line: 5 } }
+      - { name: filler, position: { start: 11, length: 50 }, picture: X(50), citation: { page: 8, line: 7 } }

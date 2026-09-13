@@ -3,10 +3,13 @@
 # agent — "metrics visible to the client: per agent, per tier, per week" (product spec
 # Section 11). Nothing here needs a Snowflake account; the harness only reads files.
 #
-# Until a real agent exists under agents/<agent>/ (the Agents plane, E5, has not started),
-# this runs against the committed example and reports it in the job summary and as an
-# uploaded artifact; a real agent's own predictions.yaml joins the same directory when it
-# exists, with no change to this workflow.
+# agents/pattern_matcher (S5.3.1, ADR 0043) is the first real agent scored here — a real gold
+# set against real specs already in this repository, not a stand-in. The Spec Reader's own
+# gold set (agents/spec_reader/) needs a person to review a real extraction first (ADR 0041)
+# and is not built yet; its worked example lives under agents/examples/ instead, one
+# directory deeper than this job's discovery looks, so it is not part of this report. A later
+# agent's own predictions.yaml joins agents/<agent>/ the same way, with no change to this
+# workflow.
 
 name: agent evaluation weekly
 
