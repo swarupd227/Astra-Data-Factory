@@ -1,0 +1,86 @@
+# Illustrative — no real Fidelity source exists in this repository. A second custodian
+# delivering the same pershing_gcus-format file is a real, plausible scenario this factory's own
+# principles describe directly ("Patterns before instances. The first source of a kind is
+# engineered; the rest are configuration.", product spec Section 2) — used here only so
+# astra_control.diff_review has a second custodian whose config also cites
+# pershing_gcus.quantity_sign, to show "affected custodians" against more than one entry.
+config_version: 0
+
+source:
+  id: fidelity_position
+  custodian: fidelity
+  file_type: position
+  family: pershing_gcus
+  tier: medium
+  description: Fidelity's own delivery of the same GCUS-format position file.
+
+spec:
+  id: pershing_gcus
+  version: "2017-07-25"
+
+pattern: fixed_width_multi_record
+target_profile: snowflake_iceberg
+domain_pack: custodial
+effective_from: 2026-09-01
+
+owner:
+  name: Data steward, custodial
+  email: steward@example.com
+
+mappings:
+  - target: position.account_number
+    source: account_number
+  - target: position.custodian_security_id
+    source: cusip
+  - target: position.as_of_date
+    source: as_of_date
+  - target: position.quantity
+    source: quantity
+    transform: signed_implied_decimal(13, 5)
+    rule: pershing_gcus.quantity_sign
+  - target: position.price
+    source: price
+    transform: implied_decimal(6)
+  - target: position.position_type
+    constant: LONG
+  - target: position.currency
+    constant: USD
+
+resolution:
+  account:
+    source: account_number
+    require_open: true
+  security:
+    by:
+      - { identifier: CUSIP, source: cusip }
+  price:
+    when: missing
+    lookback_days: 5
+
+rules:
+  - pershing_gcus.quantity_sign
+
+dq_rules:
+  - id: trailer_control_total
+    kind: control_total
+    level: file
+    check: trailer record count equals the number of detail records
+    trailer_field: detail_count
+    aggregate: count
+    severity: error
+    owner: steward@example.com
+
+processing:
+  target_lag_minutes: 10
+
+delivery:
+  cutoff_time: "06:30"
+  timezone: America/New_York
+  business_days: [mon, tue, wed, thu, fri]
+  files:
+    - pattern: fidelity/GCUS_%_POS_%.dat
+      description: Positions
+
+alerts:
+  late: error
+  task_failure: error

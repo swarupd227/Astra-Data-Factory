@@ -1,16 +1,20 @@
-"""Command line: `astra-control board add|move|set-wip-limit|show` and `astra-control
-config-studio start|advance|request-promotion|show-requests`.
+"""Command line: `astra-control board add|move|set-wip-limit|show`, `astra-control config-studio
+start|advance|request-promotion|show-requests` and `astra-control diff-review run`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
 command — see astra_control.board's and astra_control.config_studio's own module docstrings for
-why. Exit codes: every `board` and `config-studio` write command is 0 on success, 2 when the
-change is rejected (a blank field, an unknown custodian, a move that would exceed a stream's WIP
-limit, a promotion requested out of order or a medium/complex request missing its reviewer) — the
-same shape `astra_agents.guardrails`'s own `set-level` uses for a rejected change: refused
+why. `diff-review run` needs no credentials either — it reads two config files and the spec
+registry, rule catalog and domain packs already on disk; nothing it does needs Snowflake or a
+model call. Exit codes: every `board` and `config-studio` write command is 0 on success, 2 when
+the change is rejected (a blank field, an unknown custodian, a move that would exceed a stream's
+WIP limit, a promotion requested out of order or a medium/complex request missing its reviewer) —
+the same shape `astra_agents.guardrails`'s own `set-level` uses for a rejected change: refused
 outright, never applied and flagged. `board show` is 0 when every stream is within its own WIP
 limit, 1 when at least one stream is over (a real condition to look at, not a start error), 2
 only for a bad `--board` argument. `config-studio show-requests` is always 0 — a plain read.
+`diff-review run` is 0 whether or not the two configs differ — a diff itself is not a problem to
+flag, only information a steward reads — and 2 only when either config fails to compile.
 """
 
 from __future__ import annotations
@@ -22,6 +26,9 @@ from pathlib import Path
 
 from astra_control.board import STATIONS, BoardError, add_custodian, load_board, move, render_markdown, save_board, set_wip_limit
 from astra_control.config_studio import SEQUENCE, TIERS, ConfigStudioError, advance, load_promotion_requests, request_promotion, start
+from astra_control.diff_review import DiffReviewError
+from astra_control.diff_review import render_markdown as render_diff_markdown
+from astra_control.diff_review import review, write_review
 
 
 def cmd_board_add(args: argparse.Namespace) -> int:
@@ -131,6 +138,29 @@ def cmd_config_studio_show_requests(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_diff_review_run(args: argparse.Namespace) -> int:
+    try:
+        result = review(
+            Path(args.old),
+            Path(args.new),
+            other_configs=[Path(p) for p in args.other_config],
+            specs_dir=Path(args.specs),
+            rules_dir=Path(args.rules),
+            domains_dir=Path(args.domains),
+        )
+    except DiffReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out = Path(args.out)
+    report_path, _data_path = write_review(result, out)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(render_diff_markdown(result))
+        print(f"  report: {report_path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -195,6 +225,20 @@ def build_parser() -> argparse.ArgumentParser:
     csw.add_argument("--custodian", help="show only this custodian's requests")
     csw.add_argument("--json", action="store_true")
     csw.set_defaults(func=cmd_config_studio_show_requests)
+
+    dr = sub.add_parser("diff-review", help="a side-by-side diff of a config change with citations and impact")
+    drsub = dr.add_subparsers(dest="diff_review_command", required=True)
+
+    drr = drsub.add_parser("run", help="diff two versions of a config: changed fields, rules touched (with citation), and every other custodian a touched rule also affects")
+    drr.add_argument("--old", required=True, help="the earlier version of the config")
+    drr.add_argument("--new", required=True, help="the later version of the config")
+    drr.add_argument("--other-config", action="append", default=[], help="another config to check for the same rule references, for affected custodians (repeatable)")
+    drr.add_argument("--specs", default="specs", help="the spec registry directory (default: specs)")
+    drr.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+    drr.add_argument("--domains", default="domains", help="the domain packs directory (default: domains)")
+    drr.add_argument("--out", default="work/diff-review", help="the report is written under <out>/ (default: work/diff-review)")
+    drr.add_argument("--json", action="store_true")
+    drr.set_defaults(func=cmd_diff_review_run)
 
     return parser
 

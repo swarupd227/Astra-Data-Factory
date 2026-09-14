@@ -1,0 +1,99 @@
+# An earlier version of the real ../../../configs/examples/pershing_position.yaml — the "new"
+# side of the diff is that real, current file, unduplicated; this is only the "old" side, kept
+# here because control/'s own examples don't belong under the Knowledge plane's own configs/
+# registry. The only real difference from the current file: the quantity mapping had no rule
+# attached yet, and rules: is empty — as if pershing_gcus.quantity_sign had not been recovered
+# and confirmed at the time this version was in force.
+config_version: 0
+
+source:
+  id: pershing_position
+  custodian: pershing
+  file_type: position
+  family: pershing_gcus
+  tier: medium
+  description: Pershing GCUS position file, one record per account and security.
+
+spec:
+  id: pershing_gcus
+  version: "2017-07-25"
+
+pattern: fixed_width_multi_record
+target_profile: snowflake_iceberg
+domain_pack: custodial
+effective_from: 2026-09-01
+
+owner:
+  name: Data steward, custodial
+  email: steward@example.com
+
+mappings:
+  - target: position.account_number
+    source: account_number
+  - target: position.custodian_security_id
+    source: cusip
+  - target: position.as_of_date
+    source: as_of_date
+  - target: position.quantity
+    source: quantity
+    transform: signed_implied_decimal(13, 5)
+  - target: position.price
+    source: price
+    transform: implied_decimal(6)
+  - target: position.position_type
+    constant: LONG
+  - target: position.currency
+    constant: USD
+
+resolution:
+  account:
+    source: account_number
+    require_open: true
+  security:
+    by:
+      - { identifier: CUSIP, source: cusip }
+  price:
+    when: missing
+    lookback_days: 5
+
+dq_rules:
+  - id: trailer_control_total
+    kind: control_total
+    level: file
+    check: trailer record count equals the number of detail records
+    trailer_field: detail_count
+    aggregate: count
+    severity: error
+    owner: steward@example.com
+  - id: cusip_present
+    kind: not_null
+    level: record
+    check: every detail record names a security
+    field: cusip
+    severity: warning
+    owner: steward@example.com
+  - id: price_not_negative
+    kind: range
+    level: record
+    check: a reported price is never negative
+    field: price
+    min: 0
+    severity: info
+    owner: steward@example.com
+
+processing:
+  target_lag_minutes: 10
+
+delivery:
+  cutoff_time: "06:00"
+  timezone: America/New_York
+  business_days: [mon, tue, wed, thu, fri]
+  files:
+    - pattern: pershing/GCUS_%_POS_%.dat
+      description: Positions
+    - pattern: pershing/GCUS_%_TRN_%.dat
+      description: Transactions
+
+alerts:
+  late: error
+  task_failure: error

@@ -1,10 +1,13 @@
 [project]
 name = "astra-control"
 version = "0.1.0"
-description = "Astra Data Factory control plane: the factory board, approvals and workflow. Starting with the factory board."
+description = "Astra Data Factory control plane: the factory board, config studio and diff review."
 requires-python = ">=3.11"
 dependencies = [
   "astra-core",
+  "astra-knowledge",
+  "astra-data",
+  "astra-verification",
   "pyyaml>=6.0",
 ]
 
@@ -25,4 +28,4 @@ packages = ["src/astra_control"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "../core/src"]
+pythonpath = ["src", "../core/src", "../knowledge/src", "../generation/src", "../verification/src"]
