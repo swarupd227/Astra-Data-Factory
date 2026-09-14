@@ -1,8 +1,10 @@
 """Astra Data Factory control plane (E6).
 
 Today: the factory board (S6.1.1) — every custodian at its station, one WIP limit enforced per
-stream, custodians live per week. No live Postgres yet: `board.yaml` is a real, working
-stand-in for the store E6 will eventually have (astra_control.board's own module docstring).
+stream, custodians live per week; and config studio (S6.1.2) — a guided profile/draft/dry-run
+sequence with a promotion-request log, self-service for a simple-tier custodian with no engineer
+involved. No live Postgres yet: `board.yaml` and the promotion-requests log are real, working
+stand-ins for the store E6 will eventually have (astra_control.board's own module docstring).
 """
 
 from astra_control.board import (
@@ -21,20 +23,38 @@ from astra_control.board import (
     save_board,
     set_wip_limit,
 )
+from astra_control.config_studio import (
+    SEQUENCE,
+    TIERS,
+    ConfigStudioError,
+    PromotionRequest,
+    advance,
+    load_promotion_requests,
+    request_promotion,
+    start,
+)
 
 __all__ = [
     "STATIONS",
     "IN_FLIGHT_STATIONS",
+    "SEQUENCE",
+    "TIERS",
     "Board",
     "BoardError",
+    "ConfigStudioError",
     "CustodianCard",
+    "PromotionRequest",
     "Station",
     "Transition",
     "add_custodian",
+    "advance",
     "live_per_week",
     "load_board",
+    "load_promotion_requests",
     "move",
     "render_markdown",
+    "request_promotion",
     "save_board",
     "set_wip_limit",
+    "start",
 ]

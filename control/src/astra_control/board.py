@@ -77,9 +77,10 @@ def _now(at: datetime | None) -> str:
 class Transition:
     station: Station
     at: str  # ISO 8601 UTC, "%Y-%m-%dT%H:%M:%SZ"
+    by: str | None = None  # who made this move; optional so a caller with no identity to record still works
 
     def to_dict(self) -> dict:
-        return {"station": self.station.value, "at": self.at}
+        return {"station": self.station.value, "at": self.at, "by": self.by}
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,10 @@ class CustodianCard:
     @property
     def since(self) -> str:
         return self.transitions[-1].at
+
+    @property
+    def moved_by(self) -> str | None:
+        return self.transitions[-1].by
 
     @property
     def in_flight(self) -> bool:
@@ -131,7 +136,7 @@ class Board:
 # -- operations: every one either returns a new Board or raises BoardError, never both ----------
 
 
-def add_custodian(board: Board, custodian_id: str, stream: str, *, at: datetime | None = None) -> Board:
+def add_custodian(board: Board, custodian_id: str, stream: str, *, by: str | None = None, at: datetime | None = None) -> Board:
     """Adds a custodian to the board at `profile` — the board's own entry point. Blocked exactly
     like a move into the in-flight set: the stream's WIP limit, if any, is checked first."""
     custodian_id, stream = custodian_id.strip(), stream.strip()
@@ -144,11 +149,11 @@ def add_custodian(board: Board, custodian_id: str, stream: str, *, at: datetime 
     limit = board.wip_limit(stream)
     if limit is not None and board.wip_count(stream) >= limit:
         raise BoardError(f"adding '{custodian_id}' would put the {stream!r} stream at {board.wip_count(stream) + 1} in flight; the WIP limit is {limit}")
-    card = CustodianCard(custodian_id=custodian_id, stream=stream, transitions=(Transition(Station.PROFILE, _now(at)),))
+    card = CustodianCard(custodian_id=custodian_id, stream=stream, transitions=(Transition(Station.PROFILE, _now(at), by),))
     return replace(board, cards=board.cards + (card,))
 
 
-def move(board: Board, custodian_id: str, to: Station | str, *, at: datetime | None = None) -> Board:
+def move(board: Board, custodian_id: str, to: Station | str, *, by: str | None = None, at: datetime | None = None) -> Board:
     """Moves a custodian to `to`. Blocked only when the move would newly add the custodian to its
     stream's in-flight set (it was not in flight before) and doing so would exceed the stream's
     WIP limit — a lateral move between two in-flight stations is never blocked (ADR 0054)."""
@@ -161,7 +166,7 @@ def move(board: Board, custodian_id: str, to: Station | str, *, at: datetime | N
         limit = board.wip_limit(card.stream)
         if limit is not None and board.wip_count(card.stream) >= limit:
             raise BoardError(f"moving '{custodian_id}' to {to.value} would put the {card.stream!r} stream at {board.wip_count(card.stream) + 1} in flight; the WIP limit is {limit}")
-    updated = replace(card, transitions=card.transitions + (Transition(to, _now(at)),))
+    updated = replace(card, transitions=card.transitions + (Transition(to, _now(at), by),))
     cards = tuple(updated if c.custodian_id == custodian_id else c for c in board.cards)
     return replace(board, cards=cards)
 
@@ -199,7 +204,7 @@ def from_dict(data: dict[str, Any]) -> Board:
         CustodianCard(
             custodian_id=c["id"],
             stream=c["stream"],
-            transitions=tuple(Transition(_station(t["station"]), t["at"]) for t in c["transitions"]),
+            transitions=tuple(Transition(_station(t["station"]), t["at"], t.get("by")) for t in c["transitions"]),
         )
         for c in data.get("custodians") or ()
     )
@@ -236,11 +241,11 @@ def render_markdown(board: Board) -> str:
         budget = f"{count}/{limit}" if limit is not None else f"{count} (no limit set)"
         out.append(f"## {stream} — {budget} in flight{flag}")
         out.append("")
-        out.append("| Station | Custodian | Since |")
-        out.append("|---|---|---|")
+        out.append("| Station | Custodian | Since | By |")
+        out.append("|---|---|---|---|")
         stream_cards = sorted((c for c in board.cards if c.stream == stream), key=lambda c: (STATIONS.index(c.station), c.custodian_id))
         for c in stream_cards:
-            out.append(f"| {c.station.value} | {c.custodian_id} | {c.since} |")
+            out.append(f"| {c.station.value} | {c.custodian_id} | {c.since} | {c.moved_by or '—'} |")
         out.append("")
     out.append("## Custodians live per week")
     out.append("")

@@ -1,0 +1,5 @@
+# Config studio: one promotion request per entry, oldest first.
+requests_version: 0
+
+requests:
+  - { custodian_id: tableau-gl, tier: simple, requested_by: "bsa@example.com", reviewed_by: null, note: "profiled and dry-run clean; no engineer needed", at: "2026-09-14T02:46:54Z" }
