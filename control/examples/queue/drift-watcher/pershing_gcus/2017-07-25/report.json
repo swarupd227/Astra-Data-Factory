@@ -1,0 +1,47 @@
+{
+  "drift_detected": true,
+  "findings": [
+    {
+      "current": 120,
+      "description": "6/6 line(s) are 125 characters; the spec declares record_length 120",
+      "evidence": {
+        "declared_length": 120,
+        "matching_lines": 6,
+        "observed_length": 125,
+        "total_lines": 6
+      },
+      "kind": "record_length",
+      "path": "file.record_length",
+      "proposed": 125
+    },
+    {
+      "current": [
+        "EQ",
+        "FI",
+        "MF",
+        "OP"
+      ],
+      "description": "detail.security_type has 2 occurrence(s) of 'CD', which is not a declared code (EQ, FI, MF, OP)",
+      "evidence": {
+        "declared_codes": [
+          "EQ",
+          "FI",
+          "MF",
+          "OP"
+        ],
+        "field": "security_type",
+        "occurrences": 2,
+        "record": "detail",
+        "total_lines": 4,
+        "value": "CD"
+      },
+      "kind": "new_code",
+      "path": "records[detail].fields[security_type].codes",
+      "proposed": "CD"
+    }
+  ],
+  "lines_checked": 6,
+  "sample": "drifted_sample.dat",
+  "spec_id": "pershing_gcus",
+  "spec_version": "2017-07-25"
+}

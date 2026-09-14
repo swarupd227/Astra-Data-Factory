@@ -1,6 +1,6 @@
 """Command line: `astra-control board add|move|set-wip-limit|show`, `astra-control config-studio
-start|advance|request-promotion|show-requests`, `astra-control diff-review run` and
-`astra-control permissions show|resolve`.
+start|advance|request-promotion|show-requests`, `astra-control diff-review run`, `astra-control
+permissions show|resolve` and `astra-control queue show`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -25,7 +25,11 @@ every stream is within its own WIP limit, 1 when at least one stream is over (a 
 look at, not a start error), 2 for a bad `--board` argument or an unauthorized role.
 `config-studio show-requests` and `diff-review run` are 0 unless the role check itself fails (2).
 `permissions show` is always 0; `permissions resolve` is 0 when the claims resolve to exactly one
-role, 2 otherwise.
+role, 2 otherwise. `queue show` reads whichever report and gate-pack paths are given — a missing
+or unreadable one contributes nothing, never an error, the same "no evidence" shape
+`astra_agents.gate_evidence_compiler` already established — and is 0 when nothing needs the given
+role (or, unfiltered, nobody), 1 when the queue is non-empty (a real condition to look at), 2 only
+for an unrecognized `--role`.
 """
 
 from __future__ import annotations
@@ -41,6 +45,8 @@ from astra_control.diff_review import DiffReviewError
 from astra_control.diff_review import render_markdown as render_diff_markdown
 from astra_control.diff_review import review, write_review
 from astra_control.permissions import Action, AuthorizationError, Role, identity_from_claims, load_role_mapping, render_permissions, require
+from astra_control.queue import QueueSources, build_queue, for_role
+from astra_control.queue import render_markdown as render_queue_markdown
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -227,6 +233,29 @@ def cmd_permissions_resolve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_queue_show(args: argparse.Namespace) -> int:
+    sources = QueueSources(
+        gate_packs=tuple(Path(p) for p in args.gate_pack),
+        exception_triage_reports=tuple(Path(p) for p in args.exception_report),
+        break_explainer_reports=tuple(Path(p) for p in args.break_report),
+        drift_watcher_reports=tuple(Path(p) for p in args.drift_report),
+    )
+    items = build_queue(sources)
+    role = None
+    if args.role:
+        try:
+            role = Role(args.role)
+        except ValueError:
+            print(f"error: '{args.role}' is not a role; roles are {', '.join(r.value for r in Role)}", file=sys.stderr)
+            return 2
+        items = for_role(items, role)
+    if args.json:
+        print(json.dumps([i.to_dict() for i in items], indent=2))
+    else:
+        print(render_queue_markdown(items, role=role))
+    return 1 if items else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -328,6 +357,18 @@ def build_parser() -> argparse.ArgumentParser:
     pmr.add_argument("--name", required=True)
     pmr.add_argument("--group", action="append", default=[], help="one of the identity provider's own group names for this person (repeatable)")
     pmr.set_defaults(func=cmd_permissions_resolve)
+
+    qu = sub.add_parser("queue", help="home / my queue: what needs a person today, aggregated from what this factory's own agents and gate packs have already produced")
+    qusub = qu.add_subparsers(dest="queue_command", required=True)
+
+    qus = qusub.add_parser("show", help="approvals, exceptions assigned, breaks to explain, drift changes — filtered by --role when given")
+    qus.add_argument("--gate-pack", action="append", default=[], help="a gate_pack.json to check for an outstanding approval (repeatable)")
+    qus.add_argument("--exception-report", action="append", default=[], help="an exception-triage report.json (repeatable)")
+    qus.add_argument("--break-report", action="append", default=[], help="a break-explainer report.json (repeatable)")
+    qus.add_argument("--drift-report", action="append", default=[], help="a drift-watcher report.json (repeatable)")
+    qus.add_argument("--role", help="show only this role's own items (default: everyone's)")
+    qus.add_argument("--json", action="store_true")
+    qus.set_defaults(func=cmd_queue_show)
 
     return parser
 

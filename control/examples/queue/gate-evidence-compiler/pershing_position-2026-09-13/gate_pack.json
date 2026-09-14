@@ -1,0 +1,210 @@
+{
+  "all_met": false,
+  "criteria": [
+    {
+      "description": "The DQ runner's score for this source meets its configured target.",
+      "evidence": {
+        "breached": [],
+        "business_date": "2026-09-13",
+        "custodian": "pershing",
+        "entity": "Position",
+        "meets_target": true,
+        "rules": [],
+        "score": 0.994,
+        "scored": true,
+        "target": 0.98
+      },
+      "evidence_path": "agents\\examples\\gate_evidence_compiler\\dq_report.json",
+      "id": "dq_score",
+      "met": true,
+      "name": "Data quality score meets target",
+      "status": "MET",
+      "summary": "score 0.994 (target 0.98)"
+    },
+    {
+      "description": "The parity report's match rate meets the platform target.",
+      "evidence": {
+        "custodian": "pershing",
+        "cycles": 5,
+        "first_business_date": "2026-09-08",
+        "lakehouse_rows": 12500,
+        "last_business_date": "2026-09-12",
+        "legacy_output": "positions",
+        "legacy_rows": 12500,
+        "match_rate": 0.998,
+        "matched": 12475,
+        "meets_target": true,
+        "table": "POSITION",
+        "target": 0.995,
+        "trend": "improving"
+      },
+      "evidence_path": "agents\\examples\\gate_evidence_compiler\\parity_report.json",
+      "id": "parity",
+      "met": true,
+      "name": "Parity meets target",
+      "status": "MET",
+      "summary": "match_rate 0.998 (target 0.995)"
+    },
+    {
+      "description": "The volume test completed and published within its time budget.",
+      "evidence": {
+        "budget_seconds": 900,
+        "business_date": "2026-09-10",
+        "custodian": "pershing",
+        "destroyed": true,
+        "error": null,
+        "factor": 3,
+        "gold_rows": 375000,
+        "last_file_loaded_at": "2026-09-10T02:05:00Z",
+        "phases": [],
+        "publish_result": "SILVER.POSITION",
+        "sandbox": "sb-pershing-volume-20260910",
+        "seconds": 640.2,
+        "seconds_end_to_end": 640.2,
+        "sources": [
+          {
+            "config": "pershing_position",
+            "files_loaded": 3,
+            "id": "pershing_position",
+            "lines_loaded": 375000,
+            "run_id": "run-1"
+          }
+        ],
+        "started_at": "2026-09-10T02:00:00Z",
+        "status": "published",
+        "task_id": "TASK_PERSHING_POSITION_PARSE",
+        "total_files": 3,
+        "total_lines": 375000,
+        "warehouse_size": "LARGE",
+        "watermark_published_at": "2026-09-10T02:11:00Z"
+      },
+      "evidence_path": "agents\\examples\\gate_evidence_compiler\\volume_report.json",
+      "id": "volume",
+      "met": true,
+      "name": "Volume test published",
+      "status": "MET",
+      "summary": "status published"
+    },
+    {
+      "description": "Every injected chaos scenario was detected, alerted and recovered.",
+      "evidence": {
+        "business_date": "2026-09-11",
+        "custodian": "pershing",
+        "destroyed": true,
+        "error": null,
+        "phases": [],
+        "proven": true,
+        "sandbox": "sb-pershing-chaos-20260911",
+        "scenarios": [
+          {
+            "alert_kind": "late",
+            "alert_raised": true,
+            "code": "FILE_LATE",
+            "detail": "expected file withheld past cutoff",
+            "fault_count": 1,
+            "fault_detected": true,
+            "recovered": null,
+            "retried": false,
+            "retry_applicable": false,
+            "scenario": "late_file",
+            "severity": "warning"
+          },
+          {
+            "alert_kind": "exception",
+            "alert_raised": true,
+            "code": "FIELD_NOT_NUMERIC",
+            "detail": "one detail line truncated mid-field",
+            "fault_count": 1,
+            "fault_detected": true,
+            "recovered": true,
+            "retried": true,
+            "retry_applicable": true,
+            "scenario": "malformed_record",
+            "severity": "error"
+          }
+        ],
+        "seconds": 210.4,
+        "started_at": "2026-09-11T02:00:00Z",
+        "status": "ran",
+        "task_id": "TASK_PERSHING_POSITION_PARSE"
+      },
+      "evidence_path": "agents\\examples\\gate_evidence_compiler\\chaos_report.json",
+      "id": "chaos",
+      "met": true,
+      "name": "Chaos scenarios proven",
+      "status": "MET",
+      "summary": "status ran, proven True"
+    },
+    {
+      "description": "The disaster-recovery drill met its RTO and RPO.",
+      "evidence": {
+        "baseline": {
+          "SILVER.POSITION": 375000
+        },
+        "custodian": "pershing",
+        "proven": true,
+        "restored": {
+          "SILVER.POSITION": 375000
+        },
+        "rows_lost": {},
+        "rpo_minutes": 15,
+        "rto_minutes": 60,
+        "sandbox": "sb-pershing-dr-20260912",
+        "seconds_to_restore": 1820.5,
+        "started_at": "2026-09-12T02:00:00Z",
+        "status": "restored",
+        "task_id": "TASK_PERSHING_POSITION_PARSE",
+        "within_rpo": true,
+        "within_rto": true
+      },
+      "evidence_path": "agents\\examples\\gate_evidence_compiler\\dr_report.json",
+      "id": "dr_drill",
+      "met": true,
+      "name": "DR drill proven",
+      "status": "MET",
+      "summary": "status restored, within_rto True, within_rpo True"
+    },
+    {
+      "description": "The agents this release depends on meet their own gold-set thresholds.",
+      "evidence": {
+        "agents_scored": [
+          "pattern_matcher",
+          "test_generator",
+          "break_explainer"
+        ],
+        "all_passed": true,
+        "by_tier": {
+          "medium": {
+            "cases": 5,
+            "precision": 1.0,
+            "recall": 1.0,
+            "tier": "medium"
+          }
+        },
+        "generated_at": "2026-09-13T08:00:00Z",
+        "results": [],
+        "skipped": [
+          "spec_reader",
+          "modeler"
+        ]
+      },
+      "evidence_path": "agents\\examples\\gate_evidence_compiler\\agent_eval_report.json",
+      "id": "agent_eval",
+      "met": true,
+      "name": "Agent evaluation passed",
+      "status": "MET",
+      "summary": "all_passed True (0 agent(s) scored, 2 skipped)"
+    },
+    {
+      "description": "A person has recorded approval for this specific release.",
+      "evidence": null,
+      "evidence_path": null,
+      "id": "approval",
+      "met": false,
+      "name": "Release approved",
+      "status": "NOT MET",
+      "summary": "no evidence found"
+    }
+  ],
+  "release": "pershing_position-2026-09-13"
+}

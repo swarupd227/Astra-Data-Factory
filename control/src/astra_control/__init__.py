@@ -8,9 +8,12 @@ involved; diff review (S6.1.3) — a side-by-side diff of a config change, reusi
 touched rule also affects; and sign-in, roles and permissions (S6.3.1) — six closed roles, each
 one's allowed actions across the three modules above listed and enforced at the CLI boundary, an
 identity provider's already-authenticated claims turned into an internal role through a platform
-administrator's own group mapping, and an auditor role with no write action at all. No live
-Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins for the
-store E6 will eventually have (astra_control.board's own module docstring).
+administrator's own group mapping, and an auditor role with no write action at all; and home / my
+queue (S6.3.2) — approvals, exceptions assigned, breaks to explain and drift changes, aggregated
+straight from the report.json and gate_pack.json files this factory's own agents already wrote,
+filtered by the same six roles. No live Postgres yet: `board.yaml` and the promotion-requests log
+are real, working stand-ins for the store E6 will eventually have (astra_control.board's own
+module docstring).
 """
 
 from astra_control.board import (
@@ -63,8 +66,23 @@ from astra_control.permissions import (
     require,
 )
 from astra_control.permissions import render_permissions as render_permissions_markdown
+from astra_control.queue import (
+    KIND_ROLES,
+    QueueItem,
+    QueueItemKind,
+    QueueSources,
+    approvals_from,
+    breaks_from,
+    build_queue,
+    counts_by_kind,
+    drift_from,
+    exceptions_from,
+    for_role,
+)
+from astra_control.queue import render_markdown as render_queue_markdown
 
 __all__ = [
+    "KIND_ROLES",
     "PERMISSIONS",
     "READ_ACTIONS",
     "SEQUENCE",
@@ -82,6 +100,9 @@ __all__ = [
     "DiffReviewError",
     "Identity",
     "PromotionRequest",
+    "QueueItem",
+    "QueueItemKind",
+    "QueueSources",
     "Role",
     "RoleMapping",
     "RuleImpact",
@@ -89,8 +110,15 @@ __all__ = [
     "Transition",
     "add_custodian",
     "advance",
+    "approvals_from",
     "authorized",
+    "breaks_from",
+    "build_queue",
     "citation_link",
+    "counts_by_kind",
+    "drift_from",
+    "exceptions_from",
+    "for_role",
     "identity_from_claims",
     "live_per_week",
     "load_board",
@@ -100,6 +128,7 @@ __all__ = [
     "render_diff_markdown",
     "render_markdown",
     "render_permissions_markdown",
+    "render_queue_markdown",
     "request_promotion",
     "require",
     "review",

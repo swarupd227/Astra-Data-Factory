@@ -1,0 +1,178 @@
+{
+  "acceptance_by_code": {
+    "ACCOUNT_NOT_FOUND": {
+      "accepted": 0,
+      "confidence": 0.5,
+      "total": 0
+    },
+    "PRICE_MISSING": {
+      "accepted": 1,
+      "confidence": 0.2857,
+      "total": 5
+    },
+    "PRICE_STALE": {
+      "accepted": 8,
+      "confidence": 0.8182,
+      "total": 9
+    },
+    "SECURITY_NOT_FOUND": {
+      "accepted": 0,
+      "confidence": 0.5,
+      "total": 0
+    },
+    "TRANSACTION_CODE_UNMAPPED": {
+      "accepted": 0,
+      "confidence": 0.5,
+      "total": 0
+    },
+    "UNKNOWN_LOCAL_CODE": {
+      "accepted": 0,
+      "confidence": 0.5,
+      "total": 0
+    }
+  },
+  "ok": false,
+  "suggestions": [
+    {
+      "accepted": 0,
+      "auto_apply": false,
+      "confidence": 0.5,
+      "count": 2,
+      "exception_ids": [
+        "EX0001",
+        "EX0002"
+      ],
+      "group_key": "value:ACC9999999",
+      "rejection_code": "ACCOUNT_NOT_FOUND",
+      "resolution": "Add the account to the cross-reference (a new account) or confirm it is not managed; records wait until then.",
+      "sample_raw_value": "ACC9999999",
+      "total_decisions": 0,
+      "whitelisted": false
+    },
+    {
+      "accepted": 8,
+      "auto_apply": true,
+      "confidence": 0.8182,
+      "count": 2,
+      "exception_ids": [
+        "EX0010",
+        "EX0011"
+      ],
+      "group_key": "field:price",
+      "rejection_code": "PRICE_STALE",
+      "resolution": "Obtain a current price; the stale price is used and flagged until then.",
+      "sample_raw_value": null,
+      "total_decisions": 9,
+      "whitelisted": true
+    },
+    {
+      "accepted": 0,
+      "auto_apply": false,
+      "confidence": 0.5,
+      "count": 2,
+      "exception_ids": [
+        "EX0007",
+        "EX0008"
+      ],
+      "group_key": "value:ZZ",
+      "rejection_code": "TRANSACTION_CODE_UNMAPPED",
+      "resolution": "Map the code in the config's transaction code table; records with the code wait until then.",
+      "sample_raw_value": "ZZ",
+      "total_decisions": 0,
+      "whitelisted": false
+    },
+    {
+      "accepted": 0,
+      "auto_apply": false,
+      "confidence": 0.5,
+      "count": 1,
+      "exception_ids": [
+        "EX0003"
+      ],
+      "group_key": "value:ACC8888888",
+      "rejection_code": "ACCOUNT_NOT_FOUND",
+      "resolution": "Add the account to the cross-reference (a new account) or confirm it is not managed; records wait until then.",
+      "sample_raw_value": "ACC8888888",
+      "total_decisions": 0,
+      "whitelisted": false
+    },
+    {
+      "accepted": 1,
+      "auto_apply": false,
+      "confidence": 0.2857,
+      "count": 1,
+      "exception_ids": [
+        "EX0009"
+      ],
+      "group_key": "field:price",
+      "rejection_code": "PRICE_MISSING",
+      "resolution": "Carry the last available price forward when the pricing policy allows it; otherwise obtain a price.",
+      "sample_raw_value": null,
+      "total_decisions": 5,
+      "whitelisted": true
+    },
+    {
+      "accepted": 0,
+      "auto_apply": false,
+      "confidence": 0.5,
+      "count": 1,
+      "exception_ids": [
+        "EX0004"
+      ],
+      "group_key": "value:000000000",
+      "rejection_code": "SECURITY_NOT_FOUND",
+      "resolution": "Add the security to the security master or map the custodian's identifier; records wait until then.",
+      "sample_raw_value": "000000000",
+      "total_decisions": 0,
+      "whitelisted": false
+    },
+    {
+      "accepted": 0,
+      "auto_apply": false,
+      "confidence": 0.5,
+      "count": 1,
+      "exception_ids": [
+        "EX0005"
+      ],
+      "group_key": "value:111111111",
+      "rejection_code": "SECURITY_NOT_FOUND",
+      "resolution": "Add the security to the security master or map the custodian's identifier; records wait until then.",
+      "sample_raw_value": "111111111",
+      "total_decisions": 0,
+      "whitelisted": false
+    },
+    {
+      "accepted": 0,
+      "auto_apply": false,
+      "confidence": 0.5,
+      "count": 1,
+      "exception_ids": [
+        "EX0006"
+      ],
+      "group_key": "value:222222222",
+      "rejection_code": "SECURITY_NOT_FOUND",
+      "resolution": "Add the security to the security master or map the custodian's identifier; records wait until then.",
+      "sample_raw_value": "222222222",
+      "total_decisions": 0,
+      "whitelisted": false
+    },
+    {
+      "accepted": 0,
+      "auto_apply": false,
+      "confidence": 0.5,
+      "count": 1,
+      "exception_ids": [
+        "EX0012"
+      ],
+      "group_key": "code",
+      "rejection_code": "UNKNOWN_LOCAL_CODE",
+      "resolution": null,
+      "sample_raw_value": null,
+      "total_decisions": 0,
+      "whitelisted": false
+    }
+  ],
+  "unresolved_codes": [
+    "UNKNOWN_LOCAL_CODE"
+  ]
+}

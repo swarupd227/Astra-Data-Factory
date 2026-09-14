@@ -1,0 +1,60 @@
+{
+  "business_date": "2026-09-01",
+  "by_cause": {
+    "resolution": 0,
+    "transform": 2,
+    "unexplained": 0,
+    "unmapped": 1
+  },
+  "custodian": "pershing",
+  "explained": 3,
+  "explained_rate": 1.0,
+  "explanations": [
+    {
+      "cause": "transform",
+      "description": "QUANTITY is produced by signed_implied_decimal(13, 5); the two pipelines' values differ within what a rounding or scale difference in this transform could explain.",
+      "explained": true,
+      "field": "QUANTITY",
+      "key": [
+        "ACC0000002",
+        "594918104",
+        "2026-09-01"
+      ],
+      "lakehouse": "100.00200",
+      "legacy": "100.00000",
+      "rule_id": "pershing_gcus.quantity_sign",
+      "rule_text": "Quantity is unsigned digits with five implied decimals; the sign is the following one-character field, where '+' is long and '-' is short. A blank sign means the sign is unknown and the quantity is not zero, so the value is null rather than zero."
+    },
+    {
+      "cause": "transform",
+      "description": "PRICE is produced by implied_decimal(6); the two pipelines' values differ within what a rounding or scale difference in this transform could explain.",
+      "explained": true,
+      "field": "PRICE",
+      "key": [
+        "ACC0000003",
+        "912828U40",
+        "2026-09-01"
+      ],
+      "lakehouse": "50.2000",
+      "legacy": "50.1234",
+      "rule_id": null,
+      "rule_text": null
+    },
+    {
+      "cause": "unmapped",
+      "description": "MARKET_VALUE has no direct mapping in this config; it is likely computed downstream, which this agent does not trace.",
+      "explained": true,
+      "field": "MARKET_VALUE",
+      "key": [
+        "ACC0000004",
+        "922908363",
+        "2026-09-01"
+      ],
+      "lakehouse": "5999.99",
+      "legacy": "5012.34",
+      "rule_id": null,
+      "rule_text": null
+    }
+  ],
+  "total": 3
+}
