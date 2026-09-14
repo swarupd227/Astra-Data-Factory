@@ -1,20 +1,31 @@
 """Command line: `astra-control board add|move|set-wip-limit|show`, `astra-control config-studio
-start|advance|request-promotion|show-requests` and `astra-control diff-review run`.
+start|advance|request-promotion|show-requests`, `astra-control diff-review run` and
+`astra-control permissions show|resolve`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
 command — see astra_control.board's and astra_control.config_studio's own module docstrings for
 why. `diff-review run` needs no credentials either — it reads two config files and the spec
 registry, rule catalog and domain packs already on disk; nothing it does needs Snowflake or a
-model call. Exit codes: every `board` and `config-studio` write command is 0 on success, 2 when
-the change is rejected (a blank field, an unknown custodian, a move that would exceed a stream's
-WIP limit, a promotion requested out of order or a medium/complex request missing its reviewer) —
-the same shape `astra_agents.guardrails`'s own `set-level` uses for a rejected change: refused
-outright, never applied and flagged. `board show` is 0 when every stream is within its own WIP
-limit, 1 when at least one stream is over (a real condition to look at, not a start error), 2
-only for a bad `--board` argument. `config-studio show-requests` is always 0 — a plain read.
-`diff-review run` is 0 whether or not the two configs differ — a diff itself is not a problem to
-flag, only information a steward reads — and 2 only when either config fails to compile.
+model call. `permissions resolve` needs no live identity provider either — see
+astra_control.permissions' own module docstring for why real SSO cannot honestly run here, and
+what this module owns instead.
+
+Every write command (`board add|move|set-wip-limit`, `config-studio start|advance|
+request-promotion`) and every read command (`board show`, `config-studio show-requests`,
+`diff-review run`) takes an optional `--role`: given, it is checked against that command's own
+action (`astra_control.permissions.Action`) before anything runs — refused (exit 2) before a
+single line is written when the role is not allowed; omitted, the command behaves exactly as it
+did before this story. Exit codes otherwise: every write command is 0 on success, 2 when the
+change is rejected (a blank field, an unknown custodian, a move that would exceed a stream's WIP
+limit, a promotion requested out of order, a medium/complex request missing its reviewer, or a
+role not authorized for the action) — the same shape `astra_agents.guardrails`'s own `set-level`
+uses for a rejected change: refused outright, never applied and flagged. `board show` is 0 when
+every stream is within its own WIP limit, 1 when at least one stream is over (a real condition to
+look at, not a start error), 2 for a bad `--board` argument or an unauthorized role.
+`config-studio show-requests` and `diff-review run` are 0 unless the role check itself fails (2).
+`permissions show` is always 0; `permissions resolve` is 0 when the claims resolve to exactly one
+role, 2 otherwise.
 """
 
 from __future__ import annotations
@@ -29,9 +40,27 @@ from astra_control.config_studio import SEQUENCE, TIERS, ConfigStudioError, adva
 from astra_control.diff_review import DiffReviewError
 from astra_control.diff_review import render_markdown as render_diff_markdown
 from astra_control.diff_review import review, write_review
+from astra_control.permissions import Action, AuthorizationError, Role, identity_from_claims, load_role_mapping, render_permissions, require
+
+
+def _check(args: argparse.Namespace, action: Action) -> int | None:
+    """When --role is given, enforce it against `action` before the command proceeds — returns
+    an exit code to return immediately on refusal, or None to proceed. Omitted, a command behaves
+    exactly as it did before this story (astra_control.permissions' own module docstring)."""
+    role = getattr(args, "role", None)
+    if not role:
+        return None
+    try:
+        require(role, action)
+    except AuthorizationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    return None
 
 
 def cmd_board_add(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.BOARD_ADD)) is not None:
+        return code
     try:
         board = load_board(Path(args.board))
         board = add_custodian(board, args.custodian, args.stream, by=args.by)
@@ -44,6 +73,8 @@ def cmd_board_add(args: argparse.Namespace) -> int:
 
 
 def cmd_board_move(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.BOARD_MOVE)) is not None:
+        return code
     try:
         board = load_board(Path(args.board))
         board = move(board, args.custodian, args.to, by=args.by)
@@ -56,6 +87,8 @@ def cmd_board_move(args: argparse.Namespace) -> int:
 
 
 def cmd_board_set_wip_limit(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.BOARD_SET_WIP_LIMIT)) is not None:
+        return code
     try:
         board = load_board(Path(args.board))
         board = set_wip_limit(board, args.stream, args.limit)
@@ -68,6 +101,8 @@ def cmd_board_set_wip_limit(args: argparse.Namespace) -> int:
 
 
 def cmd_board_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.BOARD_SHOW)) is not None:
+        return code
     board = load_board(Path(args.board))
     if args.json:
         print(json.dumps(board.to_dict(), indent=2))
@@ -80,6 +115,8 @@ def cmd_board_show(args: argparse.Namespace) -> int:
 
 
 def cmd_config_studio_start(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.CONFIG_STUDIO_START)) is not None:
+        return code
     try:
         board = load_board(Path(args.board))
         board = start(board, args.custodian, args.stream, by=args.by)
@@ -92,6 +129,8 @@ def cmd_config_studio_start(args: argparse.Namespace) -> int:
 
 
 def cmd_config_studio_advance(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.CONFIG_STUDIO_ADVANCE)) is not None:
+        return code
     try:
         board = load_board(Path(args.board))
         board = advance(board, args.custodian, args.to, by=args.by)
@@ -104,6 +143,8 @@ def cmd_config_studio_advance(args: argparse.Namespace) -> int:
 
 
 def cmd_config_studio_request_promotion(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.CONFIG_STUDIO_REQUEST_PROMOTION)) is not None:
+        return code
     try:
         board = load_board(Path(args.board))
         request_promotion(
@@ -124,6 +165,8 @@ def cmd_config_studio_request_promotion(args: argparse.Namespace) -> int:
 
 
 def cmd_config_studio_show_requests(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.CONFIG_STUDIO_SHOW_REQUESTS)) is not None:
+        return code
     requests = load_promotion_requests(Path(args.requests) if args.requests else None)
     if args.custodian:
         requests = tuple(r for r in requests if r.custodian_id == args.custodian)
@@ -139,6 +182,8 @@ def cmd_config_studio_show_requests(args: argparse.Namespace) -> int:
 
 
 def cmd_diff_review_run(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.DIFF_REVIEW_RUN)) is not None:
+        return code
     try:
         result = review(
             Path(args.old),
@@ -161,6 +206,27 @@ def cmd_diff_review_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_permissions_show(args: argparse.Namespace) -> int:
+    try:
+        role = Role(args.role) if args.role else None
+    except ValueError:
+        print(f"error: '{args.role}' is not a role; roles are {', '.join(r.value for r in Role)}", file=sys.stderr)
+        return 2
+    print(render_permissions(role))
+    return 0
+
+
+def cmd_permissions_resolve(args: argparse.Namespace) -> int:
+    try:
+        mapping = load_role_mapping(Path(args.mapping))
+        identity = identity_from_claims({"email": args.email, "name": args.name, "groups": args.group}, mapping)
+    except AuthorizationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"{identity.email} ({identity.name}) -> {identity.role.value}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -173,6 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
     bda.add_argument("--custodian", required=True)
     bda.add_argument("--stream", required=True, help="the engagement this custodian belongs to, for example envestnet-custodial")
     bda.add_argument("--by", help="who added this custodian, recorded on the transition")
+    bda.add_argument("--role", help="when given, checked against board.add before proceeding; omitted, unchecked (roles are steward, bsa, engineer, ops, pm, auditor)")
     bda.set_defaults(func=cmd_board_add)
 
     bdm = bdsub.add_parser("move", help="move a custodian to a station; blocked only when it would newly exceed its stream's WIP limit")
@@ -180,17 +247,20 @@ def build_parser() -> argparse.ArgumentParser:
     bdm.add_argument("--custodian", required=True)
     bdm.add_argument("--to", required=True, help=f"the station to move to; stations are {', '.join(s.value for s in STATIONS)}")
     bdm.add_argument("--by", help="who made this move, recorded on the transition")
+    bdm.add_argument("--role", help="when given, checked against board.move before proceeding")
     bdm.set_defaults(func=cmd_board_move)
 
     bdw = bdsub.add_parser("set-wip-limit", help="set one stream's WIP limit")
     bdw.add_argument("--board", required=True)
     bdw.add_argument("--stream", required=True)
     bdw.add_argument("--limit", required=True, type=int)
+    bdw.add_argument("--role", help="when given, checked against board.set-wip-limit before proceeding")
     bdw.set_defaults(func=cmd_board_set_wip_limit)
 
     bds = bdsub.add_parser("show", help="every custodian at its station, WIP limits and custodians live per week")
     bds.add_argument("--board", required=True)
     bds.add_argument("--json", action="store_true")
+    bds.add_argument("--role", help="when given, checked against board.show (every role may read)")
     bds.set_defaults(func=cmd_board_show)
 
     cs = sub.add_parser("config-studio", help="profile a sample, review the drafted config, dry-run it and request promotion — self-service for a simple-tier custodian, no engineer involved")
@@ -201,6 +271,7 @@ def build_parser() -> argparse.ArgumentParser:
     css.add_argument("--custodian", required=True)
     css.add_argument("--stream", required=True)
     css.add_argument("--by", required=True, help="who is running this (a BSA, for a simple-tier custodian)")
+    css.add_argument("--role", help="when given, checked against config-studio.start before proceeding")
     css.set_defaults(func=cmd_config_studio_start)
 
     csa = cssub.add_parser("advance", help=f"move a custodian one step forward, in order ({' -> '.join(s.value for s in SEQUENCE)})")
@@ -208,6 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
     csa.add_argument("--custodian", required=True)
     csa.add_argument("--to", required=True, help=f"the next station; config studio's own sequence is {', '.join(s.value for s in SEQUENCE)}")
     csa.add_argument("--by", required=True)
+    csa.add_argument("--role", help="when given, checked against config-studio.advance before proceeding")
     csa.set_defaults(func=cmd_config_studio_advance)
 
     csr = cssub.add_parser("request-promotion", help="request promotion once a custodian has reached dry_run; simple tier needs only its requester, medium/complex needs a reviewer too")
@@ -218,12 +290,14 @@ def build_parser() -> argparse.ArgumentParser:
     csr.add_argument("--requested-by", required=True)
     csr.add_argument("--reviewed-by", help="required for medium or complex tier; not needed for simple")
     csr.add_argument("--note")
+    csr.add_argument("--role", help="when given, checked against config-studio.request-promotion before proceeding")
     csr.set_defaults(func=cmd_config_studio_request_promotion)
 
     csw = cssub.add_parser("show-requests", help="every promotion request recorded")
     csw.add_argument("--requests", help="default: none recorded, so nothing is shown")
     csw.add_argument("--custodian", help="show only this custodian's requests")
     csw.add_argument("--json", action="store_true")
+    csw.add_argument("--role", help="when given, checked against config-studio.show-requests (every role may read)")
     csw.set_defaults(func=cmd_config_studio_show_requests)
 
     dr = sub.add_parser("diff-review", help="a side-by-side diff of a config change with citations and impact")
@@ -238,7 +312,22 @@ def build_parser() -> argparse.ArgumentParser:
     drr.add_argument("--domains", default="domains", help="the domain packs directory (default: domains)")
     drr.add_argument("--out", default="work/diff-review", help="the report is written under <out>/ (default: work/diff-review)")
     drr.add_argument("--json", action="store_true")
+    drr.add_argument("--role", help="when given, checked against diff-review.run (every role may read)")
     drr.set_defaults(func=cmd_diff_review_run)
+
+    pm = sub.add_parser("permissions", help="each role's allowed actions, and turning an identity provider's claims into an internal role")
+    pmsub = pm.add_subparsers(dest="permissions_command", required=True)
+
+    pms = pmsub.add_parser("show", help="every role's allowed actions, listed")
+    pms.add_argument("--role", help="just this role's own actions (default: every role)")
+    pms.set_defaults(func=cmd_permissions_show)
+
+    pmr = pmsub.add_parser("resolve", help="turn an already-authenticated identity provider's claims into an internal role, via a platform administrator's own group mapping")
+    pmr.add_argument("--mapping", required=True, help="path to the role mapping (groups: {<idp group>: <role>})")
+    pmr.add_argument("--email", required=True)
+    pmr.add_argument("--name", required=True)
+    pmr.add_argument("--group", action="append", default=[], help="one of the identity provider's own group names for this person (repeatable)")
+    pmr.set_defaults(func=cmd_permissions_resolve)
 
     return parser
 

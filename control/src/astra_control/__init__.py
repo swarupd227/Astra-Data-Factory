@@ -3,11 +3,14 @@
 Today: the factory board (S6.1.1) — every custodian at its station, one WIP limit enforced per
 stream, custodians live per week; config studio (S6.1.2) — a guided profile/draft/dry-run
 sequence with a promotion-request log, self-service for a simple-tier custodian with no engineer
-involved; and diff review (S6.1.3) — a side-by-side diff of a config change, reusing
+involved; diff review (S6.1.3) — a side-by-side diff of a config change, reusing
 `astra_verification.replay.config_diff` directly, with citations and every other custodian a
-touched rule also affects. No live Postgres yet: `board.yaml` and the promotion-requests log are
-real, working stand-ins for the store E6 will eventually have (astra_control.board's own module
-docstring).
+touched rule also affects; and sign-in, roles and permissions (S6.3.1) — six closed roles, each
+one's allowed actions across the three modules above listed and enforced at the CLI boundary, an
+identity provider's already-authenticated claims turned into an internal role through a platform
+administrator's own group mapping, and an auditor role with no write action at all. No live
+Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins for the
+store E6 will eventually have (astra_control.board's own module docstring).
 """
 
 from astra_control.board import (
@@ -45,32 +48,60 @@ from astra_control.diff_review import (
     write_review,
 )
 from astra_control.diff_review import render_markdown as render_diff_markdown
+from astra_control.permissions import (
+    PERMISSIONS,
+    READ_ACTIONS,
+    WRITE_ACTIONS,
+    Action,
+    AuthorizationError,
+    Identity,
+    Role,
+    RoleMapping,
+    authorized,
+    identity_from_claims,
+    load_role_mapping,
+    require,
+)
+from astra_control.permissions import render_permissions as render_permissions_markdown
 
 __all__ = [
+    "PERMISSIONS",
+    "READ_ACTIONS",
+    "SEQUENCE",
     "STATIONS",
     "IN_FLIGHT_STATIONS",
-    "SEQUENCE",
     "TIERS",
+    "WRITE_ACTIONS",
+    "Action",
+    "AuthorizationError",
     "Board",
     "BoardError",
     "ConfigStudioError",
     "CustodianCard",
     "DiffReview",
     "DiffReviewError",
+    "Identity",
     "PromotionRequest",
+    "Role",
+    "RoleMapping",
     "RuleImpact",
     "Station",
     "Transition",
     "add_custodian",
     "advance",
+    "authorized",
     "citation_link",
+    "identity_from_claims",
     "live_per_week",
     "load_board",
     "load_promotion_requests",
+    "load_role_mapping",
     "move",
     "render_diff_markdown",
     "render_markdown",
+    "render_permissions_markdown",
     "request_promotion",
+    "require",
     "review",
     "save_board",
     "set_wip_limit",

@@ -1,0 +1,10 @@
+# Illustrative — which of a client's own identity provider groups map to which internal role.
+# A platform administrator (this story's own actor) configures this once per client; the group
+# names below are a plausible naming convention, not real Envestnet IdP groups.
+groups:
+  Astra-Stewards: steward
+  Astra-BSA: bsa
+  Astra-Engineers: engineer
+  Astra-Ops: ops
+  Astra-PM: pm
+  Astra-Auditors: auditor

@@ -1,0 +1,314 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from astra_control.permissions import (
+    PERMISSIONS,
+    READ_ACTIONS,
+    WRITE_ACTIONS,
+    Action,
+    AuthorizationError,
+    Role,
+    RoleMapping,
+    authorized,
+    identity_from_claims,
+    load_role_mapping,
+    render_permissions,
+    require,
+)
+
+REPO = Path(__file__).resolve().parents[2]
+EXAMPLE_MAPPING = REPO / "control" / "examples" / "role-mapping.yaml"
+
+
+# ---------------------------------------------------------------- the closed vocabularies
+
+
+def test_six_roles_the_backlogs_own_list():
+    assert {r.value for r in Role} == {"steward", "bsa", "engineer", "ops", "pm", "auditor"}
+
+
+def test_every_action_is_read_or_write_and_never_both():
+    assert set(READ_ACTIONS) & set(WRITE_ACTIONS) == set()
+    assert set(READ_ACTIONS) | set(WRITE_ACTIONS) == set(Action)
+
+
+# ---------------------------------------------------------------- AC2: every role's actions are listed (PERMISSIONS itself) and enforced
+
+
+def test_every_role_has_a_permissions_entry():
+    assert set(PERMISSIONS) == set(Role)
+
+
+def test_every_role_can_take_every_read_action():
+    for role in Role:
+        for action in READ_ACTIONS:
+            assert authorized(role, action), f"{role} should be able to {action}"
+
+
+def test_require_raises_for_a_disallowed_action():
+    with pytest.raises(AuthorizationError, match="not allowed"):
+        require(Role.AUDITOR, Action.BOARD_ADD)
+
+
+def test_require_does_not_raise_for_an_allowed_action():
+    require(Role.BSA, Action.CONFIG_STUDIO_START)  # no raise
+
+
+def test_authorized_accepts_string_role_and_action():
+    assert authorized("bsa", "config-studio.start") is True
+    assert authorized("auditor", "board.add") is False
+
+
+def test_an_invalid_role_string_is_a_clear_error():
+    with pytest.raises(AuthorizationError, match="is not a role"):
+        require("wizard", Action.BOARD_SHOW)
+
+
+def test_an_invalid_action_string_is_a_clear_error():
+    with pytest.raises(AuthorizationError, match="is not an action"):
+        require(Role.OPS, "board.delete")
+
+
+# ---------------------------------------------------------------- AC3: auditor reads everything, changes nothing
+
+
+def test_auditor_has_zero_write_actions():
+    assert PERMISSIONS[Role.AUDITOR] & set(WRITE_ACTIONS) == set()
+
+
+def test_auditor_has_every_read_action():
+    assert PERMISSIONS[Role.AUDITOR] == set(READ_ACTIONS)
+
+
+def test_auditor_is_refused_every_write_action_individually():
+    """Not just an aggregate set check -- every single write action, one at a time, actually
+    raises when attempted as auditor (AC3, exhaustively)."""
+    for action in WRITE_ACTIONS:
+        with pytest.raises(AuthorizationError):
+            require(Role.AUDITOR, action)
+
+
+def test_auditor_is_never_refused_a_read_action():
+    for action in READ_ACTIONS:
+        require(Role.AUDITOR, action)  # no raise
+
+
+# ---------------------------------------------------------------- grounded, story-specific permissions
+
+
+def test_bsa_can_run_the_self_service_config_studio_flow():
+    for action in (Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION):
+        assert authorized(Role.BSA, action)
+
+
+def test_pm_owns_the_wip_limit_the_delivery_leads_own_story_built():
+    assert authorized(Role.PM, Action.BOARD_SET_WIP_LIMIT)
+    assert not authorized(Role.BSA, Action.BOARD_SET_WIP_LIMIT)
+    assert not authorized(Role.ENGINEER, Action.BOARD_SET_WIP_LIMIT)
+
+
+def test_steward_has_no_write_action_in_this_action_set_today():
+    """Named honestly, not papered over: S6.1.3's own actor built only a read action."""
+    assert PERMISSIONS[Role.STEWARD] & set(WRITE_ACTIONS) == set()
+
+
+# ---------------------------------------------------------------- identity: claims -> role
+
+
+def test_load_role_mapping_reads_the_real_committed_example():
+    mapping = load_role_mapping(EXAMPLE_MAPPING)
+    assert mapping.by_group["Astra-BSA"] is Role.BSA
+    assert mapping.by_group["Astra-Auditors"] is Role.AUDITOR
+
+
+def test_load_role_mapping_missing_file_is_a_clear_error(tmp_path):
+    with pytest.raises(AuthorizationError, match="not found"):
+        load_role_mapping(tmp_path / "missing.yaml")
+
+
+def test_identity_from_claims_resolves_a_single_matching_group():
+    mapping = RoleMapping(by_group={"Astra-BSA": Role.BSA})
+    identity = identity_from_claims({"email": "a@example.com", "name": "A", "groups": ["Astra-BSA"]}, mapping)
+    assert identity.role is Role.BSA
+    assert identity.can(Action.CONFIG_STUDIO_START) is True
+    assert identity.can(Action.BOARD_SET_WIP_LIMIT) is False
+
+
+def test_identity_from_claims_against_the_real_example_mapping():
+    identity = identity_from_claims({"email": "steward@example.com", "name": "A Steward", "groups": ["Astra-Stewards"]}, load_role_mapping(EXAMPLE_MAPPING))
+    assert identity.role is Role.STEWARD
+
+
+def test_identity_from_claims_rejects_no_email():
+    with pytest.raises(AuthorizationError, match="email"):
+        identity_from_claims({"groups": ["Astra-BSA"]}, RoleMapping(by_group={"Astra-BSA": Role.BSA}))
+
+
+def test_identity_from_claims_rejects_no_matching_group():
+    with pytest.raises(AuthorizationError, match="none of"):
+        identity_from_claims({"email": "a@example.com", "groups": ["Unmapped-Group"]}, RoleMapping(by_group={"Astra-BSA": Role.BSA}))
+
+
+def test_identity_from_claims_rejects_two_groups_mapping_to_different_roles():
+    mapping = RoleMapping(by_group={"Astra-BSA": Role.BSA, "Astra-Ops": Role.OPS})
+    with pytest.raises(AuthorizationError, match="more than one role"):
+        identity_from_claims({"email": "a@example.com", "groups": ["Astra-BSA", "Astra-Ops"]}, mapping)
+
+
+def test_identity_from_claims_two_groups_mapping_to_the_same_role_is_fine():
+    mapping = RoleMapping(by_group={"Astra-BSA": Role.BSA, "Astra-BSA-Alt": Role.BSA})
+    identity = identity_from_claims({"email": "a@example.com", "groups": ["Astra-BSA", "Astra-BSA-Alt"]}, mapping)
+    assert identity.role is Role.BSA
+
+
+def test_identity_from_claims_defaults_name_to_email():
+    mapping = RoleMapping(by_group={"Astra-BSA": Role.BSA})
+    identity = identity_from_claims({"email": "a@example.com", "groups": ["Astra-BSA"]}, mapping)
+    assert identity.name == "a@example.com"
+
+
+# ---------------------------------------------------------------- render_permissions: AC2's own "listed"
+
+
+def test_render_permissions_lists_every_role_and_action():
+    text = render_permissions()
+    for role in Role:
+        assert f"## {role.value}" in text
+    for action in Action:
+        assert action.value in text
+
+
+def test_render_permissions_for_one_role_only():
+    text = render_permissions(Role.AUDITOR)
+    assert "## auditor" in text
+    assert "## bsa" not in text
+
+
+def test_render_permissions_marks_write_actions_not_allowed_for_auditor():
+    text = render_permissions(Role.AUDITOR)
+    lines = [l for l in text.splitlines() if l.startswith("| board.add ")]
+    assert lines and "no" in lines[0]
+
+
+# ---------------------------------------------------------------- CLI: retrofit is additive, and enforces when given
+
+
+def test_cli_board_add_without_role_is_unchanged(tmp_path, capsys):
+    import astra_control.cli as cli
+
+    board_path = tmp_path / "board.yaml"
+    code = cli.main(["board", "add", "--board", str(board_path), "--custodian", "pershing", "--stream", "envestnet-custodial"])
+    assert code == 0, capsys.readouterr()
+
+
+def test_cli_board_add_as_auditor_is_refused(tmp_path, capsys):
+    import astra_control.cli as cli
+
+    board_path = tmp_path / "board.yaml"
+    code = cli.main(["board", "add", "--board", str(board_path), "--custodian", "pershing", "--stream", "envestnet-custodial", "--role", "auditor"])
+    assert code == 2
+    assert "not allowed" in capsys.readouterr().err
+    assert not board_path.exists()  # refused outright, nothing written
+
+
+def test_cli_board_add_as_ops_succeeds(tmp_path, capsys):
+    import astra_control.cli as cli
+
+    board_path = tmp_path / "board.yaml"
+    code = cli.main(["board", "add", "--board", str(board_path), "--custodian", "pershing", "--stream", "envestnet-custodial", "--role", "ops"])
+    assert code == 0, capsys.readouterr()
+    assert board_path.exists()
+
+
+def test_cli_board_show_as_auditor_succeeds_reads_always_allowed(tmp_path, capsys):
+    import astra_control.cli as cli
+
+    board_path = tmp_path / "board.yaml"
+    cli.main(["board", "add", "--board", str(board_path), "--custodian", "pershing", "--stream", "envestnet-custodial", "--role", "ops"])
+    capsys.readouterr()
+    code = cli.main(["board", "show", "--board", str(board_path), "--role", "auditor"])
+    assert code == 0
+
+
+def test_cli_config_studio_request_promotion_as_pm_is_refused(tmp_path, capsys):
+    import astra_control.cli as cli
+
+    board_path = tmp_path / "board.yaml"
+    requests_path = tmp_path / "requests.yaml"
+    cli.main(["config-studio", "start", "--board", str(board_path), "--custodian", "pershing", "--stream", "envestnet-custodial", "--by", "bsa@example.com"])
+    cli.main(["config-studio", "advance", "--board", str(board_path), "--custodian", "pershing", "--to", "draft", "--by", "bsa@example.com"])
+    cli.main(["config-studio", "advance", "--board", str(board_path), "--custodian", "pershing", "--to", "dry_run", "--by", "bsa@example.com"])
+    capsys.readouterr()
+    code = cli.main(["config-studio", "request-promotion", "--board", str(board_path), "--requests", str(requests_path), "--custodian", "pershing", "--tier", "simple", "--requested-by", "pm@example.com", "--role", "pm"])
+    assert code == 2
+    assert not requests_path.exists()
+
+
+def test_cli_permissions_show(capsys):
+    import astra_control.cli as cli
+
+    code = cli.main(["permissions", "show"])
+    assert code == 0
+    text = capsys.readouterr().out
+    assert "## auditor" in text and "board.add" in text
+
+
+def test_cli_permissions_show_one_role(capsys):
+    import astra_control.cli as cli
+
+    code = cli.main(["permissions", "show", "--role", "bsa"])
+    assert code == 0
+    text = capsys.readouterr().out
+    assert "## bsa" in text and "## engineer" not in text
+
+
+def test_cli_permissions_show_invalid_role(capsys):
+    import astra_control.cli as cli
+
+    code = cli.main(["permissions", "show", "--role", "wizard"])
+    assert code == 2
+    assert capsys.readouterr().err
+
+
+def test_cli_permissions_resolve_against_the_real_example(capsys):
+    import astra_control.cli as cli
+
+    code = cli.main(["permissions", "resolve", "--mapping", str(EXAMPLE_MAPPING), "--email", "bsa@example.com", "--name", "A BSA", "--group", "Astra-BSA"])
+    assert code == 0, capsys.readouterr()
+    assert "bsa" in capsys.readouterr().out
+
+
+def test_cli_permissions_resolve_with_no_matching_group(capsys):
+    import astra_control.cli as cli
+
+    code = cli.main(["permissions", "resolve", "--mapping", str(EXAMPLE_MAPPING), "--email", "x@example.com", "--name", "X", "--group", "Nobody"])
+    assert code == 2
+    assert capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- the story's own acceptance criteria
+
+
+def test_the_story_acceptance_criteria_are_satisfied(tmp_path):
+    """S6.3.1: each role's allowed actions are listed (PERMISSIONS / render_permissions) and
+    enforced server-side (require, and the CLI's own --role retrofit); the auditor role reads
+    everything and changes nothing, exhaustively."""
+    for role in Role:
+        assert role in PERMISSIONS  # listed
+
+    for action in READ_ACTIONS:
+        require(Role.AUDITOR, action)  # auditor reads everything
+    for action in WRITE_ACTIONS:
+        with pytest.raises(AuthorizationError):
+            require(Role.AUDITOR, action)  # auditor changes nothing
+
+    # enforced server-side: a real CLI call is actually refused, not just a library-level check
+    import astra_control.cli as cli
+
+    board_path = tmp_path / "board.yaml"
+    code = cli.main(["board", "add", "--board", str(board_path), "--custodian", "pershing", "--stream", "envestnet-custodial", "--role", "auditor"])
+    assert code == 2
+    assert not board_path.exists()
