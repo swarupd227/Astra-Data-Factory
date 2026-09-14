@@ -5,9 +5,9 @@
 
 PY ?= python
 
-.PHONY: check configs specs core knowledge foundation opencatalog generation verification
+.PHONY: check configs specs core knowledge foundation opencatalog generation verification agents control
 
-check: specs configs core knowledge generation verification opencatalog foundation
+check: specs configs core knowledge generation verification agents control opencatalog foundation
 
 specs:
 	$(MAKE) -C knowledge validate
@@ -26,6 +26,12 @@ generation:
 
 verification:
 	$(MAKE) -C verification check
+
+agents:
+	$(MAKE) -C agents check
+
+control:
+	$(MAKE) -C control check
 
 opencatalog:
 	$(MAKE) -C tools/opencatalog check

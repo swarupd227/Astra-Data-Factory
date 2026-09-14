@@ -1,0 +1,59 @@
+wip_limits:
+  blackrock-tableau: 2
+  envestnet-custodial: 3
+custodians:
+- id: pershing
+  stream: envestnet-custodial
+  station: dual_run
+  since: '2026-09-13T18:52:27Z'
+  transitions:
+  - station: profile
+    at: '2026-09-13T18:52:18Z'
+  - station: draft
+    at: '2026-09-13T18:52:25Z'
+  - station: dry_run
+    at: '2026-09-13T18:52:26Z'
+  - station: dual_run
+    at: '2026-09-13T18:52:27Z'
+- id: fidelity
+  stream: envestnet-custodial
+  station: profile
+  since: '2026-09-13T18:52:21Z'
+  transitions:
+  - station: profile
+    at: '2026-09-13T18:52:21Z'
+- id: schwab
+  stream: envestnet-custodial
+  station: draft
+  since: '2026-09-13T18:52:28Z'
+  transitions:
+  - station: profile
+    at: '2026-09-13T18:52:22Z'
+  - station: draft
+    at: '2026-09-13T18:52:28Z'
+- id: tableau-gl
+  stream: blackrock-tableau
+  station: dry_run
+  since: '2026-09-13T18:52:30Z'
+  transitions:
+  - station: profile
+    at: '2026-09-13T18:52:23Z'
+  - station: draft
+    at: '2026-09-13T18:52:29Z'
+  - station: dry_run
+    at: '2026-09-13T18:52:30Z'
+- id: tableau-fixed-income
+  stream: blackrock-tableau
+  station: cutover
+  since: '2026-09-13T18:52:35Z'
+  transitions:
+  - station: profile
+    at: '2026-09-13T18:52:24Z'
+  - station: draft
+    at: '2026-09-13T18:52:31Z'
+  - station: dry_run
+    at: '2026-09-13T18:52:32Z'
+  - station: dual_run
+    at: '2026-09-13T18:52:34Z'
+  - station: cutover
+    at: '2026-09-13T18:52:35Z'

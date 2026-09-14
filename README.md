@@ -24,10 +24,13 @@ Product specification: [docs/product-spec-v0.2.md](docs/product-spec-v0.2.md). B
 | `infra/terraform/foundation` | Control (E1) | Per environment: Snowflake database, schemas, roles, tier-sized warehouses, Iceberg bucket and external volume, Open Catalog sync, landing zone with Snowpipe and file load log |
 | `infra/terraform/bootstrap` | Control (E1) | Once per AWS account: the bucket that holds Terraform state for every environment |
 | `tools/opencatalog` | Control (E1) | Provisions and verifies Snowflake Open Catalog, which has no Terraform provider |
+| `control` | Control (E6) | `astra-control`: the control plane application, starting with the factory board (S6.1.1, ADR 0054) — every custodian at its station (`profile`, `draft`, `dry_run`, `dual_run`, `cutover`), one WIP limit enforced per stream (blocking only what would newly put a stream over it, never a lateral move already in flight), custodians live per week. No live Postgres yet: `board.yaml` is a real, working stand-in for the store this plane will eventually use, the same relationship `astra-agents`' own approval and decision logs already have to a database. |
 | `.github` | Control (E1) | `ci` on every pull request; `deploy` to dev on merge and to qa on approval |
 | `docs` | | Specification, backlog, architecture decision records and runbooks. `docs/ux` holds UX and Control-plane design work: personas and task flows (S6.0.1, a draft still awaiting real Envestnet validation — clearly marked as such) and the workbench design system (S6.0.3, complete on its own — components, states, colour and error-message rules) |
 
-The workbench (Control, E1) is added as its own epic starts.
+The workbench (Control, E6) is under way: the factory board's domain logic and CLI exist
+(`control/`); the rendered React screen a delivery lead clicks through, and live Postgres and
+workflow-engine backing, are still ahead.
 
 ## Working in this repository
 
