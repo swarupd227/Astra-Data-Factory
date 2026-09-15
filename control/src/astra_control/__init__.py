@@ -60,7 +60,12 @@ identical log shape that module already reads; the self-healing whitelist is `Re
 auto_resolve` on a domain pack's own real rejection taxonomy, read directly, never written
 directly — a change is only ever a logged request, since the real file is hand-authored and has
 no safe round-trip writer, the same "propose, log, a human applies it" shape `drift_review.
-approve` already established. No live Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins
+approve` already established; and notification preferences (S6.3.13) — which alerts reach a
+person on which channel (Slack, email, in-app), and a per-custodian severity floor ops can tune
+on top, `reaches()` combining both; the first per-user settings store in this plane, and the
+first write action with no role gate at all — setting one's own channel preference changes
+nothing about shared factory state, so every role, auditor included, may do it. No live Postgres
+yet: `board.yaml` and the promotion-requests log are real, working stand-ins
 for the store E6 will eventually have (astra_control.board's own module docstring).
 """
 
@@ -254,8 +259,21 @@ from astra_control.autonomy_admin import (
     whitelisted_codes,
 )
 from astra_control.autonomy_admin import render_levels_markdown, render_whitelist_markdown, render_whitelist_requests_markdown
+from astra_control.notification_preferences import (
+    CHANNELS,
+    SEVERITIES,
+    NotificationPreferencesError,
+    NotificationSettings,
+    load_settings,
+    reaches,
+    save_settings,
+    set_custodian_threshold,
+    set_user_preferences,
+)
+from astra_control.notification_preferences import render_thresholds_markdown, render_user_markdown
 
 __all__ = [
+    "CHANNELS",
     "CSV_COLUMNS",
     "DEFAULT_LEVEL",
     "KIND_ROLES",
@@ -269,6 +287,7 @@ __all__ = [
     "RULE_RECOVERY_AGENT",
     "RUN_WINDOW_BUDGET_MINUTES",
     "SEQUENCE",
+    "SEVERITIES",
     "STAGES",
     "STATIONS",
     "IN_FLIGHT_STATIONS",
@@ -309,6 +328,8 @@ __all__ = [
     "GoldenViewerError",
     "Identity",
     "LevelChange",
+    "NotificationPreferencesError",
+    "NotificationSettings",
     "ParityViewerError",
     "PromotionRequest",
     "QueueItem",
@@ -377,11 +398,13 @@ __all__ = [
     "load_role_mapping",
     "load_run",
     "load_spec",
+    "load_settings",
     "load_trend",
     "load_whitelist",
     "load_whitelist_requests",
     "move",
     "promotion_requests_from",
+    "reaches",
     "record_pair",
     "record_pairs",
     "reject_agent_review",
@@ -407,7 +430,9 @@ __all__ = [
     "render_rule_review_markdown",
     "render_spec_compare",
     "render_status_markdown",
+    "render_thresholds_markdown",
     "render_trend_markdown",
+    "render_user_markdown",
     "render_whitelist_markdown",
     "render_whitelist_requests_markdown",
     "request_promotion",
@@ -419,7 +444,10 @@ __all__ = [
     "rule_recovery_item",
     "rule_status_changes_from",
     "save_board",
+    "save_settings",
+    "set_custodian_threshold",
     "set_level",
+    "set_user_preferences",
     "set_wip_limit",
     "spec_citation_link",
     "start",

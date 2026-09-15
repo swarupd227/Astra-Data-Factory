@@ -54,7 +54,16 @@ agent autonomy levels" — `Role.PM` (S6.1.1's own actor for the board, config s
 and review autonomy-level changes per (agent, task class)... `guardrails set-level` a promotion
 once its evidence clears the bar." Both new writes are granted to PM alone, not guessed onto
 `engineer` or split across roles the way S6.3.6's and S6.3.9's writes were, because the spec's own
-text names one persona for this responsibility, not several.
+text names one persona for this responsibility, not several. `notification-preferences.set`
+(S6.3.13) is this file's first write with no role gate at all — `UNIVERSAL_WRITE_ACTIONS`, granted
+to every role including auditor. It is a person's own channel preference, never this plane's own
+shared factory state (a rule's status, a board position, an autonomy level) — the kind of write
+S6.3.1's own "reads everything, changes nothing" is actually about — so granting it to auditor
+does not weaken that guarantee; it is simply not that kind of write. `notification-preferences.
+set-threshold`, by contrast, changes a shared setting affecting every user's own alerts for a
+custodian — AC2's own "for ops roles" — granted to `Role.OPS` alone, the one role that name most
+literally names; no textual precedent anywhere in this repository names a broader "ops roles"
+cluster, so none is invented here either.
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -135,6 +144,10 @@ class Action(Enum):
     AUTONOMY_ADMIN_SHOW_WHITELIST = "autonomy-admin.show-whitelist"
     AUTONOMY_ADMIN_REQUEST_WHITELIST_CHANGE = "autonomy-admin.request-whitelist-change"
     AUTONOMY_ADMIN_SHOW_WHITELIST_REQUESTS = "autonomy-admin.show-whitelist-requests"
+    NOTIFICATION_PREFERENCES_SHOW = "notification-preferences.show"
+    NOTIFICATION_PREFERENCES_SET = "notification-preferences.set"
+    NOTIFICATION_PREFERENCES_SHOW_THRESHOLDS = "notification-preferences.show-thresholds"
+    NOTIFICATION_PREFERENCES_SET_THRESHOLD = "notification-preferences.set-threshold"
 
 
 READ_ACTIONS = (
@@ -161,6 +174,8 @@ READ_ACTIONS = (
     Action.AUTONOMY_ADMIN_SHOW_LEVELS,
     Action.AUTONOMY_ADMIN_SHOW_WHITELIST,
     Action.AUTONOMY_ADMIN_SHOW_WHITELIST_REQUESTS,
+    Action.NOTIFICATION_PREFERENCES_SHOW,
+    Action.NOTIFICATION_PREFERENCES_SHOW_THRESHOLDS,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 
@@ -170,12 +185,17 @@ _WRITE_PERMISSIONS: dict[Role, frozenset[Action]] = {
     Role.STEWARD: frozenset({Action.RULE_REVIEW_SET_STATUS, Action.RULE_REVIEW_BULK_CONFIRM, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT, Action.DRIFT_REVIEW_APPROVE}),
     Role.BSA: frozenset({Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT}),
     Role.ENGINEER: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.DRIFT_REVIEW_APPROVE}),
-    Role.OPS: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION}),
+    Role.OPS: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.NOTIFICATION_PREFERENCES_SET_THRESHOLD}),
     Role.PM: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.BOARD_SET_WIP_LIMIT, Action.AUTONOMY_ADMIN_SET_LEVEL, Action.AUTONOMY_ADMIN_REQUEST_WHITELIST_CHANGE}),
     Role.AUDITOR: frozenset(),
 }
 
-PERMISSIONS: dict[Role, frozenset[Action]] = {role: frozenset(READ_ACTIONS) | _WRITE_PERMISSIONS[role] for role in Role}
+# A write with no role gate at all: it changes a person's own notification preference, never this
+# plane's own shared factory state, so it is not the "write" S6.3.1's own auditor guarantee is
+# about (permissions.py's own module docstring) -- every role, auditor included, gets it.
+UNIVERSAL_WRITE_ACTIONS: frozenset[Action] = frozenset({Action.NOTIFICATION_PREFERENCES_SET})
+
+PERMISSIONS: dict[Role, frozenset[Action]] = {role: frozenset(READ_ACTIONS) | _WRITE_PERMISSIONS[role] | UNIVERSAL_WRITE_ACTIONS for role in Role}
 
 
 def _role(value: Role | str) -> Role:

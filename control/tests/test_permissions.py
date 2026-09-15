@@ -7,6 +7,7 @@ import pytest
 from astra_control.permissions import (
     PERMISSIONS,
     READ_ACTIONS,
+    UNIVERSAL_WRITE_ACTIONS,
     WRITE_ACTIONS,
     Action,
     AuthorizationError,
@@ -75,18 +76,26 @@ def test_an_invalid_action_string_is_a_clear_error():
 # ---------------------------------------------------------------- AC3: auditor reads everything, changes nothing
 
 
-def test_auditor_has_zero_write_actions():
-    assert PERMISSIONS[Role.AUDITOR] & set(WRITE_ACTIONS) == set()
+def test_auditor_has_zero_factory_state_write_actions():
+    """S6.3.1's own "reads everything, changes nothing" is about this plane's shared factory
+    state -- UNIVERSAL_WRITE_ACTIONS (S6.3.13's own notification-preferences.set) is a person's
+    own preference, not factory state, and is deliberately excluded from this guarantee
+    (permissions.py's own module docstring)."""
+    assert PERMISSIONS[Role.AUDITOR] & (set(WRITE_ACTIONS) - UNIVERSAL_WRITE_ACTIONS) == set()
 
 
-def test_auditor_has_every_read_action():
-    assert PERMISSIONS[Role.AUDITOR] == set(READ_ACTIONS)
+def test_auditor_has_every_read_action_plus_the_universal_writes():
+    assert PERMISSIONS[Role.AUDITOR] == set(READ_ACTIONS) | UNIVERSAL_WRITE_ACTIONS
 
 
-def test_auditor_is_refused_every_write_action_individually():
-    """Not just an aggregate set check -- every single write action, one at a time, actually
-    raises when attempted as auditor (AC3, exhaustively)."""
+def test_auditor_is_refused_every_factory_state_write_action_individually():
+    """Not just an aggregate set check -- every single write action that touches shared factory
+    state, one at a time, actually raises when attempted as auditor (AC3, exhaustively) --
+    excluding S6.3.13's own UNIVERSAL_WRITE_ACTIONS, which auditor is deliberately allowed."""
     for action in WRITE_ACTIONS:
+        if action in UNIVERSAL_WRITE_ACTIONS:
+            require(Role.AUDITOR, action)  # no raise -- allowed on purpose
+            continue
         with pytest.raises(AuthorizationError):
             require(Role.AUDITOR, action)
 
@@ -115,7 +124,7 @@ def test_steward_owns_rule_review_agent_review_and_drift_review():
     (rule-review), S6.3.6 gave it agent-review's accept/reject, and S6.3.9 gives it
     drift-review's approve too -- steward is this plane's own busiest write role, story after
     story naming it as (joint) actor."""
-    assert PERMISSIONS[Role.STEWARD] & set(WRITE_ACTIONS) == {
+    assert PERMISSIONS[Role.STEWARD] & (set(WRITE_ACTIONS) - UNIVERSAL_WRITE_ACTIONS) == {
         Action.RULE_REVIEW_SET_STATUS,
         Action.RULE_REVIEW_BULK_CONFIRM,
         Action.AGENT_REVIEW_ACCEPT,
@@ -144,6 +153,26 @@ def test_run_status_adds_only_read_actions():
     assert run_status_actions <= set(READ_ACTIONS)
     assert run_status_actions & set(WRITE_ACTIONS) == set()
     for action in run_status_actions:
+        for role in Role:
+            assert authorized(role, action)
+
+
+def test_notification_preferences_set_is_granted_to_every_role():
+    """S6.3.13's own first write with no role gate: a person's own notification preference, not
+    factory state."""
+    for role in Role:
+        assert authorized(role, Action.NOTIFICATION_PREFERENCES_SET)
+
+
+def test_notification_preferences_set_threshold_is_granted_to_ops_only():
+    assert authorized(Role.OPS, Action.NOTIFICATION_PREFERENCES_SET_THRESHOLD)
+    for role in (Role.STEWARD, Role.BSA, Role.ENGINEER, Role.PM, Role.AUDITOR):
+        assert not authorized(role, Action.NOTIFICATION_PREFERENCES_SET_THRESHOLD)
+
+
+def test_notification_preferences_reads_are_available_to_every_role():
+    for action in (Action.NOTIFICATION_PREFERENCES_SHOW, Action.NOTIFICATION_PREFERENCES_SHOW_THRESHOLDS):
+        assert action in READ_ACTIONS
         for role in Role:
             assert authorized(role, action)
 
@@ -395,8 +424,10 @@ def test_the_story_acceptance_criteria_are_satisfied(tmp_path):
     for action in READ_ACTIONS:
         require(Role.AUDITOR, action)  # auditor reads everything
     for action in WRITE_ACTIONS:
+        if action in UNIVERSAL_WRITE_ACTIONS:
+            continue  # S6.3.13's own notification-preferences.set: a person's own preference, not factory state
         with pytest.raises(AuthorizationError):
-            require(Role.AUDITOR, action)  # auditor changes nothing
+            require(Role.AUDITOR, action)  # auditor changes no shared factory state
 
     # enforced server-side: a real CLI call is actually refused, not just a library-level check
     import astra_control.cli as cli

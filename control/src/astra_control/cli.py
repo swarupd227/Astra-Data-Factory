@@ -5,8 +5,9 @@ permissions show|resolve`, `astra-control queue show`, `astra-control custodian-
 bulk-confirm`, `astra-control agent-review show|edit|accept|reject`, `astra-control
 parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashboard`,
 `astra-control drift-review show|approve|show-requests`, `astra-control golden-viewer show` and
-`astra-control audit-log show|export` and `astra-control autonomy-admin show-levels|set-level|
-show-whitelist|request-whitelist-change|show-whitelist-requests`.
+`astra-control audit-log show|export`, `astra-control autonomy-admin show-levels|set-level|
+show-whitelist|request-whitelist-change|show-whitelist-requests` and `astra-control
+notification-preferences show|set|show-thresholds|set-threshold|reaches`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -83,6 +84,13 @@ nothing written, the same shape `astra_agents.guardrails.record_change` itself u
 control.autonomy_admin`'s own module docstring). `autonomy-admin request-whitelist-change` is the
 same, plus 2 when `--rejections` is given and the code is not real or the request is a no-op; it
 never writes to `--rejections` itself, only the given `--requests` log.
+`notification-preferences show|show-thresholds|reaches` are always 0 unless the role check fails
+(2), except `reaches` itself, which is 1 when the alert would not reach the given user (a real
+condition to look at, the same shape `board show` already uses for a stream over its limit).
+`notification-preferences set|set-threshold` are 0 on success, 2 when the change is refused (an
+unknown channel or severity, a blank field) or the role check fails; `set` is available to every
+role, including auditor, since it only ever changes the caller's own preference, never this
+plane's own shared state (`astra_control.notification_preferences`'s own module docstring).
 """
 
 from __future__ import annotations
@@ -126,6 +134,8 @@ from astra_control.golden_viewer import render_markdown as render_golden_calenda
 from astra_control.audit_log import AuditLogError, AuditSources, build_audit_log, filter_records, write_csv
 from astra_control.autonomy_admin import LEVELS, AutonomyAdminError, Evidence, load_changes, load_whitelist, load_whitelist_requests, request_whitelist_change, set_level, whitelisted_codes
 from astra_control.autonomy_admin import render_levels_markdown, render_whitelist_markdown, render_whitelist_requests_markdown
+from astra_control.notification_preferences import CHANNELS, SEVERITIES, NotificationPreferencesError, load_settings, reaches, save_settings, set_custodian_threshold, set_user_preferences
+from astra_control.notification_preferences import render_thresholds_markdown, render_user_markdown
 from astra_control.audit_log import render_markdown as render_audit_log_markdown
 
 
@@ -826,6 +836,89 @@ def cmd_autonomy_admin_show_whitelist_requests(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_channel_pairs(pairs: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for pair in pairs:
+        if ":" not in pair:
+            raise NotificationPreferencesError(f"'{pair}' is not a channel:severity pair (for example slack:warning)")
+        channel, severity = pair.split(":", 1)
+        result[channel.strip()] = severity.strip()
+    return result
+
+
+def cmd_notification_preferences_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.NOTIFICATION_PREFERENCES_SHOW)) is not None:
+        return code
+    try:
+        settings = load_settings(Path(args.settings) if args.settings else None)
+    except NotificationPreferencesError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    prefs = settings.preferences_for(args.user)
+    if args.json:
+        print(json.dumps(prefs, indent=2))
+    else:
+        print(render_user_markdown(args.user, prefs))
+    return 0
+
+
+def cmd_notification_preferences_set(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.NOTIFICATION_PREFERENCES_SET)) is not None:
+        return code
+    try:
+        channel_thresholds = _parse_channel_pairs(args.channel)
+        settings = load_settings(Path(args.settings) if Path(args.settings).is_file() else None)
+        settings = set_user_preferences(settings, email=args.user, channel_thresholds=channel_thresholds)
+        save_settings(settings, Path(args.settings))
+    except NotificationPreferencesError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"set: {args.user} -> {channel_thresholds or '(no channels)'}")
+    return 0
+
+
+def cmd_notification_preferences_show_thresholds(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.NOTIFICATION_PREFERENCES_SHOW_THRESHOLDS)) is not None:
+        return code
+    try:
+        settings = load_settings(Path(args.settings) if args.settings else None)
+    except NotificationPreferencesError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(settings.custodian_thresholds, indent=2))
+    else:
+        print(render_thresholds_markdown(settings))
+    return 0
+
+
+def cmd_notification_preferences_set_threshold(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.NOTIFICATION_PREFERENCES_SET_THRESHOLD)) is not None:
+        return code
+    try:
+        settings = load_settings(Path(args.settings) if Path(args.settings).is_file() else None)
+        settings = set_custodian_threshold(settings, custodian_id=args.custodian, minimum_severity=args.severity)
+        save_settings(settings, Path(args.settings))
+    except NotificationPreferencesError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"set: {args.custodian} threshold -> {args.severity}")
+    return 0
+
+
+def cmd_notification_preferences_reaches(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.NOTIFICATION_PREFERENCES_SHOW)) is not None:
+        return code
+    try:
+        settings = load_settings(Path(args.settings) if args.settings else None)
+        result = reaches(settings, email=args.user, custodian_id=args.custodian, channel=args.channel, severity=args.severity)
+    except NotificationPreferencesError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print("yes" if result else "no")
+    return 0 if result else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1228,6 +1321,45 @@ def build_parser() -> argparse.ArgumentParser:
     aaq.add_argument("--role", help="when given, checked against autonomy-admin.show-whitelist-requests (every role may read)")
     aaq.add_argument("--json", action="store_true")
     aaq.set_defaults(func=cmd_autonomy_admin_show_whitelist_requests)
+
+    np = sub.add_parser("notification-preferences", help="which alerts reach a person on which channel, and a per-custodian noise floor for ops")
+    npsub = np.add_subparsers(dest="notification_preferences_command", required=True)
+
+    nps = npsub.add_parser("show", help="one user's own channel preferences")
+    nps.add_argument("--settings", help="path to the notification settings file (default: none recorded, no channel reaches anyone)")
+    nps.add_argument("--user", required=True, help="the user's own email")
+    nps.add_argument("--role", help="when given, checked against notification-preferences.show (every role may read)")
+    nps.add_argument("--json", action="store_true")
+    nps.set_defaults(func=cmd_notification_preferences_show)
+
+    npset = npsub.add_parser("set", help="replace one user's own channel preferences entirely -- any role may set their own")
+    npset.add_argument("--settings", required=True, help="path to the notification settings file (created on first write)")
+    npset.add_argument("--user", required=True, help="the user's own email")
+    npset.add_argument("--channel", action="append", default=[], help=f"a channel:severity pair (repeatable), channels are {', '.join(CHANNELS)}, severities are {', '.join(SEVERITIES)}; a channel not given never reaches this user")
+    npset.add_argument("--role", help="when given, checked against notification-preferences.set (every role, including auditor, may set their own)")
+    npset.set_defaults(func=cmd_notification_preferences_set)
+
+    npt = npsub.add_parser("show-thresholds", help="every custodian's own severity floor")
+    npt.add_argument("--settings", help="path to the notification settings file (default: none set, no floor anywhere)")
+    npt.add_argument("--role", help="when given, checked against notification-preferences.show-thresholds (every role may read)")
+    npt.add_argument("--json", action="store_true")
+    npt.set_defaults(func=cmd_notification_preferences_show_thresholds)
+
+    npst = npsub.add_parser("set-threshold", help="set one custodian's own severity floor -- an alert below it reaches no one, regardless of anyone's own channel choice")
+    npst.add_argument("--settings", required=True, help="path to the notification settings file (created on first write)")
+    npst.add_argument("--custodian", required=True)
+    npst.add_argument("--severity", required=True, help=f"severities are {', '.join(SEVERITIES)}")
+    npst.add_argument("--role", help="when given, checked against notification-preferences.set-threshold before proceeding")
+    npst.set_defaults(func=cmd_notification_preferences_set_threshold)
+
+    npr = npsub.add_parser("reaches", help="would an alert of this severity, for this custodian, reach this user on this channel?")
+    npr.add_argument("--settings", help="path to the notification settings file")
+    npr.add_argument("--user", required=True)
+    npr.add_argument("--custodian", required=True)
+    npr.add_argument("--channel", required=True, help=f"channels are {', '.join(CHANNELS)}")
+    npr.add_argument("--severity", required=True, help=f"severities are {', '.join(SEVERITIES)}")
+    npr.add_argument("--role", help="when given, checked against notification-preferences.show (every role may read)")
+    npr.set_defaults(func=cmd_notification_preferences_reaches)
 
     return parser
 
