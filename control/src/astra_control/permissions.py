@@ -34,7 +34,10 @@ anywhere in `docs/ux/personas.md`'s own role mapping); this is moot for this sto
 since every action it adds is already available to every role uniformly, but is named here plainly
 rather than silently mapped to `engineer` as if the backlog's own wording meant that. `run-status.*`
 (S6.3.8) is the same shape again — "operations user or SRE" as its actor, `sre` not a role, moot
-for the same reason (two reads, no write).
+for the same reason (two reads, no write). `drift-review.approve` (S6.3.9) is this file's second
+action granted to two roles at once — engineer and steward together, its own story's actor, and
+the same joint reviewership `astra_control.queue`'s own `KIND_ROLES[QueueItemKind.DRIFT]` already
+anticipated (queue.py's own comment names this exact later story).
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -104,6 +107,9 @@ class Action(Enum):
     PARITY_VIEWER_RECORD = "parity-viewer.record"
     RUN_STATUS_SHOW = "run-status.show"
     RUN_STATUS_DASHBOARD = "run-status.dashboard"
+    DRIFT_REVIEW_SHOW = "drift-review.show"
+    DRIFT_REVIEW_SHOW_REQUESTS = "drift-review.show-requests"
+    DRIFT_REVIEW_APPROVE = "drift-review.approve"
 
 
 READ_ACTIONS = (
@@ -122,15 +128,17 @@ READ_ACTIONS = (
     Action.PARITY_VIEWER_RECORD,
     Action.RUN_STATUS_SHOW,
     Action.RUN_STATUS_DASHBOARD,
+    Action.DRIFT_REVIEW_SHOW,
+    Action.DRIFT_REVIEW_SHOW_REQUESTS,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 
 # Every role's own write actions, named by whichever story actually built the action and its own
 # actor (module docstring). Reads are added to every role uniformly, below.
 _WRITE_PERMISSIONS: dict[Role, frozenset[Action]] = {
-    Role.STEWARD: frozenset({Action.RULE_REVIEW_SET_STATUS, Action.RULE_REVIEW_BULK_CONFIRM, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT}),
+    Role.STEWARD: frozenset({Action.RULE_REVIEW_SET_STATUS, Action.RULE_REVIEW_BULK_CONFIRM, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT, Action.DRIFT_REVIEW_APPROVE}),
     Role.BSA: frozenset({Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT}),
-    Role.ENGINEER: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE}),
+    Role.ENGINEER: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.DRIFT_REVIEW_APPROVE}),
     Role.OPS: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION}),
     Role.PM: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.BOARD_SET_WIP_LIMIT}),
     Role.AUDITOR: frozenset(),

@@ -35,8 +35,15 @@ per custodian and file, expected, arrived, parsed, resolved, published, timed fr
 file's own arrival to its own publish against a real 20-minute budget grounded in the backlog's
 own repeated requirement, every stage past "expected" caller-supplied since no live query for any
 of them exists in this environment, the same honest shape `astra_control.custodian_page`'s own
-`arrivals` already established. No live Postgres yet: `board.yaml` and the promotion-requests log
-are real, working stand-ins for the store E6 will eventually have (astra_control.board's own
+`arrivals` already established; and drift change review (S6.3.9) — a detected layout change's own
+proposed spec delta, applied purely in memory and diffed with `astra_control.spec_viewer.compare`
+unchanged, an optional config diff via `astra_control.diff_review.review` itself when a candidate
+config already exists, and an impact list (the spec's own custodians, consumers only when a
+caller supplies them, since nothing tracks a downstream consumer anywhere in this repository) —
+approval appends one entry to a non-prod change-request log, the same shape `astra_control.
+config_studio.request_promotion` already established, never a git operation and never a write to
+`specs/` or `configs/` themselves. No live Postgres yet: `board.yaml` and the promotion-requests
+log are real, working stand-ins for the store E6 will eventually have (astra_control.board's own
 module docstring).
 """
 
@@ -181,6 +188,16 @@ from astra_control.run_status import (
     load_run,
 )
 from astra_control.run_status import render_dashboard_markdown, render_status_markdown
+from astra_control.drift_review import (
+    ChangeRequest,
+    DriftReview,
+    DriftReviewError,
+    apply_drift_findings,
+    approve as approve_drift,
+    load_change_requests,
+    review as review_drift,
+)
+from astra_control.drift_review import render_change_requests_markdown, render_markdown as render_drift_markdown
 
 __all__ = [
     "KIND_ROLES",
@@ -203,6 +220,7 @@ __all__ = [
     "BoardError",
     "BreakGroup",
     "BulkResult",
+    "ChangeRequest",
     "ConfigStudioError",
     "CustodianCard",
     "CustodianPage",
@@ -211,6 +229,8 @@ __all__ = [
     "Dashboard",
     "DiffReview",
     "DiffReviewError",
+    "DriftReview",
+    "DriftReviewError",
     "Edited",
     "ExpectedFile",
     "FieldChange",
@@ -241,7 +261,9 @@ __all__ = [
     "accept_agent_review",
     "add_custodian",
     "advance",
+    "apply_drift_findings",
     "approvals_from",
+    "approve_drift",
     "authorized",
     "break_groups",
     "breaks_from",
@@ -267,6 +289,7 @@ __all__ = [
     "load_arrivals",
     "load_board",
     "load_catalog",
+    "load_change_requests",
     "load_draft_rule",
     "load_promotion_requests",
     "load_registry",
@@ -283,9 +306,11 @@ __all__ = [
     "render_agent_review_markdown",
     "render_break_groups_markdown",
     "render_bulk_result",
+    "render_change_requests_markdown",
     "render_custodian_page_markdown",
     "render_dashboard_markdown",
     "render_diff_markdown",
+    "render_drift_markdown",
     "render_field_list",
     "render_markdown",
     "render_permissions_markdown",
@@ -299,6 +324,7 @@ __all__ = [
     "request_promotion",
     "require",
     "review",
+    "review_drift",
     "rule_entry",
     "rule_recovery_item",
     "save_board",

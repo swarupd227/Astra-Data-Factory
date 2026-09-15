@@ -110,15 +110,17 @@ def test_pm_owns_the_wip_limit_the_delivery_leads_own_story_built():
     assert not authorized(Role.ENGINEER, Action.BOARD_SET_WIP_LIMIT)
 
 
-def test_steward_owns_rule_review_and_agent_review():
+def test_steward_owns_rule_review_agent_review_and_drift_review():
     """S6.1.3's own actor built only a read action; S6.3.5 gave steward its first writes
-    (rule-review), and S6.3.6 gives it agent-review's accept/reject too -- the story's own actor
-    is "steward or BSA" jointly."""
+    (rule-review), S6.3.6 gave it agent-review's accept/reject, and S6.3.9 gives it
+    drift-review's approve too -- steward is this plane's own busiest write role, story after
+    story naming it as (joint) actor."""
     assert PERMISSIONS[Role.STEWARD] & set(WRITE_ACTIONS) == {
         Action.RULE_REVIEW_SET_STATUS,
         Action.RULE_REVIEW_BULK_CONFIRM,
         Action.AGENT_REVIEW_ACCEPT,
         Action.AGENT_REVIEW_REJECT,
+        Action.DRIFT_REVIEW_APPROVE,
     }
     assert not authorized(Role.STEWARD, Action.BOARD_ADD)
 
@@ -144,6 +146,15 @@ def test_run_status_adds_only_read_actions():
     for action in run_status_actions:
         for role in Role:
             assert authorized(role, action)
+
+
+def test_drift_review_approve_is_granted_to_engineer_and_steward_only():
+    """S6.3.9's own actor -- engineer or steward -- matching queue.py's own KIND_ROLES[DRIFT],
+    written before this story to anticipate it."""
+    assert authorized(Role.ENGINEER, Action.DRIFT_REVIEW_APPROVE)
+    assert authorized(Role.STEWARD, Action.DRIFT_REVIEW_APPROVE)
+    for role in (Role.BSA, Role.OPS, Role.PM, Role.AUDITOR):
+        assert not authorized(role, Action.DRIFT_REVIEW_APPROVE)
 
 
 def test_agent_review_accept_reject_are_granted_to_steward_and_bsa_only():

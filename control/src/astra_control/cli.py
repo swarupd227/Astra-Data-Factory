@@ -3,7 +3,8 @@ start|advance|request-promotion|show-requests`, `astra-control diff-review run`,
 permissions show|resolve`, `astra-control queue show`, `astra-control custodian-page show`,
 `astra-control spec-viewer show|compare`, `astra-control rule-review show|set-status|
 bulk-confirm`, `astra-control agent-review show|edit|accept|reject`, `astra-control
-parity-viewer trend|breaks|records|record` and `astra-control run-status show|dashboard`.
+parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashboard` and
+`astra-control drift-review show|approve|show-requests`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -59,7 +60,12 @@ given `--key`. `run-status show` is 0 unless the config fails to compile or the 
 (2), 1 when the custodian is late as of `--as-of` (default: now) — a real condition to look at,
 the same shape `board show` already uses for a stream over its limit. `run-status dashboard` is 2
 when `--config` and `--run` are not given the same number of times or any config fails to compile,
-otherwise 0 unless at least one custodian is late (1).
+otherwise 0 unless at least one custodian is late (1). `drift-review show` is 0 unless the drift
+report or the given spec version is not found, a config diff is asked for and fails, or the role
+check fails (2). `drift-review approve` is 0 on success, 2 when the same review fails, `--approved
+-by` is blank (nothing written), or the role check fails; it never writes to `specs/` or
+`configs/`, only the given `--requests` log (`astra_control.drift_review`'s own module docstring).
+`drift-review show-requests` is always 0 unless the role check fails.
 """
 
 from __future__ import annotations
@@ -96,6 +102,8 @@ from astra_control.parity_viewer import ParityViewerError, break_groups, load_tr
 from astra_control.parity_viewer import render_break_groups_markdown, render_record_pair_markdown, render_record_pairs_markdown, render_trend_markdown
 from astra_control.run_status import RunStatusError, build as build_run_status, build_dashboard
 from astra_control.run_status import render_dashboard_markdown, render_status_markdown
+from astra_control.drift_review import DriftReviewError, approve as approve_drift, load_change_requests, review as review_drift
+from astra_control.drift_review import render_change_requests_markdown, render_markdown as render_drift_markdown
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -602,6 +610,62 @@ def cmd_run_status_dashboard(args: argparse.Namespace) -> int:
     return 1 if dashboard.late else 0
 
 
+def cmd_drift_review_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.DRIFT_REVIEW_SHOW)) is not None:
+        return code
+    try:
+        result = review_drift(
+            Path(args.drift_report),
+            specs_dir=Path(args.specs),
+            rules_dir=Path(args.rules),
+            domains_dir=Path(args.domains),
+            old_config=Path(args.old_config) if args.old_config else None,
+            new_config=Path(args.new_config) if args.new_config else None,
+            other_configs=[Path(p) for p in args.other_config],
+            consumers=tuple(args.consumer),
+        )
+    except DriftReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(render_drift_markdown(result))
+    return 0
+
+
+def cmd_drift_review_approve(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.DRIFT_REVIEW_APPROVE)) is not None:
+        return code
+    try:
+        result = review_drift(
+            Path(args.drift_report),
+            specs_dir=Path(args.specs),
+            rules_dir=Path(args.rules),
+            domains_dir=Path(args.domains),
+            old_config=Path(args.old_config) if args.old_config else None,
+            new_config=Path(args.new_config) if args.new_config else None,
+            other_configs=[Path(p) for p in args.other_config],
+        )
+        approve_drift(result, Path(args.requests), approved_by=args.approved_by, note=args.note)
+    except DriftReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"approved (non-prod): {result.spec_id} {result.spec_version}, by {args.approved_by}")
+    return 0
+
+
+def cmd_drift_review_show_requests(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.DRIFT_REVIEW_SHOW_REQUESTS)) is not None:
+        return code
+    requests = load_change_requests(Path(args.requests) if args.requests else None)
+    if args.json:
+        print(json.dumps([r.to_dict() for r in requests], indent=2))
+    else:
+        print(render_change_requests_markdown(requests))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -878,6 +942,39 @@ def build_parser() -> argparse.ArgumentParser:
     rsd.add_argument("--role", help="when given, checked against run-status.dashboard (every role may read)")
     rsd.add_argument("--json", action="store_true")
     rsd.set_defaults(func=cmd_run_status_dashboard)
+
+    dr = sub.add_parser("drift-review", help="a detected layout change beside its proposed spec and config deltas and the impact list, approved into a non-prod change log")
+    drsub = dr.add_subparsers(dest="drift_review_command", required=True)
+
+    def _add_drift_args(p):
+        p.add_argument("--drift-report", required=True, help="a drift-watcher report.json")
+        p.add_argument("--specs", default="specs", help="the spec registry directory (default: specs)")
+        p.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+        p.add_argument("--domains", default="domains", help="the domain packs directory (default: domains)")
+        p.add_argument("--old-config", help="a real config file, for the optional config diff (given together with --new-config)")
+        p.add_argument("--new-config", help="a real, already-drafted candidate config file reflecting the spec change (given together with --old-config)")
+        p.add_argument("--other-config", action="append", default=[], help="another config to check for affected custodians in the config diff (repeatable)")
+
+    drs = drsub.add_parser("show", help="the spec diff, optional config diff, and impact list for one detected drift")
+    _add_drift_args(drs)
+    drs.add_argument("--consumer", action="append", default=[], help="a downstream consumer of this spec, not tracked anywhere in this repository otherwise (repeatable)")
+    drs.add_argument("--role", help="when given, checked against drift-review.show (every role may read)")
+    drs.add_argument("--json", action="store_true")
+    drs.set_defaults(func=cmd_drift_review_show)
+
+    dra = drsub.add_parser("approve", help="approve this drift into a non-prod change-request log -- never a git commit, never a write to specs/ or configs/")
+    _add_drift_args(dra)
+    dra.add_argument("--requests", required=True, help="path to the change-request log (created on first write)")
+    dra.add_argument("--approved-by", required=True)
+    dra.add_argument("--note")
+    dra.add_argument("--role", help="when given, checked against drift-review.approve before proceeding")
+    dra.set_defaults(func=cmd_drift_review_approve)
+
+    drw = drsub.add_parser("show-requests", help="every drift change request recorded")
+    drw.add_argument("--requests", help="default: none recorded, so nothing is shown")
+    drw.add_argument("--role", help="when given, checked against drift-review.show-requests (every role may read)")
+    drw.add_argument("--json", action="store_true")
+    drw.set_defaults(func=cmd_drift_review_show_requests)
 
     return parser
 
