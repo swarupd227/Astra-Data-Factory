@@ -4,7 +4,8 @@ permissions show|resolve`, `astra-control queue show`, `astra-control custodian-
 `astra-control spec-viewer show|compare`, `astra-control rule-review show|set-status|
 bulk-confirm`, `astra-control agent-review show|edit|accept|reject`, `astra-control
 parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashboard`,
-`astra-control drift-review show|approve|show-requests` and `astra-control golden-viewer show`.
+`astra-control drift-review show|approve|show-requests`, `astra-control golden-viewer show` and
+`astra-control audit-log show|export`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -69,6 +70,10 @@ check fails (2). `drift-review approve` is 0 on success, 2 when the same review 
 `golden-viewer show` is 0 when every business day in the window is captured, 1 when at least one
 is a gap (a real condition to look at, the same shape `board show` already uses for a stream over
 its limit), 2 for a bad capture file, an inverted `--from`/`--to`, or the role check.
+`audit-log show` is always 0 unless the role check fails; every source it is given is read
+defensively — a missing or unreadable one contributes nothing, never an error (`astra_control.
+audit_log`'s own module docstring). `audit-log export` is the same, plus 2 when the given `--out`
+path cannot be written.
 """
 
 from __future__ import annotations
@@ -109,6 +114,8 @@ from astra_control.drift_review import DriftReviewError, approve as approve_drif
 from astra_control.drift_review import render_change_requests_markdown, render_markdown as render_drift_markdown
 from astra_control.golden_viewer import GoldenViewerError, build as build_golden_calendar
 from astra_control.golden_viewer import render_markdown as render_golden_calendar_markdown
+from astra_control.audit_log import AuditLogError, AuditSources, build_audit_log, filter_records, write_csv
+from astra_control.audit_log import render_markdown as render_audit_log_markdown
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -692,6 +699,48 @@ def cmd_golden_viewer_show(args: argparse.Namespace) -> int:
     return 1 if calendar.gaps else 0
 
 
+def _audit_sources(args: argparse.Namespace) -> AuditSources:
+    return AuditSources(
+        promotion_requests=tuple(Path(p) for p in args.promotion_requests),
+        drift_change_requests=tuple(Path(p) for p in args.drift_change_requests),
+        rules_dir=Path(args.rules) if args.rules else None,
+        rules_root=Path(args.root) if args.root else None,
+        specs_dir=Path(args.specs) if args.specs else None,
+        guardrail_logs=tuple(Path(p) for p in args.guardrail_log),
+        gate_approval_logs=tuple(Path(p) for p in args.gate_approval_log),
+        boards=tuple(Path(p) for p in args.board),
+    )
+
+
+def _filtered_records(args: argparse.Namespace):
+    records = build_audit_log(_audit_sources(args))
+    return filter_records(records, user=args.user, custodian=args.custodian, action=args.action, start=args.start, end=args.end)
+
+
+def cmd_audit_log_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AUDIT_LOG_SHOW)) is not None:
+        return code
+    records = _filtered_records(args)
+    if args.json:
+        print(json.dumps([r.to_dict() for r in records], indent=2))
+    else:
+        print(render_audit_log_markdown(records))
+    return 0
+
+
+def cmd_audit_log_export(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AUDIT_LOG_EXPORT)) is not None:
+        return code
+    records = _filtered_records(args)
+    try:
+        write_csv(records, Path(args.out))
+    except AuditLogError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"exported: {len(records)} record(s) -> {args.out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1014,6 +1063,40 @@ def build_parser() -> argparse.ArgumentParser:
     gvs.add_argument("--role", help="when given, checked against golden-viewer.show (every role may read)")
     gvs.add_argument("--json", action="store_true")
     gvs.set_defaults(func=cmd_golden_viewer_show)
+
+    al = sub.add_parser("audit-log", help="who approved what, when, searched across every plane's own approval and change records, exported to CSV")
+    alsub = al.add_subparsers(dest="audit_log_command", required=True)
+
+    def _add_audit_source_args(p):
+        p.add_argument("--promotion-requests", action="append", default=[], help="a promotion-requests.yaml (repeatable)")
+        p.add_argument("--drift-change-requests", action="append", default=[], help="a drift-change-requests.yaml (repeatable)")
+        p.add_argument("--rules", help="the rule catalog directory, for every rule's own status history")
+        p.add_argument("--specs", help="the spec registry directory, to resolve a drift approval's own affected custodians")
+        p.add_argument("--root", help="repo root, for display paths in rule/spec loading")
+        p.add_argument("--guardrail-log", action="append", default=[], help="an astra_agents.guardrails changes log (repeatable)")
+        p.add_argument("--gate-approval-log", action="append", default=[], help="an astra_agents.gate_evidence_compiler approvals log (repeatable)")
+        p.add_argument("--board", action="append", default=[], help="a board.yaml, for board moves with a recorded actor (repeatable)")
+
+    def _add_audit_filter_args(p):
+        p.add_argument("--user", help="only records whose user contains this (case-insensitive)")
+        p.add_argument("--custodian", help="only records whose custodian contains this (case-insensitive)")
+        p.add_argument("--action", help="only records whose action contains this (case-insensitive)")
+        p.add_argument("--start", help="only records at or after this ISO timestamp")
+        p.add_argument("--end", help="only records at or before this ISO timestamp")
+
+    als = alsub.add_parser("show", help="every matching record from every given source, oldest first")
+    _add_audit_source_args(als)
+    _add_audit_filter_args(als)
+    als.add_argument("--role", help="when given, checked against audit-log.show (every role may read)")
+    als.add_argument("--json", action="store_true")
+    als.set_defaults(func=cmd_audit_log_show)
+
+    ale = alsub.add_parser("export", help="every matching record, written to a real CSV file")
+    _add_audit_source_args(ale)
+    _add_audit_filter_args(ale)
+    ale.add_argument("--out", required=True, help="path to write the CSV to")
+    ale.add_argument("--role", help="when given, checked against audit-log.export before proceeding")
+    ale.set_defaults(func=cmd_audit_log_export)
 
     return parser
 

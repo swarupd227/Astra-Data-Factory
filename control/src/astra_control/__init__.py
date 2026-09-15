@@ -47,7 +47,13 @@ are captured per custodian, every version with its own real hash, read straight 
 `astra_verification.golden.load_index`, gaps computed against `astra_verification.golden.
 Capture.business_days_between` (the same walk the real capture CLI itself does), each gap paired
 with the real `astra-verify golden capture` command that would fill it — composed and shown, never
-run. No live Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins
+run; and the audit log viewer (S6.3.11) — who approved what, when, unified across six real
+sources this platform already writes (promotion requests, drift approvals, rule status history,
+guardrail level changes, gate approvals, board moves), filterable by user, custodian, date and
+action, exported to a real CSV — with two confirmed, honestly-named gaps neither invented around:
+nothing anywhere records an "agent version" on an approval, and no record stores a pointer to the
+evidence actually shown at decision time, only free text. No live Postgres yet: `board.yaml` and
+the promotion-requests log are real, working stand-ins
 for the store E6 will eventually have (astra_control.board's own module docstring).
 """
 
@@ -204,8 +210,26 @@ from astra_control.drift_review import (
 from astra_control.drift_review import render_change_requests_markdown, render_markdown as render_drift_markdown
 from astra_control.golden_viewer import CapturedDay, Gap, GoldenCalendar, GoldenViewerError, build as build_golden_calendar
 from astra_control.golden_viewer import render_markdown as render_golden_calendar_markdown
+from astra_control.audit_log import (
+    CSV_COLUMNS,
+    AuditLogError,
+    AuditRecord,
+    AuditSources,
+    board_moves_from,
+    build_audit_log,
+    drift_approvals_from,
+    filter_records,
+    gate_approvals_from,
+    guardrail_changes_from,
+    promotion_requests_from,
+    rule_status_changes_from,
+    to_csv,
+    write_csv,
+)
+from astra_control.audit_log import render_markdown as render_audit_log_markdown
 
 __all__ = [
+    "CSV_COLUMNS",
     "KIND_ROLES",
     "PERMISSIONS",
     "READ_ACTIONS",
@@ -221,6 +245,9 @@ __all__ = [
     "WRITE_ACTIONS",
     "Action",
     "AgentReviewError",
+    "AuditLogError",
+    "AuditRecord",
+    "AuditSources",
     "AuthorizationError",
     "Board",
     "BoardError",
@@ -275,6 +302,7 @@ __all__ = [
     "approvals_from",
     "approve_drift",
     "authorized",
+    "board_moves_from",
     "break_groups",
     "breaks_from",
     "build_custodian_page",
@@ -287,13 +315,17 @@ __all__ = [
     "citation_link",
     "compare_specs",
     "counts_by_kind",
+    "drift_approvals_from",
     "drift_from",
     "edit_citation",
     "edit_text",
     "exceptions_from",
     "field_list",
+    "filter_records",
     "filter_rules",
     "for_role",
+    "gate_approvals_from",
+    "guardrail_changes_from",
     "identical_rules",
     "identity_from_claims",
     "live_per_week",
@@ -309,12 +341,14 @@ __all__ = [
     "load_spec",
     "load_trend",
     "move",
+    "promotion_requests_from",
     "record_pair",
     "record_pairs",
     "reject_agent_review",
     "rejection_codes",
     "render_agent_review_diff_markdown",
     "render_agent_review_markdown",
+    "render_audit_log_markdown",
     "render_break_groups_markdown",
     "render_bulk_result",
     "render_change_requests_markdown",
@@ -339,9 +373,12 @@ __all__ = [
     "review_drift",
     "rule_entry",
     "rule_recovery_item",
+    "rule_status_changes_from",
     "save_board",
     "set_wip_limit",
     "spec_citation_link",
     "start",
+    "to_csv",
+    "write_csv",
     "write_review",
 ]

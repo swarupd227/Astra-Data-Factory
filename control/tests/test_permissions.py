@@ -148,6 +148,18 @@ def test_run_status_adds_only_read_actions():
             assert authorized(role, action)
 
 
+def test_audit_log_adds_only_read_actions():
+    """S6.3.11's own story adds two actions and no write -- auditor already reads everything and
+    writes nothing (S6.3.1's own AC3); "security reviewer" (not one of the six closed roles)
+    needed no new permission grant to resolve either."""
+    audit_actions = {Action.AUDIT_LOG_SHOW, Action.AUDIT_LOG_EXPORT}
+    assert audit_actions <= set(READ_ACTIONS)
+    assert audit_actions & set(WRITE_ACTIONS) == set()
+    for action in audit_actions:
+        for role in Role:
+            assert authorized(role, action)
+
+
 def test_golden_viewer_adds_only_a_read_action():
     """S6.3.10's own story adds one action and no write -- "QE engineer" (not one of the six
     closed roles) needed no new permission grant to resolve, same as S6.3.7/S6.3.8."""

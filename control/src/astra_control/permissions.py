@@ -39,7 +39,10 @@ action granted to two roles at once — engineer and steward together, its own s
 the same joint reviewership `astra_control.queue`'s own `KIND_ROLES[QueueItemKind.DRIFT]` already
 anticipated (queue.py's own comment names this exact later story). `golden-viewer.show` (S6.3.10)
 adds one more read and no write — its own "QE engineer" actor is the same gap named for S6.3.7
-and S6.3.8, moot for the same reason.
+and S6.3.8, moot for the same reason. `audit-log.show`/`audit-log.export` (S6.3.11) add two more
+reads and no write — its own "auditor or security reviewer" actor is squarely what `auditor`
+already is (S6.3.1's own "reads everything, writes nothing"); "security reviewer" is the same
+kind of role-name gap as before, moot for the same reason.
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -113,6 +116,8 @@ class Action(Enum):
     DRIFT_REVIEW_SHOW_REQUESTS = "drift-review.show-requests"
     DRIFT_REVIEW_APPROVE = "drift-review.approve"
     GOLDEN_VIEWER_SHOW = "golden-viewer.show"
+    AUDIT_LOG_SHOW = "audit-log.show"
+    AUDIT_LOG_EXPORT = "audit-log.export"
 
 
 READ_ACTIONS = (
@@ -134,6 +139,8 @@ READ_ACTIONS = (
     Action.DRIFT_REVIEW_SHOW,
     Action.DRIFT_REVIEW_SHOW_REQUESTS,
     Action.GOLDEN_VIEWER_SHOW,
+    Action.AUDIT_LOG_SHOW,
+    Action.AUDIT_LOG_EXPORT,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 
