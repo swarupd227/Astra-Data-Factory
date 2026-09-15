@@ -63,7 +63,10 @@ does not weaken that guarantee; it is simply not that kind of write. `notificati
 set-threshold`, by contrast, changes a shared setting affecting every user's own alerts for a
 custodian — AC2's own "for ops roles" — granted to `Role.OPS` alone, the one role that name most
 literally names; no textual precedent anywhere in this repository names a broader "ops roles"
-cluster, so none is invented here either.
+cluster, so none is invented here either. `approvals.approve`/`approvals.reject` (S6.2.1, feature
+F6.2) are steward's own, matching every other write already granted there — steward is this
+plane's own busiest write role because story after story in this backlog names it as the
+accountable reviewer.
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -148,6 +151,9 @@ class Action(Enum):
     NOTIFICATION_PREFERENCES_SET = "notification-preferences.set"
     NOTIFICATION_PREFERENCES_SHOW_THRESHOLDS = "notification-preferences.show-thresholds"
     NOTIFICATION_PREFERENCES_SET_THRESHOLD = "notification-preferences.set-threshold"
+    APPROVALS_SHOW = "approvals.show"
+    APPROVALS_APPROVE = "approvals.approve"
+    APPROVALS_REJECT = "approvals.reject"
 
 
 READ_ACTIONS = (
@@ -176,13 +182,14 @@ READ_ACTIONS = (
     Action.AUTONOMY_ADMIN_SHOW_WHITELIST_REQUESTS,
     Action.NOTIFICATION_PREFERENCES_SHOW,
     Action.NOTIFICATION_PREFERENCES_SHOW_THRESHOLDS,
+    Action.APPROVALS_SHOW,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 
 # Every role's own write actions, named by whichever story actually built the action and its own
 # actor (module docstring). Reads are added to every role uniformly, below.
 _WRITE_PERMISSIONS: dict[Role, frozenset[Action]] = {
-    Role.STEWARD: frozenset({Action.RULE_REVIEW_SET_STATUS, Action.RULE_REVIEW_BULK_CONFIRM, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT, Action.DRIFT_REVIEW_APPROVE}),
+    Role.STEWARD: frozenset({Action.RULE_REVIEW_SET_STATUS, Action.RULE_REVIEW_BULK_CONFIRM, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT, Action.DRIFT_REVIEW_APPROVE, Action.APPROVALS_APPROVE, Action.APPROVALS_REJECT}),
     Role.BSA: frozenset({Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT}),
     Role.ENGINEER: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.DRIFT_REVIEW_APPROVE}),
     Role.OPS: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.NOTIFICATION_PREFERENCES_SET_THRESHOLD}),

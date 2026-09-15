@@ -7,7 +7,8 @@ parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashb
 `astra-control drift-review show|approve|show-requests`, `astra-control golden-viewer show` and
 `astra-control audit-log show|export`, `astra-control autonomy-admin show-levels|set-level|
 show-whitelist|request-whitelist-change|show-whitelist-requests` and `astra-control
-notification-preferences show|set|show-thresholds|set-threshold|reaches`.
+notification-preferences show|set|show-thresholds|set-threshold|reaches` and `astra-control
+approvals approve|reject|show`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -91,6 +92,10 @@ condition to look at, the same shape `board show` already uses for a stream over
 unknown channel or severity, a blank field) or the role check fails; `set` is available to every
 role, including auditor, since it only ever changes the caller's own preference, never this
 plane's own shared state (`astra_control.notification_preferences`'s own module docstring).
+`approvals show` is always 0 unless the role check fails. `approvals approve|reject` are 0 on
+success, 2 when the change is refused (a blank field, a rejection with no comment, an
+`--evidence-path` or `--draft-dir` that does not exist) or the role check fails — refused
+outright, nothing written (`astra_control.approvals`'s own module docstring).
 """
 
 from __future__ import annotations
@@ -136,6 +141,8 @@ from astra_control.autonomy_admin import LEVELS, AutonomyAdminError, Evidence, l
 from astra_control.autonomy_admin import render_levels_markdown, render_whitelist_markdown, render_whitelist_requests_markdown
 from astra_control.notification_preferences import CHANNELS, SEVERITIES, NotificationPreferencesError, load_settings, reaches, save_settings, set_custodian_threshold, set_user_preferences
 from astra_control.notification_preferences import render_thresholds_markdown, render_user_markdown
+from astra_control.approvals import ApprovalError, approve, load_approvals, load_rejections, reject
+from astra_control.approvals import render_approvals_markdown, render_rejections_markdown
 from astra_control.audit_log import render_markdown as render_audit_log_markdown
 
 
@@ -919,6 +926,66 @@ def cmd_notification_preferences_reaches(args: argparse.Namespace) -> int:
     return 0 if result else 1
 
 
+def cmd_approvals_approve(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.APPROVALS_APPROVE)) is not None:
+        return code
+    try:
+        changes = load_changes(Path(args.guardrails_changes)) if args.guardrails_changes else ()
+        approve(
+            Path(args.log),
+            subject=args.subject,
+            agent=args.agent,
+            task_class=args.task_class,
+            approved_by=args.approved_by,
+            guardrails_changes=changes,
+            evidence_path=args.evidence_path,
+            agent_version=args.agent_version,
+            comment=args.comment,
+        )
+    except ApprovalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"approved: {args.subject} ({args.agent}.{args.task_class}), by {args.approved_by}")
+    return 0
+
+
+def cmd_approvals_reject(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.APPROVALS_REJECT)) is not None:
+        return code
+    try:
+        changes = load_changes(Path(args.guardrails_changes)) if args.guardrails_changes else ()
+        reject(
+            Path(args.log),
+            subject=args.subject,
+            agent=args.agent,
+            task_class=args.task_class,
+            rejected_by=args.rejected_by,
+            comment=args.comment,
+            draft_dir=Path(args.draft_dir) if args.draft_dir else None,
+            guardrails_changes=changes,
+            evidence_path=args.evidence_path,
+            agent_version=args.agent_version,
+        )
+    except ApprovalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"rejected: {args.subject} ({args.agent}.{args.task_class}), by {args.rejected_by}" + (f" -- returned to {args.draft_dir}" if args.draft_dir else ""))
+    return 0
+
+
+def cmd_approvals_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.APPROVALS_SHOW)) is not None:
+        return code
+    approvals = load_approvals(Path(args.approvals) if args.approvals else None)
+    rejections = load_rejections(Path(args.rejections) if args.rejections else None)
+    if args.json:
+        print(json.dumps({"approvals": [a.to_dict() for a in approvals], "rejections": [r.to_dict() for r in rejections]}, indent=2))
+    else:
+        print(render_approvals_markdown(approvals))
+        print(render_rejections_markdown(rejections))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1360,6 +1427,41 @@ def build_parser() -> argparse.ArgumentParser:
     npr.add_argument("--severity", required=True, help=f"severities are {', '.join(SEVERITIES)}")
     npr.add_argument("--role", help="when given, checked against notification-preferences.show (every role may read)")
     npr.set_defaults(func=cmd_notification_preferences_reaches)
+
+    ap = sub.add_parser("approvals", help="approve or reject a draft with a comment, and see the autonomy level of the agent that proposed it")
+    apsub = ap.add_subparsers(dest="approvals_command", required=True)
+
+    def _add_subject_args(p):
+        p.add_argument("--subject", required=True, help="what is being approved or rejected -- a draft id, a rule id, whatever names it")
+        p.add_argument("--agent", required=True, help="which agent proposed it")
+        p.add_argument("--task-class", required=True)
+        p.add_argument("--guardrails-changes", help="path to the guardrails changes log, to show the proposing agent's own real current autonomy level (default: not given, shown as L0)")
+        p.add_argument("--evidence-path", help="a real file the reviewer was shown (checked to exist)")
+        p.add_argument("--agent-version", help="the agent's own version, if known -- nothing in this repository tracks one automatically (default: not recorded)")
+
+    apa = apsub.add_parser("approve", help="approve into the log -- who, when, the evidence seen, the agent version, and the proposer's own autonomy level")
+    _add_subject_args(apa)
+    apa.add_argument("--log", required=True, help="path to the approvals log (created on first write)")
+    apa.add_argument("--approved-by", required=True)
+    apa.add_argument("--comment")
+    apa.add_argument("--role", help="when given, checked against approvals.approve before proceeding")
+    apa.set_defaults(func=cmd_approvals_approve)
+
+    apr = apsub.add_parser("reject", help="reject with a required comment -- logged, and, given --draft-dir, returned to the draft's own real directory as rejection.yaml")
+    _add_subject_args(apr)
+    apr.add_argument("--log", required=True, help="path to the rejections log (created on first write)")
+    apr.add_argument("--rejected-by", required=True)
+    apr.add_argument("--comment", required=True)
+    apr.add_argument("--draft-dir", help="the draft's own real directory (work/<agent>/<subject>/) -- gets a rejection.yaml written into it")
+    apr.add_argument("--role", help="when given, checked against approvals.reject before proceeding")
+    apr.set_defaults(func=cmd_approvals_reject)
+
+    aps = apsub.add_parser("show", help="every approval and rejection recorded")
+    aps.add_argument("--approvals", help="path to the approvals log (default: none recorded)")
+    aps.add_argument("--rejections", help="path to the rejections log (default: none recorded)")
+    aps.add_argument("--role", help="when given, checked against approvals.show (every role may read)")
+    aps.add_argument("--json", action="store_true")
+    aps.set_defaults(func=cmd_approvals_show)
 
     return parser
 

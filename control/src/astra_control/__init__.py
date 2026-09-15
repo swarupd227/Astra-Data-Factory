@@ -64,8 +64,15 @@ approve` already established; and notification preferences (S6.3.13) — which a
 person on which channel (Slack, email, in-app), and a per-custodian severity floor ops can tune
 on top, `reaches()` combining both; the first per-user settings store in this plane, and the
 first write action with no role gate at all — setting one's own channel preference changes
-nothing about shared factory state, so every role, auditor included, may do it. No live Postgres
-yet: `board.yaml` and the promotion-requests log are real, working stand-ins
+nothing about shared factory state, so every role, auditor included, may do it; and, opening
+feature F6.2, approvals and autonomy levels (S6.2.1) — a new, general approval record richer than
+any of F6.3's own five approval-shaped flows: who, when, a real checked evidence path, an
+honestly-`None` agent version (nothing in this codebase tracks one, despite the product spec's own
+claim that every approval does), and the proposing agent's own real autonomy level via `astra_
+control.autonomy_admin.current_level`, called directly; a rejection is refused outright without a
+comment, and "returns the item to the agent" as a real `rejection.yaml` written into the draft's
+own real directory, not a live agent re-run — no agent CLI in this codebase reads one back yet.
+No live Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins
 for the store E6 will eventually have (astra_control.board's own module docstring).
 """
 
@@ -271,6 +278,16 @@ from astra_control.notification_preferences import (
     set_user_preferences,
 )
 from astra_control.notification_preferences import render_thresholds_markdown, render_user_markdown
+from astra_control.approvals import (
+    Approval,
+    ApprovalError,
+    Rejection,
+    approve,
+    load_approvals,
+    load_rejections,
+    reject,
+)
+from astra_control.approvals import render_approvals_markdown, render_rejections_markdown
 
 __all__ = [
     "CHANNELS",
@@ -295,6 +312,8 @@ __all__ = [
     "WRITE_ACTIONS",
     "Action",
     "AgentReviewError",
+    "Approval",
+    "ApprovalError",
     "AuditLogError",
     "AuditRecord",
     "AuditSources",
@@ -336,6 +355,7 @@ __all__ = [
     "QueueItemKind",
     "QueueSources",
     "RecordPair",
+    "Rejection",
     "ReviewItem",
     "Role",
     "RoleMapping",
@@ -356,6 +376,7 @@ __all__ = [
     "advance",
     "apply_drift_findings",
     "approvals_from",
+    "approve",
     "approve_drift",
     "authorized",
     "board_moves_from",
@@ -388,6 +409,7 @@ __all__ = [
     "identical_rules",
     "identity_from_claims",
     "live_per_week",
+    "load_approvals",
     "load_arrivals",
     "load_board",
     "load_catalog",
@@ -395,6 +417,7 @@ __all__ = [
     "load_draft_rule",
     "load_promotion_requests",
     "load_registry",
+    "load_rejections",
     "load_role_mapping",
     "load_run",
     "load_spec",
@@ -407,10 +430,12 @@ __all__ = [
     "reaches",
     "record_pair",
     "record_pairs",
+    "reject",
     "reject_agent_review",
     "rejection_codes",
     "render_agent_review_diff_markdown",
     "render_agent_review_markdown",
+    "render_approvals_markdown",
     "render_audit_log_markdown",
     "render_break_groups_markdown",
     "render_bulk_result",
@@ -427,6 +452,7 @@ __all__ = [
     "render_queue_markdown",
     "render_record_pair_markdown",
     "render_record_pairs_markdown",
+    "render_rejections_markdown",
     "render_rule_review_markdown",
     "render_spec_compare",
     "render_status_markdown",

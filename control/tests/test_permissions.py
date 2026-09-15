@@ -119,17 +119,19 @@ def test_pm_owns_the_wip_limit_the_delivery_leads_own_story_built():
     assert not authorized(Role.ENGINEER, Action.BOARD_SET_WIP_LIMIT)
 
 
-def test_steward_owns_rule_review_agent_review_and_drift_review():
+def test_steward_owns_rule_review_agent_review_drift_review_and_approvals():
     """S6.1.3's own actor built only a read action; S6.3.5 gave steward its first writes
-    (rule-review), S6.3.6 gave it agent-review's accept/reject, and S6.3.9 gives it
-    drift-review's approve too -- steward is this plane's own busiest write role, story after
-    story naming it as (joint) actor."""
+    (rule-review), S6.3.6 gave it agent-review's accept/reject, S6.3.9 gives it drift-review's
+    approve, and S6.2.1 gives it the general approvals.approve/reject too -- steward is this
+    plane's own busiest write role, story after story naming it as (joint) actor."""
     assert PERMISSIONS[Role.STEWARD] & (set(WRITE_ACTIONS) - UNIVERSAL_WRITE_ACTIONS) == {
         Action.RULE_REVIEW_SET_STATUS,
         Action.RULE_REVIEW_BULK_CONFIRM,
         Action.AGENT_REVIEW_ACCEPT,
         Action.AGENT_REVIEW_REJECT,
         Action.DRIFT_REVIEW_APPROVE,
+        Action.APPROVALS_APPROVE,
+        Action.APPROVALS_REJECT,
     }
     assert not authorized(Role.STEWARD, Action.BOARD_ADD)
 
@@ -155,6 +157,19 @@ def test_run_status_adds_only_read_actions():
     for action in run_status_actions:
         for role in Role:
             assert authorized(role, action)
+
+
+def test_approvals_approve_and_reject_are_granted_to_steward_only():
+    for action in (Action.APPROVALS_APPROVE, Action.APPROVALS_REJECT):
+        assert authorized(Role.STEWARD, action)
+        for role in (Role.BSA, Role.ENGINEER, Role.OPS, Role.PM, Role.AUDITOR):
+            assert not authorized(role, action)
+
+
+def test_approvals_show_is_available_to_every_role():
+    assert Action.APPROVALS_SHOW in READ_ACTIONS
+    for role in Role:
+        assert authorized(role, Action.APPROVALS_SHOW)
 
 
 def test_notification_preferences_set_is_granted_to_every_role():
