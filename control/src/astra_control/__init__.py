@@ -15,9 +15,13 @@ filtered by the same six roles; and the custodian page (S6.3.3) — family, tier
 current station, files today against a real cutoff, parity trend, open exceptions and cost, all
 in one place, each field read from something this repository already built (the board, a real
 parity report, `astra_control.queue`'s own exception count) and never fabricated when its own
-source is missing. No live Postgres yet: `board.yaml` and the promotion-requests log are real,
-working stand-ins for the store E6 will eventually have (astra_control.board's own module
-docstring).
+source is missing; and the spec registry viewer (S6.3.4) — every field of a Source Spec with its
+own citation turned into a real, openable reference, and a version compare that highlights added,
+removed and shifted fields (a field whose own position moved between two versions, the one spec
+change AC2 names on its own), matched against real committed drift between `specs/pershing_gcus`'s
+two versions rather than a synthetic example. No live Postgres yet: `board.yaml` and the
+promotion-requests log are real, working stand-ins for the store E6 will eventually have
+(astra_control.board's own module docstring).
 """
 
 from astra_control.board import (
@@ -92,6 +96,18 @@ from astra_control.custodian_page import (
 )
 from astra_control.custodian_page import build as build_custodian_page
 from astra_control.custodian_page import render_markdown as render_custodian_page_markdown
+from astra_control.spec_viewer import (
+    FieldEntry,
+    SpecFieldDiff,
+    SpecViewerError,
+    compare as compare_specs,
+    field_list,
+    load_registry,
+    load_spec,
+)
+from astra_control.spec_viewer import citation_link as spec_citation_link
+from astra_control.spec_viewer import render_compare as render_spec_compare
+from astra_control.spec_viewer import render_field_list
 
 __all__ = [
     "KIND_ROLES",
@@ -113,6 +129,7 @@ __all__ = [
     "DiffReview",
     "DiffReviewError",
     "ExpectedFile",
+    "FieldEntry",
     "Identity",
     "PromotionRequest",
     "QueueItem",
@@ -121,6 +138,8 @@ __all__ = [
     "Role",
     "RoleMapping",
     "RuleImpact",
+    "SpecFieldDiff",
+    "SpecViewerError",
     "Station",
     "Transition",
     "add_custodian",
@@ -131,27 +150,34 @@ __all__ = [
     "build_custodian_page",
     "build_queue",
     "citation_link",
+    "compare_specs",
     "counts_by_kind",
     "drift_from",
     "exceptions_from",
+    "field_list",
     "for_role",
     "identity_from_claims",
     "live_per_week",
     "load_arrivals",
     "load_board",
     "load_promotion_requests",
+    "load_registry",
     "load_role_mapping",
+    "load_spec",
     "move",
     "render_custodian_page_markdown",
     "render_diff_markdown",
+    "render_field_list",
     "render_markdown",
     "render_permissions_markdown",
     "render_queue_markdown",
+    "render_spec_compare",
     "request_promotion",
     "require",
     "review",
     "save_board",
     "set_wip_limit",
+    "spec_citation_link",
     "start",
     "write_review",
 ]

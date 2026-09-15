@@ -1,6 +1,7 @@
 """Command line: `astra-control board add|move|set-wip-limit|show`, `astra-control config-studio
 start|advance|request-promotion|show-requests`, `astra-control diff-review run`, `astra-control
-permissions show|resolve`, `astra-control queue show` and `astra-control custodian-page show`.
+permissions show|resolve`, `astra-control queue show`, `astra-control custodian-page show` and
+`astra-control spec-viewer show|compare`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -33,7 +34,10 @@ for an unrecognized `--role`. `custodian-page show` reads a compiled config plus
 `--board`/`--parity-report`/`--exception-report`/`--arrivals`/`--cost` are given — every one
 optional, each field shown honestly as "no data" rather than fabricated when its own source is
 missing (`astra_control.custodian_page`'s own module docstring) — and is 0 unless the config
-itself fails to compile or the role check fails (2).
+itself fails to compile or the role check fails (2). `spec-viewer show` is 0 unless the spec
+itself is not found or the role check fails (2). `spec-viewer compare` is 0 when the two versions
+have no differences, 1 when they do (a real condition to look at, the same shape `board show`
+already uses for a stream over its limit), 2 for a missing spec version or the role check.
 """
 
 from __future__ import annotations
@@ -54,6 +58,9 @@ from astra_control.queue import render_markdown as render_queue_markdown
 from astra_control.custodian_page import CustodianPageError, load_arrivals
 from astra_control.custodian_page import build as build_custodian_page
 from astra_control.custodian_page import render_markdown as render_custodian_page_markdown
+from astra_control.spec_viewer import SpecViewerError, compare, field_list, load_registry, load_spec
+from astra_control.spec_viewer import render_compare as render_spec_compare
+from astra_control.spec_viewer import render_field_list
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -289,6 +296,40 @@ def cmd_custodian_page_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_spec_viewer_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.SPEC_VIEWER_SHOW)) is not None:
+        return code
+    try:
+        registry = load_registry(Path(args.specs))
+        spec = load_spec(registry, args.id, args.version)
+    except SpecViewerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps([f.to_dict() for f in field_list(spec)], indent=2))
+    else:
+        print(render_field_list(spec))
+    return 0
+
+
+def cmd_spec_viewer_compare(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.SPEC_VIEWER_COMPARE)) is not None:
+        return code
+    try:
+        registry = load_registry(Path(args.specs))
+        old = load_spec(registry, args.id, args.old)
+        new = load_spec(registry, args.id, args.new)
+    except SpecViewerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    diffs = compare(old, new)
+    if args.json:
+        print(json.dumps([d.to_dict() for d in diffs], indent=2))
+    else:
+        print(render_spec_compare(old, new, diffs))
+    return 1 if diffs else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -419,6 +460,26 @@ def build_parser() -> argparse.ArgumentParser:
     cps.add_argument("--role", help="when given, checked against custodian-page.show (every role may read)")
     cps.add_argument("--json", action="store_true")
     cps.set_defaults(func=cmd_custodian_page_show)
+
+    sv = sub.add_parser("spec-viewer", help="browse a Source Spec with its citations, and compare two versions")
+    svsub = sv.add_subparsers(dest="spec_viewer_command", required=True)
+
+    svs = svsub.add_parser("show", help="every field of one spec version: position, type, citation link")
+    svs.add_argument("--specs", default="specs", help="the spec registry directory (default: specs)")
+    svs.add_argument("--id", required=True, help="the spec id, for example pershing_gcus")
+    svs.add_argument("--version", required=True)
+    svs.add_argument("--role", help="when given, checked against spec-viewer.show (every role may read)")
+    svs.add_argument("--json", action="store_true")
+    svs.set_defaults(func=cmd_spec_viewer_show)
+
+    svc = svsub.add_parser("compare", help="every field added, removed, shifted or otherwise changed between two versions of the same spec")
+    svc.add_argument("--specs", default="specs", help="the spec registry directory (default: specs)")
+    svc.add_argument("--id", required=True)
+    svc.add_argument("--old", required=True, help="the earlier version")
+    svc.add_argument("--new", required=True, help="the later version")
+    svc.add_argument("--role", help="when given, checked against spec-viewer.compare (every role may read)")
+    svc.add_argument("--json", action="store_true")
+    svc.set_defaults(func=cmd_spec_viewer_compare)
 
     return parser
 
