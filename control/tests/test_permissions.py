@@ -135,6 +135,17 @@ def test_parity_viewer_adds_only_read_actions():
             assert authorized(role, action)
 
 
+def test_run_status_adds_only_read_actions():
+    """S6.3.8's own story adds two actions and no write -- "operations user or SRE" (SRE is not
+    one of the six closed roles) needed no new permission grant to resolve either."""
+    run_status_actions = {Action.RUN_STATUS_SHOW, Action.RUN_STATUS_DASHBOARD}
+    assert run_status_actions <= set(READ_ACTIONS)
+    assert run_status_actions & set(WRITE_ACTIONS) == set()
+    for action in run_status_actions:
+        for role in Role:
+            assert authorized(role, action)
+
+
 def test_agent_review_accept_reject_are_granted_to_steward_and_bsa_only():
     """The one action set in this file granted to two roles at once (module docstring) --
     grounded in the story's own "steward or BSA" actor, not any other role."""

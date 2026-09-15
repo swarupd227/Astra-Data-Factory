@@ -2,8 +2,8 @@
 start|advance|request-promotion|show-requests`, `astra-control diff-review run`, `astra-control
 permissions show|resolve`, `astra-control queue show`, `astra-control custodian-page show`,
 `astra-control spec-viewer show|compare`, `astra-control rule-review show|set-status|
-bulk-confirm`, `astra-control agent-review show|edit|accept|reject` and `astra-control
-parity-viewer trend|breaks|records|record`.
+bulk-confirm`, `astra-control agent-review show|edit|accept|reject`, `astra-control
+parity-viewer trend|breaks|records|record` and `astra-control run-status show|dashboard`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -55,7 +55,11 @@ already exists, the given tier has no threshold in that gold set, or the role ch
 (`astra_control.agent_review`'s own module docstring). `parity-viewer trend|breaks|records` are 0
 unless the given report file is missing, unreadable, or (for `trend`) not a parity report at all,
 or the role check fails (2). `parity-viewer record` is the same, plus 2 when no record matches the
-given `--key`.
+given `--key`. `run-status show` is 0 unless the config fails to compile or the role check fails
+(2), 1 when the custodian is late as of `--as-of` (default: now) — a real condition to look at,
+the same shape `board show` already uses for a stream over its limit. `run-status dashboard` is 2
+when `--config` and `--run` are not given the same number of times or any config fails to compile,
+otherwise 0 unless at least one custodian is late (1).
 """
 
 from __future__ import annotations
@@ -63,6 +67,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from astra_control.board import STATIONS, BoardError, add_custodian, load_board, move, render_markdown, save_board, set_wip_limit
@@ -89,6 +94,8 @@ from astra_control.agent_review import render_diff_markdown as render_agent_revi
 from astra_control.agent_review import render_markdown as render_agent_review_markdown
 from astra_control.parity_viewer import ParityViewerError, break_groups, load_trend, record_pair, record_pairs
 from astra_control.parity_viewer import render_break_groups_markdown, render_record_pair_markdown, render_record_pairs_markdown, render_trend_markdown
+from astra_control.run_status import RunStatusError, build as build_run_status, build_dashboard
+from astra_control.run_status import render_dashboard_markdown, render_status_markdown
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -550,6 +557,51 @@ def cmd_parity_viewer_record(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run_status_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.RUN_STATUS_SHOW)) is not None:
+        return code
+    try:
+        status = build_run_status(
+            Path(args.config),
+            run_path=Path(args.run) if args.run else None,
+            specs_dir=Path(args.specs),
+            rules_dir=Path(args.rules),
+            domains_dir=Path(args.domains),
+        )
+    except RunStatusError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(status.to_dict(), indent=2))
+    else:
+        print(render_status_markdown(status))
+    as_of = datetime.fromisoformat(args.as_of) if args.as_of else datetime.now(timezone.utc)
+    return 1 if status.is_late(as_of) else 0
+
+
+def cmd_run_status_dashboard(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.RUN_STATUS_DASHBOARD)) is not None:
+        return code
+    if len(args.config) != len(args.run):
+        print("error: --config and --run must be given the same number of times, in matching order", file=sys.stderr)
+        return 2
+    try:
+        statuses = tuple(
+            build_run_status(Path(c), run_path=Path(r) if r else None, specs_dir=Path(args.specs), rules_dir=Path(args.rules), domains_dir=Path(args.domains))
+            for c, r in zip(args.config, args.run)
+        )
+        as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
+        dashboard = build_dashboard(statuses, as_of=as_of)
+    except RunStatusError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(dashboard.to_dict(), indent=2))
+    else:
+        print(render_dashboard_markdown(dashboard))
+    return 1 if dashboard.late else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -801,6 +853,31 @@ def build_parser() -> argparse.ArgumentParser:
     pvo.add_argument("--role", help="when given, checked against parity-viewer.record (every role may read)")
     pvo.add_argument("--json", action="store_true")
     pvo.set_defaults(func=cmd_parity_viewer_record)
+
+    rs = sub.add_parser("run-status", help="per custodian, file and run: expected, arrived, parsed, resolved, published, timed against the 20-minute window")
+    rssub = rs.add_subparsers(dest="run_status_command", required=True)
+
+    rss = rssub.add_parser("show", help="one custodian's own run: every expected file's current stage, missing files, the timing bar, and the run log reference")
+    rss.add_argument("--config", required=True, help="the source config, for its own delivery.files and cutoff_time")
+    rss.add_argument("--run", help="a run file giving arrived/parsed/resolved/published times per file pattern, and the run's own business date and run log (default: nothing has happened yet)")
+    rss.add_argument("--as-of", help="ISO datetime to judge lateness against (default: now)")
+    rss.add_argument("--specs", default="specs", help="the spec registry directory (default: specs)")
+    rss.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+    rss.add_argument("--domains", default="domains", help="the domain packs directory (default: domains)")
+    rss.add_argument("--role", help="when given, checked against run-status.show (every role may read)")
+    rss.add_argument("--json", action="store_true")
+    rss.set_defaults(func=cmd_run_status_show)
+
+    rsd = rssub.add_parser("dashboard", help="every given custodian's own run, together: which are late, and each one's own timing")
+    rsd.add_argument("--config", action="append", required=True, help="a source config (repeatable, one per custodian)")
+    rsd.add_argument("--run", action="append", required=True, help="that custodian's own run file, in the same order as --config (repeatable; pass the same count as --config)")
+    rsd.add_argument("--as-of", help="ISO datetime to judge lateness against (default: now)")
+    rsd.add_argument("--specs", default="specs", help="the spec registry directory (default: specs)")
+    rsd.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+    rsd.add_argument("--domains", default="domains", help="the domain packs directory (default: domains)")
+    rsd.add_argument("--role", help="when given, checked against run-status.dashboard (every role may read)")
+    rsd.add_argument("--json", action="store_true")
+    rsd.set_defaults(func=cmd_run_status_dashboard)
 
     return parser
 

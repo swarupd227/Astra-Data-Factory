@@ -32,7 +32,9 @@ reviews (simple tier: BSA reviews)" (Section 7.1) already establishes for a sour
 engineer" as its actor, and "QE engineer" is not one of the six closed roles above (nor named
 anywhere in `docs/ux/personas.md`'s own role mapping); this is moot for this story specifically,
 since every action it adds is already available to every role uniformly, but is named here plainly
-rather than silently mapped to `engineer` as if the backlog's own wording meant that.
+rather than silently mapped to `engineer` as if the backlog's own wording meant that. `run-status.*`
+(S6.3.8) is the same shape again — "operations user or SRE" as its actor, `sre` not a role, moot
+for the same reason (two reads, no write).
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -100,6 +102,8 @@ class Action(Enum):
     PARITY_VIEWER_BREAKS = "parity-viewer.breaks"
     PARITY_VIEWER_RECORDS = "parity-viewer.records"
     PARITY_VIEWER_RECORD = "parity-viewer.record"
+    RUN_STATUS_SHOW = "run-status.show"
+    RUN_STATUS_DASHBOARD = "run-status.dashboard"
 
 
 READ_ACTIONS = (
@@ -116,6 +120,8 @@ READ_ACTIONS = (
     Action.PARITY_VIEWER_BREAKS,
     Action.PARITY_VIEWER_RECORDS,
     Action.PARITY_VIEWER_RECORD,
+    Action.RUN_STATUS_SHOW,
+    Action.RUN_STATUS_DASHBOARD,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 

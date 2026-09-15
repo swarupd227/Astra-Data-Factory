@@ -30,9 +30,14 @@ reviewed input, never its wording; and the dual-run and parity viewer (S6.3.7) â
 day straight from `astra_verification.parity_report.ParityReport`'s own `by_cycle`, break groups
 by rule and field with counts, and a record-pair drill-down showing legacy vs lakehouse with the
 differing field highlighted, both from `astra_agents.break_explainer`'s own already-written
-report, grouped two different ways rather than recomputed. No live Postgres yet: `board.yaml` and
-the promotion-requests log are real, working stand-ins for the store E6 will eventually have
-(astra_control.board's own module docstring).
+report, grouped two different ways rather than recomputed; and the run status dashboard (S6.3.8) â€”
+per custodian and file, expected, arrived, parsed, resolved, published, timed from the latest
+file's own arrival to its own publish against a real 20-minute budget grounded in the backlog's
+own repeated requirement, every stage past "expected" caller-supplied since no live query for any
+of them exists in this environment, the same honest shape `astra_control.custodian_page`'s own
+`arrivals` already established. No live Postgres yet: `board.yaml` and the promotion-requests log
+are real, working stand-ins for the store E6 will eventually have (astra_control.board's own
+module docstring).
 """
 
 from astra_control.board import (
@@ -163,6 +168,19 @@ from astra_control.parity_viewer import (
     record_pairs,
 )
 from astra_control.parity_viewer import render_break_groups_markdown, render_record_pair_markdown, render_record_pairs_markdown, render_trend_markdown
+from astra_control.run_status import (
+    RUN_WINDOW_BUDGET_MINUTES,
+    STAGES,
+    CustodianRunStatus,
+    Dashboard,
+    FileStage,
+    RunInput,
+    RunStatusError,
+    build as build_run_status,
+    build_dashboard,
+    load_run,
+)
+from astra_control.run_status import render_dashboard_markdown, render_status_markdown
 
 __all__ = [
     "KIND_ROLES",
@@ -171,7 +189,9 @@ __all__ = [
     "REJECTION_TAG_PREFIX",
     "REVIEW_STATUSES",
     "RULE_RECOVERY_AGENT",
+    "RUN_WINDOW_BUDGET_MINUTES",
     "SEQUENCE",
+    "STAGES",
     "STATIONS",
     "IN_FLIGHT_STATIONS",
     "TIERS",
@@ -187,6 +207,8 @@ __all__ = [
     "CustodianCard",
     "CustodianPage",
     "CustodianPageError",
+    "CustodianRunStatus",
+    "Dashboard",
     "DiffReview",
     "DiffReviewError",
     "Edited",
@@ -194,6 +216,7 @@ __all__ = [
     "FieldChange",
     "FieldDiff",
     "FieldEntry",
+    "FileStage",
     "Identity",
     "ParityViewerError",
     "PromotionRequest",
@@ -207,6 +230,8 @@ __all__ = [
     "RuleEntry",
     "RuleImpact",
     "RuleReviewError",
+    "RunInput",
+    "RunStatusError",
     "SpecFieldDiff",
     "SpecViewerError",
     "Station",
@@ -221,7 +246,9 @@ __all__ = [
     "break_groups",
     "breaks_from",
     "build_custodian_page",
+    "build_dashboard",
     "build_queue",
+    "build_run_status",
     "bulk_confirm",
     "change_status",
     "citation_link",
@@ -244,6 +271,7 @@ __all__ = [
     "load_promotion_requests",
     "load_registry",
     "load_role_mapping",
+    "load_run",
     "load_spec",
     "load_trend",
     "move",
@@ -256,6 +284,7 @@ __all__ = [
     "render_break_groups_markdown",
     "render_bulk_result",
     "render_custodian_page_markdown",
+    "render_dashboard_markdown",
     "render_diff_markdown",
     "render_field_list",
     "render_markdown",
@@ -265,6 +294,7 @@ __all__ = [
     "render_record_pairs_markdown",
     "render_rule_review_markdown",
     "render_spec_compare",
+    "render_status_markdown",
     "render_trend_markdown",
     "request_promotion",
     "require",
