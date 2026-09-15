@@ -1,8 +1,8 @@
 """Command line: `astra-control board add|move|set-wip-limit|show`, `astra-control config-studio
 start|advance|request-promotion|show-requests`, `astra-control diff-review run`, `astra-control
 permissions show|resolve`, `astra-control queue show`, `astra-control custodian-page show`,
-`astra-control spec-viewer show|compare` and `astra-control rule-review show|set-status|
-bulk-confirm`.
+`astra-control spec-viewer show|compare`, `astra-control rule-review show|set-status|
+bulk-confirm` and `astra-control agent-review show|edit|accept|reject`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -47,6 +47,11 @@ bulk-confirm` confirms the named rule and every rule sharing its exact text (`as
 rule_review`'s own module docstring); one rule's own refusal (already confirmed, say) never blocks
 the others — 0 when every rule in the batch confirmed, 1 when at least one did not (shown, not
 silently dropped), 2 for an unknown rule id or the role check.
+`agent-review show|edit` are 0 unless the draft file itself fails to load or the role check fails
+(2); `edit` writes nothing, it only shows a diff. `agent-review accept|reject` are 0 on success, 2
+when the draft fails to load, the gold set does not exist or is for a different agent, the case id
+already exists, the given tier has no threshold in that gold set, or the role check fails
+(`astra_control.agent_review`'s own module docstring).
 """
 
 from __future__ import annotations
@@ -73,6 +78,11 @@ from astra_control.spec_viewer import render_field_list
 from astra_control.rule_review import REVIEW_STATUSES, RuleReviewError, bulk_confirm, change_status, filter_rules, load_catalog, rule_entry
 from astra_control.rule_review import render_bulk_result
 from astra_control.rule_review import render_markdown as render_rule_review_markdown
+from astra_verification.agent_eval import TIERS
+from astra_knowledge.rules import Citation
+from astra_control.agent_review import AgentReviewError, Edited, accept, edit_citation, edit_text, load_draft_rule, reject, rule_recovery_item
+from astra_control.agent_review import render_diff_markdown as render_agent_review_diff_markdown
+from astra_control.agent_review import render_markdown as render_agent_review_markdown
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -388,6 +398,92 @@ def cmd_rule_review_bulk_confirm(args: argparse.Namespace) -> int:
     return 1 if any(not r.ok for r in results) else 0
 
 
+def _agent_review_item(args: argparse.Namespace):
+    try:
+        rule = load_draft_rule(Path(args.draft))
+        item = rule_recovery_item(rule, case_input=args.input, tier=args.tier)
+    except AgentReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return None, None
+    return rule, item
+
+
+def _apply_edit_args(item, rule, args: argparse.Namespace):
+    """--text and/or --citation-file/--citation-line/--citation-end-line/--citation-repository,
+    applied in order; returns the item unchanged if none were given."""
+    if args.text:
+        item = edit_text(item, args.text).edited
+    if args.citation_file or args.citation_line:
+        if not (args.citation_file and args.citation_line):
+            raise AgentReviewError("--citation-file and --citation-line must be given together")
+        citation = Citation(kind="code", file=args.citation_file, line=args.citation_line, end_line=args.citation_end_line, repository=args.citation_repository)
+        item = edit_citation(item, rule, citation).edited
+    return item
+
+
+def cmd_agent_review_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AGENT_REVIEW_SHOW)) is not None:
+        return code
+    rule, item = _agent_review_item(args)
+    if item is None:
+        return 2
+    if args.json:
+        print(json.dumps(item.to_dict(), indent=2))
+    else:
+        print(render_agent_review_markdown(item))
+    return 0
+
+
+def cmd_agent_review_edit(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AGENT_REVIEW_EDIT)) is not None:
+        return code
+    rule, item = _agent_review_item(args)
+    if item is None:
+        return 2
+    try:
+        edited_item = _apply_edit_args(item, rule, args)
+    except AgentReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    edited = Edited(original=item, edited=edited_item)
+    if args.json:
+        print(json.dumps(edited.to_dict(), indent=2))
+    else:
+        print(render_agent_review_diff_markdown(edited))
+    return 0
+
+
+def cmd_agent_review_accept(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AGENT_REVIEW_ACCEPT)) is not None:
+        return code
+    rule, item = _agent_review_item(args)
+    if item is None:
+        return 2
+    try:
+        final_item = _apply_edit_args(item, rule, args)
+        case = accept(Path(args.gold_set), final_item, case_id=args.case_id)
+    except AgentReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"accepted: {args.case_id} -> {', '.join(case.expected) if case.expected else '(nothing)'}")
+    return 0
+
+
+def cmd_agent_review_reject(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AGENT_REVIEW_REJECT)) is not None:
+        return code
+    rule, item = _agent_review_item(args)
+    if item is None:
+        return 2
+    try:
+        case = reject(Path(args.gold_set), item, case_id=args.case_id)
+    except AgentReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"rejected: {args.case_id}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -568,6 +664,49 @@ def build_parser() -> argparse.ArgumentParser:
     rvb.add_argument("--role", help="when given, checked against rule-review.bulk-confirm before proceeding")
     rvb.add_argument("--json", action="store_true")
     rvb.set_defaults(func=cmd_rule_review_bulk_confirm)
+
+    ar = sub.add_parser("agent-review", help="an agent's draft beside its source evidence, edited with the original kept for comparison, accepted or rejected into the agent's own evaluation set")
+    arsub = ar.add_subparsers(dest="agent_review_command", required=True)
+
+    def _add_draft_args(p):
+        p.add_argument("--draft", required=True, help="path to a draft rule file Rule Recovery already wrote (work/rule-recovery/rules/<group>/<name>.yaml)")
+        p.add_argument("--tier", required=True, help=f"tiers are {', '.join(TIERS)}")
+        p.add_argument("--input", required=True, help="where the reviewed evidence lives, for the gold set's own 'input' (a path, a citation)")
+
+    def _add_edit_args(p):
+        p.add_argument("--text", help="a corrected reading of the draft's own text")
+        p.add_argument("--citation-file", help="a corrected citation: the legacy source file")
+        p.add_argument("--citation-line", type=int, help="a corrected citation: the starting line")
+        p.add_argument("--citation-end-line", type=int, help="a corrected citation: the ending line, if it spans more than one")
+        p.add_argument("--citation-repository", help="a corrected citation: the repository, if known")
+
+    ars = arsub.add_parser("show", help="the draft's own text (reasoning) beside its citation (source evidence), and what accepting it would record")
+    _add_draft_args(ars)
+    ars.add_argument("--role", help="when given, checked against agent-review.show (every role may read)")
+    ars.add_argument("--json", action="store_true")
+    ars.set_defaults(func=cmd_agent_review_show)
+
+    are = arsub.add_parser("edit", help="a corrected text and/or citation, diffed against the original -- writes nothing")
+    _add_draft_args(are)
+    _add_edit_args(are)
+    are.add_argument("--role", help="when given, checked against agent-review.edit (every role may read)")
+    are.add_argument("--json", action="store_true")
+    are.set_defaults(func=cmd_agent_review_edit)
+
+    ara = arsub.add_parser("accept", help="the draft (as reviewed, possibly edited) is correct: records it as a new case in the agent's own gold set")
+    _add_draft_args(ara)
+    _add_edit_args(ara)
+    ara.add_argument("--gold-set", required=True, help="path to the agent's own eval.yaml")
+    ara.add_argument("--case-id", required=True)
+    ara.add_argument("--role", help="when given, checked against agent-review.accept before proceeding")
+    ara.set_defaults(func=cmd_agent_review_accept)
+
+    arr = arsub.add_parser("reject", help="the draft is wrong: records a case in the agent's own gold set saying nothing should have been produced for this input")
+    _add_draft_args(arr)
+    arr.add_argument("--gold-set", required=True, help="path to the agent's own eval.yaml")
+    arr.add_argument("--case-id", required=True)
+    arr.add_argument("--role", help="when given, checked against agent-review.reject before proceeding")
+    arr.set_defaults(func=cmd_agent_review_reject)
 
     return parser
 

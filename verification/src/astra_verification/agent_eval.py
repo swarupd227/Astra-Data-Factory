@@ -18,7 +18,11 @@ easy ones, or the reverse.
 
 A gold set's thresholds are set by the agent engineer from the pilot
 baseline (the backlog's own convention for every `[T]` placeholder,
-docs/backlog-v0.2.md line 11) — never invented here. `agent-eval score`
+docs/backlog-v0.2.md line 11) — never invented here. `append_case`
+(S6.3.6) is the one function that writes a gold set rather than only
+reading one: a human's own accept/reject decision on an agent's draft,
+turned into one new case, refused outright if its tier has no
+threshold already set. `agent-eval score`
 is the per-change gate: a tier whose measured precision or recall falls
 below its threshold, or a gold set case with no prediction at all, fails
 the check and blocks release. `agent-eval report` is the weekly one:
@@ -125,6 +129,58 @@ def load_gold_set(path: Path, root: Path | None = None) -> tuple[GoldSet | None,
         path=path,
     )
     return gold, []
+
+
+def _yaml_string(value: str) -> str:
+    return json.dumps(value)
+
+
+def _render_case_block(case: Case) -> str:
+    lines = [
+        f"  - id: {case.id}",
+        f"    tier: {case.tier}",
+        f"    input: {_yaml_string(case.input)}",
+    ]
+    if case.expected:
+        lines.append("    expected:")
+        lines.extend(f"      - {_yaml_string(item)}" for item in sorted(case.expected))
+    else:
+        lines.append("    expected: []")
+    return "\n".join(lines) + "\n"
+
+
+def append_case(path: Path, case: Case, *, root: Path | None = None) -> GoldSet:
+    """Appends one new case to an already-existing gold set file (S6.3.6's own "accept / reject
+    feeds the agent evaluation set automatically"), textually — preserving everything already in
+    the file, including its own leading comment header, which `GoldSet` itself does not capture,
+    rather than reloading the file into a `GoldSet` and re-rendering the whole document from that
+    (which would silently drop the header). This assumes `cases:` is the file's last top-level
+    key, true of every gold set committed today; if that assumption were ever wrong, or this
+    function's own rendering were wrong, the reload-and-validate step below catches it and rolls
+    the file back rather than leaving a broken gold set on disk.
+
+    Refuses outright, writing nothing, when the case id already exists (case ids are unique per
+    file) or the case's own tier has no threshold in this gold set — a tier's thresholds are set
+    from the pilot baseline, never invented here (module docstring), so a case for an unthresholded
+    tier needs a human to add that threshold first, not a fabricated one from this function.
+    """
+    path = Path(path)
+    gold, problems = load_gold_set(path, root)
+    if problems:
+        raise AgentEvalError("; ".join(p.format() for p in problems))
+    if gold.case(case.id) is not None:
+        raise AgentEvalError(f"{display_path(path, root)}: case '{case.id}' already exists in this gold set")
+    if case.tier not in gold.thresholds:
+        raise AgentEvalError(f"{display_path(path, root)}: tier '{case.tier}' has no threshold in this gold set; add one first (thresholds are set from the pilot baseline, never invented here)")
+
+    original = path.read_text(encoding="utf-8")
+    path.write_text(original.rstrip("\n") + "\n\n" + _render_case_block(case), encoding="utf-8", newline="\n")
+
+    reloaded, reload_problems = load_gold_set(path, root)
+    if reload_problems:
+        path.write_text(original, encoding="utf-8", newline="\n")
+        raise AgentEvalError(f"appending case '{case.id}' produced an invalid gold set, rolled back: " + "; ".join(p.format() for p in reload_problems))
+    return reloaded
 
 
 def discover(agents_dir: Path) -> list[Path]:

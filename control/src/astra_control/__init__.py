@@ -19,9 +19,16 @@ source is missing; and the spec registry viewer (S6.3.4) — every field of a So
 own citation turned into a real, openable reference, and a version compare that highlights added,
 removed and shifted fields (a field whose own position moved between two versions, the one spec
 change AC2 names on its own), matched against real committed drift between `specs/pershing_gcus`'s
-two versions rather than a synthetic example. No live Postgres yet: `board.yaml` and the
-promotion-requests log are real, working stand-ins for the store E6 will eventually have
-(astra_control.board's own module docstring).
+two versions rather than a synthetic example; and the rule catalog browser and review (S6.3.5) —
+a rule's text, class and citation side by side, confirmed, rejected or marked a legacy defect by
+calling `astra_knowledge.rules.set_status` directly rather than a second mutation, bulk confirm
+reaching every rule sharing the exact same text; and agent suggestion review (S6.3.6) — a Rule
+Recovery draft's own text and citation side by side, an edit diffed against the kept original, and
+accept/reject each appending a new case straight into that agent's own gold set
+(`astra_verification.agent_eval.append_case`), naming which rule id should be recovered from the
+reviewed input, never its wording. No live Postgres yet: `board.yaml` and the promotion-requests
+log are real, working stand-ins for the store E6 will eventually have (astra_control.board's own
+module docstring).
 """
 
 from astra_control.board import (
@@ -124,6 +131,21 @@ from astra_control.rule_review import (
 )
 from astra_control.rule_review import render_bulk_result
 from astra_control.rule_review import render_markdown as render_rule_review_markdown
+from astra_control.agent_review import (
+    RULE_RECOVERY_AGENT,
+    AgentReviewError,
+    Edited,
+    FieldChange,
+    ReviewItem,
+    accept as accept_agent_review,
+    edit_citation,
+    edit_text,
+    load_draft_rule,
+    reject as reject_agent_review,
+    rule_recovery_item,
+)
+from astra_control.agent_review import render_diff_markdown as render_agent_review_diff_markdown
+from astra_control.agent_review import render_markdown as render_agent_review_markdown
 
 __all__ = [
     "KIND_ROLES",
@@ -131,12 +153,14 @@ __all__ = [
     "READ_ACTIONS",
     "REJECTION_TAG_PREFIX",
     "REVIEW_STATUSES",
+    "RULE_RECOVERY_AGENT",
     "SEQUENCE",
     "STATIONS",
     "IN_FLIGHT_STATIONS",
     "TIERS",
     "WRITE_ACTIONS",
     "Action",
+    "AgentReviewError",
     "AuthorizationError",
     "Board",
     "BoardError",
@@ -147,13 +171,16 @@ __all__ = [
     "CustodianPageError",
     "DiffReview",
     "DiffReviewError",
+    "Edited",
     "ExpectedFile",
+    "FieldChange",
     "FieldEntry",
     "Identity",
     "PromotionRequest",
     "QueueItem",
     "QueueItemKind",
     "QueueSources",
+    "ReviewItem",
     "Role",
     "RoleMapping",
     "RuleEntry",
@@ -163,6 +190,7 @@ __all__ = [
     "SpecViewerError",
     "Station",
     "Transition",
+    "accept_agent_review",
     "add_custodian",
     "advance",
     "approvals_from",
@@ -176,6 +204,8 @@ __all__ = [
     "compare_specs",
     "counts_by_kind",
     "drift_from",
+    "edit_citation",
+    "edit_text",
     "exceptions_from",
     "field_list",
     "filter_rules",
@@ -186,12 +216,16 @@ __all__ = [
     "load_arrivals",
     "load_board",
     "load_catalog",
+    "load_draft_rule",
     "load_promotion_requests",
     "load_registry",
     "load_role_mapping",
     "load_spec",
     "move",
+    "reject_agent_review",
     "rejection_codes",
+    "render_agent_review_diff_markdown",
+    "render_agent_review_markdown",
     "render_bulk_result",
     "render_custodian_page_markdown",
     "render_diff_markdown",
@@ -205,6 +239,7 @@ __all__ = [
     "require",
     "review",
     "rule_entry",
+    "rule_recovery_item",
     "save_board",
     "set_wip_limit",
     "spec_citation_link",

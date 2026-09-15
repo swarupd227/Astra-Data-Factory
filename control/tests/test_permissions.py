@@ -110,13 +110,29 @@ def test_pm_owns_the_wip_limit_the_delivery_leads_own_story_built():
     assert not authorized(Role.ENGINEER, Action.BOARD_SET_WIP_LIMIT)
 
 
-def test_steward_owns_rule_review_and_nothing_else():
-    """S6.1.3's own actor built only a read action; S6.3.5 gives steward its first writes, and
-    only the two this story built (module docstring: the product spec's own "confirms recovered
-    rules" for the data steward / rule owner)."""
-    assert PERMISSIONS[Role.STEWARD] & set(WRITE_ACTIONS) == {Action.RULE_REVIEW_SET_STATUS, Action.RULE_REVIEW_BULK_CONFIRM}
+def test_steward_owns_rule_review_and_agent_review():
+    """S6.1.3's own actor built only a read action; S6.3.5 gave steward its first writes
+    (rule-review), and S6.3.6 gives it agent-review's accept/reject too -- the story's own actor
+    is "steward or BSA" jointly."""
+    assert PERMISSIONS[Role.STEWARD] & set(WRITE_ACTIONS) == {
+        Action.RULE_REVIEW_SET_STATUS,
+        Action.RULE_REVIEW_BULK_CONFIRM,
+        Action.AGENT_REVIEW_ACCEPT,
+        Action.AGENT_REVIEW_REJECT,
+    }
     assert not authorized(Role.STEWARD, Action.BOARD_ADD)
-    assert not authorized(Role.BSA, Action.RULE_REVIEW_SET_STATUS)
+
+
+def test_agent_review_accept_reject_are_granted_to_steward_and_bsa_only():
+    """The one action set in this file granted to two roles at once (module docstring) --
+    grounded in the story's own "steward or BSA" actor, not any other role."""
+    for action in (Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT):
+        assert authorized(Role.STEWARD, action)
+        assert authorized(Role.BSA, action)
+        assert not authorized(Role.ENGINEER, action)
+        assert not authorized(Role.OPS, action)
+        assert not authorized(Role.PM, action)
+        assert not authorized(Role.AUDITOR, action)
 
 
 # ---------------------------------------------------------------- identity: claims -> role

@@ -11,12 +11,14 @@ from astra_verification.cli import main
 from astra_verification.agent_eval import (
     AgentEvalError,
     AgentEvalResult,
+    Case,
     CaseScore,
     GoldSet,
     Predictions,
     Threshold,
     TierScore,
     WeeklyReport,
+    append_case,
     check,
     discover,
     load_gold_set,
@@ -85,6 +87,78 @@ def test_an_unknown_tier_is_refused(tmp_path):
     path.write_text(EVAL_TEXT.replace("tier: simple", "tier: extreme"), encoding="utf-8")
     g, problems = load_gold_set(path, tmp_path)
     assert g is None and problems
+
+
+# ---------------------------------------------------------------- append_case (S6.3.6)
+
+
+def _copy_eval(tmp_path) -> Path:
+    path = tmp_path / "eval.yaml"
+    path.write_text(EVAL_TEXT, encoding="utf-8")
+    return path
+
+
+def test_append_case_adds_a_new_case_that_loads_back_clean(tmp_path):
+    path = _copy_eval(tmp_path)
+    case = Case(id="pershing_gcus_trailer", tier="simple", input="specs/pershing_gcus/2017-07-25.yaml#page=20", expected=frozenset({"field:record_count"}))
+
+    gold = append_case(path, case, root=tmp_path)
+
+    assert gold.case("pershing_gcus_trailer") == case
+    reloaded, problems = load_gold_set(path, tmp_path)
+    assert problems == []
+    assert reloaded.case("pershing_gcus_trailer") == case
+    # every case already in the file survives the append untouched
+    assert reloaded.case("pershing_gcus_header") is not None
+    assert reloaded.case("pershing_gcus_detail") is not None
+
+
+def test_append_case_preserves_the_file_s_own_leading_comment(tmp_path):
+    """append_case appends textually rather than reloading-and-re-rendering the whole document,
+    specifically so a hand-written header comment (every real committed gold set has one) is
+    never silently dropped."""
+    path = _copy_eval(tmp_path)
+    assert EVAL_TEXT.startswith("#")  # the real fixture has a leading comment, or this test is moot
+    append_case(path, Case(id="new_case", tier="simple", input="x", expected=frozenset()), root=tmp_path)
+    assert path.read_text(encoding="utf-8").startswith(EVAL_TEXT.splitlines()[0])
+
+
+def test_append_case_with_empty_expected_means_produces_nothing(tmp_path):
+    path = _copy_eval(tmp_path)
+    append_case(path, Case(id="nothing_here", tier="simple", input="some/path.yaml", expected=frozenset()), root=tmp_path)
+    reloaded, problems = load_gold_set(path, tmp_path)
+    assert problems == []
+    assert reloaded.case("nothing_here").expected == frozenset()
+
+
+def test_append_case_refuses_a_duplicate_id(tmp_path):
+    path = _copy_eval(tmp_path)
+    with pytest.raises(AgentEvalError, match="already exists"):
+        append_case(path, Case(id="pershing_gcus_header", tier="simple", input="x", expected=frozenset()), root=tmp_path)
+    # refused outright: nothing written
+    assert path.read_text(encoding="utf-8") == EVAL_TEXT
+
+
+def test_append_case_refuses_an_unthresholded_tier(tmp_path):
+    path = _copy_eval(tmp_path)
+    with pytest.raises(AgentEvalError, match="no threshold"):
+        append_case(path, Case(id="new_case", tier="complex", input="x", expected=frozenset()), root=tmp_path)
+    assert path.read_text(encoding="utf-8") == EVAL_TEXT
+
+
+def test_append_case_missing_file_is_a_clear_error(tmp_path):
+    with pytest.raises(AgentEvalError, match="no such file"):
+        append_case(tmp_path / "missing.yaml", Case(id="x", tier="simple", input="x", expected=frozenset()), root=tmp_path)
+
+
+def test_append_case_quotes_expected_items_needing_a_colon(tmp_path):
+    """A canonical item like 'rule:<id>' contains a colon -- must be quoted to round-trip as one
+    scalar, not (rule, id) as two."""
+    path = _copy_eval(tmp_path)
+    append_case(path, Case(id="rule_case", tier="simple", input="x", expected=frozenset({"rule:pershing_gcus.quantity_sign"})), root=tmp_path)
+    reloaded, problems = load_gold_set(path, tmp_path)
+    assert problems == []
+    assert reloaded.case("rule_case").expected == frozenset({"rule:pershing_gcus.quantity_sign"})
 
 
 # ---------------------------------------------------------------- discover / check
