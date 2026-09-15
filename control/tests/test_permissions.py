@@ -159,6 +159,19 @@ def test_run_status_adds_only_read_actions():
             assert authorized(role, action)
 
 
+def test_git_provenance_commit_is_granted_to_engineer_only():
+    """S6.2.2's own actor is "a data engineer" -- Role.ENGINEER."""
+    assert authorized(Role.ENGINEER, Action.GIT_PROVENANCE_COMMIT)
+    for role in (Role.STEWARD, Role.BSA, Role.OPS, Role.PM, Role.AUDITOR):
+        assert not authorized(role, Action.GIT_PROVENANCE_COMMIT)
+
+
+def test_git_provenance_verify_is_available_to_every_role():
+    assert Action.GIT_PROVENANCE_VERIFY in READ_ACTIONS
+    for role in Role:
+        assert authorized(role, Action.GIT_PROVENANCE_VERIFY)
+
+
 def test_approvals_approve_and_reject_are_granted_to_steward_only():
     for action in (Action.APPROVALS_APPROVE, Action.APPROVALS_REJECT):
         assert authorized(Role.STEWARD, action)

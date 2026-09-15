@@ -8,7 +8,7 @@ parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashb
 `astra-control audit-log show|export`, `astra-control autonomy-admin show-levels|set-level|
 show-whitelist|request-whitelist-change|show-whitelist-requests` and `astra-control
 notification-preferences show|set|show-thresholds|set-threshold|reaches` and `astra-control
-approvals approve|reject|show`.
+approvals approve|reject|show` and `astra-control git-provenance commit|verify`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -96,6 +96,13 @@ plane's own shared state (`astra_control.notification_preferences`'s own module 
 success, 2 when the change is refused (a blank field, a rejection with no comment, an
 `--evidence-path` or `--draft-dir` that does not exist) or the role check fails — refused
 outright, nothing written (`astra_control.approvals`'s own module docstring).
+`git-provenance verify` is 0 when every given artifact is tracked by git, 1 when at least one is
+not (a real condition to look at, the same shape `board show` already uses for a stream over its
+limit), 2 for a bad `--repo` or the role check. `git-provenance commit` is 0 on a real new commit,
+2 when no approval matches `--subject`, an artifact is missing or outside the repo, the repo
+already has something else staged, or the role check fails — refused outright, no commit made
+(`astra_control.git_provenance`'s own module docstring: this is the first command in this whole
+CLI that actually mutates git history).
 """
 
 from __future__ import annotations
@@ -143,6 +150,8 @@ from astra_control.notification_preferences import CHANNELS, SEVERITIES, Notific
 from astra_control.notification_preferences import render_thresholds_markdown, render_user_markdown
 from astra_control.approvals import ApprovalError, approve, load_approvals, load_rejections, reject
 from astra_control.approvals import render_approvals_markdown, render_rejections_markdown
+from astra_control.git_provenance import GitProvenanceError, commit_approval, verify_committed
+from astra_control.git_provenance import render_commit_markdown, render_verify_markdown
 from astra_control.audit_log import render_markdown as render_audit_log_markdown
 
 
@@ -986,6 +995,47 @@ def cmd_approvals_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_git_provenance_commit(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.GIT_PROVENANCE_COMMIT)) is not None:
+        return code
+    approvals = load_approvals(Path(args.approvals))
+    approval = next((a for a in approvals if a.subject == args.subject), None)
+    if approval is None:
+        print(f"error: no approval for subject '{args.subject}' in {args.approvals}", file=sys.stderr)
+        return 2
+    try:
+        commit = commit_approval(
+            Path(args.repo),
+            approval,
+            tuple(Path(p) for p in args.artifact),
+            provenance_path=Path(args.provenance_path),
+            message=args.message,
+        )
+    except GitProvenanceError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(commit.to_dict(), indent=2))
+    else:
+        print(render_commit_markdown(commit))
+    return 0
+
+
+def cmd_git_provenance_verify(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.GIT_PROVENANCE_VERIFY)) is not None:
+        return code
+    try:
+        untracked = verify_committed(Path(args.repo), tuple(Path(p) for p in args.artifact))
+    except GitProvenanceError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps([str(p) for p in untracked], indent=2))
+    else:
+        print(render_verify_markdown(untracked))
+    return 1 if untracked else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1462,6 +1512,27 @@ def build_parser() -> argparse.ArgumentParser:
     aps.add_argument("--role", help="when given, checked against approvals.show (every role may read)")
     aps.add_argument("--json", action="store_true")
     aps.set_defaults(func=cmd_approvals_show)
+
+    gp = sub.add_parser("git-provenance", help="every approved change committed with a real PROVENANCE.json, so no artifact exists only in the factory's own local store")
+    gpsub = gp.add_subparsers(dest="git_provenance_command", required=True)
+
+    gpc = gpsub.add_parser("commit", help="one real commit for one already-recorded approval, staging exactly the given artifacts plus a real PROVENANCE.json -- never anything else in the working tree")
+    gpc.add_argument("--repo", required=True, help="the git repository to commit into")
+    gpc.add_argument("--approvals", required=True, help="the approvals log (astra-control approvals approve's own --log) to find --subject in")
+    gpc.add_argument("--subject", required=True, help="the already-approved subject to commit")
+    gpc.add_argument("--artifact", action="append", required=True, help="a real file inside --repo that is part of this change (repeatable)")
+    gpc.add_argument("--provenance-path", required=True, help="where to write PROVENANCE.json, inside --repo")
+    gpc.add_argument("--message", help="the commit message (default: composed from the approval's own subject and approver)")
+    gpc.add_argument("--role", help="when given, checked against git-provenance.commit before proceeding")
+    gpc.add_argument("--json", action="store_true")
+    gpc.set_defaults(func=cmd_git_provenance_commit)
+
+    gpv = gpsub.add_parser("verify", help="which of the given artifacts git does not actually track -- the concrete check behind \"no artifact exists only in the factory database\"")
+    gpv.add_argument("--repo", required=True)
+    gpv.add_argument("--artifact", action="append", required=True, help="a path to check (repeatable)")
+    gpv.add_argument("--role", help="when given, checked against git-provenance.verify (every role may read)")
+    gpv.add_argument("--json", action="store_true")
+    gpv.set_defaults(func=cmd_git_provenance_verify)
 
     return parser
 

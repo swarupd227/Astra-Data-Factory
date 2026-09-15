@@ -71,8 +71,14 @@ honestly-`None` agent version (nothing in this codebase tracks one, despite the 
 claim that every approval does), and the proposing agent's own real autonomy level via `astra_
 control.autonomy_admin.current_level`, called directly; a rejection is refused outright without a
 comment, and "returns the item to the agent" as a real `rejection.yaml` written into the draft's
-own real directory, not a live agent re-run — no agent CLI in this codebase reads one back yet.
-No live Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins
+own real directory, not a live agent re-run — no agent CLI in this codebase reads one back yet;
+and git as system of record (S6.2.2) — the first module in this whole codebase that actually
+mutates git history, because it runs only after an approval already exists: a real
+`PROVENANCE.json` (unifying the two shapes `astra_data.render`/`astra_data.migration` already
+hand-roll), staged with exactly the given artifacts and nothing else in the working tree, one real
+commit per approval; `verify_committed` names exactly which artifacts git does not actually track,
+the concrete meaning behind "no artifact exists only in the factory database." No live Postgres
+yet: `board.yaml` and the promotion-requests log are real, working stand-ins
 for the store E6 will eventually have (astra_control.board's own module docstring).
 """
 
@@ -288,6 +294,16 @@ from astra_control.approvals import (
     reject,
 )
 from astra_control.approvals import render_approvals_markdown, render_rejections_markdown
+from astra_control.git_provenance import (
+    Commit,
+    GitProvenanceError,
+    ProvenanceRecord,
+    build_provenance,
+    commit_approval,
+    verify_committed,
+    write_provenance,
+)
+from astra_control.git_provenance import render_commit_markdown, render_verify_markdown
 
 __all__ = [
     "CHANNELS",
@@ -325,6 +341,7 @@ __all__ = [
     "BulkResult",
     "CapturedDay",
     "ChangeRequest",
+    "Commit",
     "ConfigStudioError",
     "CustodianCard",
     "CustodianPage",
@@ -343,6 +360,7 @@ __all__ = [
     "FieldEntry",
     "FileStage",
     "Gap",
+    "GitProvenanceError",
     "GoldenCalendar",
     "GoldenViewerError",
     "Identity",
@@ -351,6 +369,7 @@ __all__ = [
     "NotificationSettings",
     "ParityViewerError",
     "PromotionRequest",
+    "ProvenanceRecord",
     "QueueItem",
     "QueueItemKind",
     "QueueSources",
@@ -385,11 +404,13 @@ __all__ = [
     "build_custodian_page",
     "build_dashboard",
     "build_golden_calendar",
+    "build_provenance",
     "build_queue",
     "build_run_status",
     "bulk_confirm",
     "change_status",
     "citation_link",
+    "commit_approval",
     "compare_specs",
     "counts_by_kind",
     "current_change",
@@ -440,6 +461,7 @@ __all__ = [
     "render_break_groups_markdown",
     "render_bulk_result",
     "render_change_requests_markdown",
+    "render_commit_markdown",
     "render_custodian_page_markdown",
     "render_dashboard_markdown",
     "render_diff_markdown",
@@ -459,6 +481,7 @@ __all__ = [
     "render_thresholds_markdown",
     "render_trend_markdown",
     "render_user_markdown",
+    "render_verify_markdown",
     "render_whitelist_markdown",
     "render_whitelist_requests_markdown",
     "request_promotion",
@@ -478,7 +501,9 @@ __all__ = [
     "spec_citation_link",
     "start",
     "to_csv",
+    "verify_committed",
     "whitelisted_codes",
     "write_csv",
+    "write_provenance",
     "write_review",
 ]
