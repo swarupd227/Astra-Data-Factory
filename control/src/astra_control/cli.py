@@ -8,7 +8,7 @@ parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashb
 `astra-control audit-log show|export`, `astra-control autonomy-admin show-levels|set-level|
 show-whitelist|request-whitelist-change|show-whitelist-requests` and `astra-control
 notification-preferences show|set|show-thresholds|set-threshold|reaches` and `astra-control
-approvals approve|reject|show` and `astra-control git-provenance commit|verify`.
+approvals approve|reject|show` and `astra-control git-provenance commit|verify` and `astra-control throughput-metrics show|export`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -103,6 +103,9 @@ limit), 2 for a bad `--repo` or the role check. `git-provenance commit` is 0 on 
 already has something else staged, or the role check fails — refused outright, no commit made
 (`astra_control.git_provenance`'s own module docstring: this is the first command in this whole
 CLI that actually mutates git history).
+`throughput-metrics show|export` are always 0 unless a `--cost` triple is malformed, a given
+`--agent-eval-weekly` file cannot be read, or the role check fails (2) — both are reads; nothing
+here mutates anything.
 """
 
 from __future__ import annotations
@@ -113,7 +116,7 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from astra_control.board import STATIONS, BoardError, add_custodian, load_board, move, render_markdown, save_board, set_wip_limit
+from astra_control.board import STATIONS, Board, BoardError, add_custodian, load_board, move, render_markdown, save_board, set_wip_limit
 from astra_control.config_studio import SEQUENCE, TIERS, ConfigStudioError, advance, load_promotion_requests, request_promotion, start
 from astra_control.diff_review import DiffReviewError
 from astra_control.diff_review import render_markdown as render_diff_markdown
@@ -143,7 +146,7 @@ from astra_control.drift_review import DriftReviewError, approve as approve_drif
 from astra_control.drift_review import render_change_requests_markdown, render_markdown as render_drift_markdown
 from astra_control.golden_viewer import GoldenViewerError, build as build_golden_calendar
 from astra_control.golden_viewer import render_markdown as render_golden_calendar_markdown
-from astra_control.audit_log import AuditLogError, AuditSources, build_audit_log, filter_records, write_csv
+from astra_control.audit_log import AuditLogError, AuditSources, build_audit_log, filter_records, rule_status_changes_from, write_csv
 from astra_control.autonomy_admin import LEVELS, AutonomyAdminError, Evidence, load_changes, load_whitelist, load_whitelist_requests, request_whitelist_change, set_level, whitelisted_codes
 from astra_control.autonomy_admin import render_levels_markdown, render_whitelist_markdown, render_whitelist_requests_markdown
 from astra_control.notification_preferences import CHANNELS, SEVERITIES, NotificationPreferencesError, load_settings, reaches, save_settings, set_custodian_threshold, set_user_preferences
@@ -152,6 +155,7 @@ from astra_control.approvals import ApprovalError, approve, load_approvals, load
 from astra_control.approvals import render_approvals_markdown, render_rejections_markdown
 from astra_control.git_provenance import GitProvenanceError, commit_approval, verify_committed
 from astra_control.git_provenance import render_commit_markdown, render_verify_markdown
+from astra_control.throughput_metrics import build_report, render_markdown as render_throughput_markdown, write_report
 from astra_control.audit_log import render_markdown as render_audit_log_markdown
 
 
@@ -1036,6 +1040,53 @@ def cmd_git_provenance_verify(args: argparse.Namespace) -> int:
     return 1 if untracked else 0
 
 
+def _parse_cost_triples(triples: list[str]) -> dict[tuple[str, str], float]:
+    costs: dict[tuple[str, str], float] = {}
+    for triple in triples:
+        parts = triple.split(":")
+        if len(parts) != 3:
+            raise ValueError(f"'{triple}' is not a custodian:business_date:amount triple")
+        custodian, business_date, amount = parts
+        costs[(custodian.strip(), business_date.strip())] = float(amount)
+    return costs
+
+
+def _build_throughput_report(args: argparse.Namespace):
+    board = load_board(Path(args.board)) if args.board else Board()
+    records = rule_status_changes_from(Path(args.rules), Path(args.root) if args.root else None) if args.rules else ()
+    costs = _parse_cost_triples(args.cost)
+    agent_eval_weekly = json.loads(Path(args.agent_eval_weekly).read_text(encoding="utf-8")) if args.agent_eval_weekly else None
+    return build_report(board, records, costs=costs, agent_eval_weekly=agent_eval_weekly)
+
+
+def cmd_throughput_metrics_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.THROUGHPUT_METRICS_SHOW)) is not None:
+        return code
+    try:
+        report = _build_throughput_report(args)
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(render_throughput_markdown(report))
+    return 0
+
+
+def cmd_throughput_metrics_export(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.THROUGHPUT_METRICS_EXPORT)) is not None:
+        return code
+    try:
+        report = _build_throughput_report(args)
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    markdown, data = write_report(report, Path(args.out))
+    print(f"exported: {markdown}, {data}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1533,6 +1584,28 @@ def build_parser() -> argparse.ArgumentParser:
     gpv.add_argument("--role", help="when given, checked against git-provenance.verify (every role may read)")
     gpv.add_argument("--json", action="store_true")
     gpv.set_defaults(func=cmd_git_provenance_verify)
+
+    tm = sub.add_parser("throughput-metrics", help="custodians live per week, agent acceptance and cost per custodian per day, assembled into one weekly report")
+    tmsub = tm.add_subparsers(dest="throughput_metrics_command", required=True)
+
+    def _add_throughput_args(p):
+        p.add_argument("--board", help="path to a board.yaml, for custodians live per week (default: none, so none are live)")
+        p.add_argument("--rules", help="the rule catalog directory, for agent acceptance by custodian and day (default: none, so no acceptance data)")
+        p.add_argument("--root", help="repo root, for display paths in rule loading")
+        p.add_argument("--cost", action="append", default=[], help="a custodian:business_date:amount triple (repeatable) -- no query-tag mechanism exists anywhere in this repository, so cost is caller-supplied only")
+        p.add_argument("--agent-eval-weekly", help="path to an astra_verification.agent_eval WeeklyReport.to_dict() JSON file, shown in its own separate section (a different metric than agent acceptance)")
+
+    tms = tmsub.add_parser("show", help="the weekly report")
+    _add_throughput_args(tms)
+    tms.add_argument("--role", help="when given, checked against throughput-metrics.show (every role may read)")
+    tms.add_argument("--json", action="store_true")
+    tms.set_defaults(func=cmd_throughput_metrics_show)
+
+    tme = tmsub.add_parser("export", help="the weekly report, written to weekly.md and weekly.json for the client's own reporting cadence")
+    _add_throughput_args(tme)
+    tme.add_argument("--out", required=True, help="directory to write weekly.md/weekly.json into")
+    tme.add_argument("--role", help="when given, checked against throughput-metrics.export before proceeding")
+    tme.set_defaults(func=cmd_throughput_metrics_export)
 
     return parser
 

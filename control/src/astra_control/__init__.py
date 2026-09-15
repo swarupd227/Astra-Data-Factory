@@ -77,7 +77,17 @@ mutates git history, because it runs only after an approval already exists: a re
 `PROVENANCE.json` (unifying the two shapes `astra_data.render`/`astra_data.migration` already
 hand-roll), staged with exactly the given artifacts and nothing else in the working tree, one real
 commit per approval; `verify_committed` names exactly which artifacts git does not actually track,
-the concrete meaning behind "no artifact exists only in the factory database." No live Postgres
+the concrete meaning behind "no artifact exists only in the factory database." And throughput and
+cost metrics (S6.2.3) — custodians live per week straight from `astra_control.board.live_per_week`,
+unchanged; agent acceptance per custodian per day, a real event ratio (confirmed vs. rejected or
+legacy_defect review outcomes from `astra_control.audit_log.rule_status_changes_from`'s own
+`rule_status_change` records, "recovered" excluded since it is not a review decision) deliberately
+distinct from `astra_verification.agent_eval`'s own gold-set precision/recall, the two named
+separately in one report rather than conflated the way the product spec's own API sketch reads;
+cost per custodian per day shown only when a caller supplies it, since no query-tag mechanism
+exists anywhere in this repository to compute one — assembled into one weekly Markdown and JSON
+report for the client's own reporting cadence, the same `weekly.md`/`weekly.json` convention
+`astra_verification.agent_eval.write_weekly_report` already established. No live Postgres
 yet: `board.yaml` and the promotion-requests log are real, working stand-ins
 for the store E6 will eventually have (astra_control.board's own module docstring).
 """
@@ -304,9 +314,23 @@ from astra_control.git_provenance import (
     write_provenance,
 )
 from astra_control.git_provenance import render_commit_markdown, render_verify_markdown
+from astra_control.throughput_metrics import (
+    ACCEPTED_STATUS,
+    COUNTED_STATUSES,
+    REJECTED_STATUSES,
+    CustodianDayAcceptance,
+    CustodianDayCost,
+    ThroughputReport,
+    acceptance_by_custodian_day,
+    build_report as build_throughput_report,
+    write_report as write_throughput_report,
+)
+from astra_control.throughput_metrics import render_markdown as render_throughput_markdown
 
 __all__ = [
+    "ACCEPTED_STATUS",
     "CHANNELS",
+    "COUNTED_STATUSES",
     "CSV_COLUMNS",
     "DEFAULT_LEVEL",
     "KIND_ROLES",
@@ -315,6 +339,7 @@ __all__ = [
     "LEVELS",
     "PERMISSIONS",
     "READ_ACTIONS",
+    "REJECTED_STATUSES",
     "REJECTION_TAG_PREFIX",
     "REVIEW_STATUSES",
     "RULE_RECOVERY_AGENT",
@@ -344,6 +369,8 @@ __all__ = [
     "Commit",
     "ConfigStudioError",
     "CustodianCard",
+    "CustodianDayAcceptance",
+    "CustodianDayCost",
     "CustodianPage",
     "CustodianPageError",
     "CustodianRunStatus",
@@ -386,11 +413,13 @@ __all__ = [
     "SpecFieldDiff",
     "SpecViewerError",
     "Station",
+    "ThroughputReport",
     "Transition",
     "Trend",
     "TrendPoint",
     "WhitelistRequest",
     "accept_agent_review",
+    "acceptance_by_custodian_day",
     "add_custodian",
     "advance",
     "apply_drift_findings",
@@ -407,6 +436,7 @@ __all__ = [
     "build_provenance",
     "build_queue",
     "build_run_status",
+    "build_throughput_report",
     "bulk_confirm",
     "change_status",
     "citation_link",
@@ -479,6 +509,7 @@ __all__ = [
     "render_spec_compare",
     "render_status_markdown",
     "render_thresholds_markdown",
+    "render_throughput_markdown",
     "render_trend_markdown",
     "render_user_markdown",
     "render_verify_markdown",
@@ -506,4 +537,5 @@ __all__ = [
     "write_csv",
     "write_provenance",
     "write_review",
+    "write_throughput_report",
 ]
