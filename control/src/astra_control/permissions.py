@@ -42,7 +42,19 @@ adds one more read and no write — its own "QE engineer" actor is the same gap 
 and S6.3.8, moot for the same reason. `audit-log.show`/`audit-log.export` (S6.3.11) add two more
 reads and no write — its own "auditor or security reviewer" actor is squarely what `auditor`
 already is (S6.3.1's own "reads everything, writes nothing"); "security reviewer" is the same
-kind of role-name gap as before, moot for the same reason.
+kind of role-name gap as before, moot for the same reason. `autonomy-admin.set-level` and
+`autonomy-admin.request-whitelist-change` (S6.3.12) are the first genuine case where a
+non-role-name actor forces a real grant decision, not a moot one — every prior "QE engineer"/
+"SRE"/"security reviewer" gap added only reads, available to everyone regardless. S6.3.12's own
+actor is "architect," and the product spec names no `Role` by that name either — but unlike the
+prior gaps, its own persona table (Section 3) directly attributes *this exact responsibility* to
+a different named persona: the "Artizent delivery lead... Runs the factory board, pace dial, and
+agent autonomy levels" — `Role.PM` (S6.1.1's own actor for the board, config studio's own
+`board.set-wip-limit`). `docs/ux/personas.md`'s own PM task flow says as much directly: "Record
+and review autonomy-level changes per (agent, task class)... `guardrails set-level` a promotion
+once its evidence clears the bar." Both new writes are granted to PM alone, not guessed onto
+`engineer` or split across roles the way S6.3.6's and S6.3.9's writes were, because the spec's own
+text names one persona for this responsibility, not several.
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -118,6 +130,11 @@ class Action(Enum):
     GOLDEN_VIEWER_SHOW = "golden-viewer.show"
     AUDIT_LOG_SHOW = "audit-log.show"
     AUDIT_LOG_EXPORT = "audit-log.export"
+    AUTONOMY_ADMIN_SHOW_LEVELS = "autonomy-admin.show-levels"
+    AUTONOMY_ADMIN_SET_LEVEL = "autonomy-admin.set-level"
+    AUTONOMY_ADMIN_SHOW_WHITELIST = "autonomy-admin.show-whitelist"
+    AUTONOMY_ADMIN_REQUEST_WHITELIST_CHANGE = "autonomy-admin.request-whitelist-change"
+    AUTONOMY_ADMIN_SHOW_WHITELIST_REQUESTS = "autonomy-admin.show-whitelist-requests"
 
 
 READ_ACTIONS = (
@@ -141,6 +158,9 @@ READ_ACTIONS = (
     Action.GOLDEN_VIEWER_SHOW,
     Action.AUDIT_LOG_SHOW,
     Action.AUDIT_LOG_EXPORT,
+    Action.AUTONOMY_ADMIN_SHOW_LEVELS,
+    Action.AUTONOMY_ADMIN_SHOW_WHITELIST,
+    Action.AUTONOMY_ADMIN_SHOW_WHITELIST_REQUESTS,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 
@@ -151,7 +171,7 @@ _WRITE_PERMISSIONS: dict[Role, frozenset[Action]] = {
     Role.BSA: frozenset({Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT}),
     Role.ENGINEER: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.DRIFT_REVIEW_APPROVE}),
     Role.OPS: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION}),
-    Role.PM: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.BOARD_SET_WIP_LIMIT}),
+    Role.PM: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.BOARD_SET_WIP_LIMIT, Action.AUTONOMY_ADMIN_SET_LEVEL, Action.AUTONOMY_ADMIN_REQUEST_WHITELIST_CHANGE}),
     Role.AUDITOR: frozenset(),
 }
 

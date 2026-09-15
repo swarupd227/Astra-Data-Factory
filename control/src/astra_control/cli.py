@@ -5,7 +5,8 @@ permissions show|resolve`, `astra-control queue show`, `astra-control custodian-
 bulk-confirm`, `astra-control agent-review show|edit|accept|reject`, `astra-control
 parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashboard`,
 `astra-control drift-review show|approve|show-requests`, `astra-control golden-viewer show` and
-`astra-control audit-log show|export`.
+`astra-control audit-log show|export` and `astra-control autonomy-admin show-levels|set-level|
+show-whitelist|request-whitelist-change|show-whitelist-requests`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -74,6 +75,14 @@ its limit), 2 for a bad capture file, an inverted `--from`/`--to`, or the role c
 defensively — a missing or unreadable one contributes nothing, never an error (`astra_control.
 audit_log`'s own module docstring). `audit-log export` is the same, plus 2 when the given `--out`
 path cannot be written.
+`autonomy-admin show-levels|show-whitelist|show-whitelist-requests` are always 0 unless the role
+check fails, or (`show-whitelist`) the given `--rejections` file does not exist (2). `autonomy-
+admin set-level` is 0 on success, 2 when the change is refused (a blank field, an unknown level, a
+change to L3 without evidence clearing the threshold) or the role check fails — refused outright,
+nothing written, the same shape `astra_agents.guardrails.record_change` itself uses (`astra_
+control.autonomy_admin`'s own module docstring). `autonomy-admin request-whitelist-change` is the
+same, plus 2 when `--rejections` is given and the code is not real or the request is a no-op; it
+never writes to `--rejections` itself, only the given `--requests` log.
 """
 
 from __future__ import annotations
@@ -115,6 +124,8 @@ from astra_control.drift_review import render_change_requests_markdown, render_m
 from astra_control.golden_viewer import GoldenViewerError, build as build_golden_calendar
 from astra_control.golden_viewer import render_markdown as render_golden_calendar_markdown
 from astra_control.audit_log import AuditLogError, AuditSources, build_audit_log, filter_records, write_csv
+from astra_control.autonomy_admin import LEVELS, AutonomyAdminError, Evidence, load_changes, load_whitelist, load_whitelist_requests, request_whitelist_change, set_level, whitelisted_codes
+from astra_control.autonomy_admin import render_levels_markdown, render_whitelist_markdown, render_whitelist_requests_markdown
 from astra_control.audit_log import render_markdown as render_audit_log_markdown
 
 
@@ -741,6 +752,80 @@ def cmd_audit_log_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_autonomy_admin_show_levels(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AUTONOMY_ADMIN_SHOW_LEVELS)) is not None:
+        return code
+    changes = load_changes(Path(args.changes) if args.changes else None)
+    if args.json:
+        print(json.dumps([c.to_dict() for c in changes], indent=2))
+    else:
+        print(render_levels_markdown(changes))
+    return 0
+
+
+def cmd_autonomy_admin_set_level(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AUTONOMY_ADMIN_SET_LEVEL)) is not None:
+        return code
+    evidence = None
+    if args.acceptance_rate is not None or args.sample_size is not None or args.window is not None:
+        if args.acceptance_rate is None or args.sample_size is None or args.window is None:
+            print("error: --acceptance-rate, --sample-size and --window must be given together", file=sys.stderr)
+            return 2
+        evidence = Evidence(args.acceptance_rate, args.sample_size, args.window)
+    try:
+        set_level(Path(args.changes), agent=args.agent, task_class=args.task_class, level=args.level, approver=args.approver, reason=args.reason, evidence=evidence)
+    except AutonomyAdminError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"set: {args.agent}.{args.task_class} -> {args.level}, by {args.approver}")
+    return 0
+
+
+def cmd_autonomy_admin_show_whitelist(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AUTONOMY_ADMIN_SHOW_WHITELIST)) is not None:
+        return code
+    try:
+        taxonomy = load_whitelist(Path(args.rejections), Path(args.root) if args.root else None)
+    except AutonomyAdminError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(list(whitelisted_codes(taxonomy)), indent=2))
+    else:
+        print(render_whitelist_markdown(taxonomy))
+    return 0
+
+
+def cmd_autonomy_admin_request_whitelist_change(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AUTONOMY_ADMIN_REQUEST_WHITELIST_CHANGE)) is not None:
+        return code
+    taxonomy = None
+    if args.rejections:
+        try:
+            taxonomy = load_whitelist(Path(args.rejections), Path(args.root) if args.root else None)
+        except AutonomyAdminError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    try:
+        request_whitelist_change(Path(args.requests), code=args.code, auto_resolve=not args.remove, requested_by=args.requested_by, reason=args.reason, taxonomy=taxonomy)
+    except AutonomyAdminError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"requested: {'whitelist' if not args.remove else 'un-whitelist'} {args.code}, by {args.requested_by}")
+    return 0
+
+
+def cmd_autonomy_admin_show_whitelist_requests(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.AUTONOMY_ADMIN_SHOW_WHITELIST_REQUESTS)) is not None:
+        return code
+    requests = load_whitelist_requests(Path(args.requests) if args.requests else None)
+    if args.json:
+        print(json.dumps([r.to_dict() for r in requests], indent=2))
+    else:
+        print(render_whitelist_requests_markdown(requests))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1097,6 +1182,52 @@ def build_parser() -> argparse.ArgumentParser:
     ale.add_argument("--out", required=True, help="path to write the CSV to")
     ale.add_argument("--role", help="when given, checked against audit-log.export before proceeding")
     ale.set_defaults(func=cmd_audit_log_export)
+
+    aa = sub.add_parser("autonomy-admin", help="set L0-L3 per agent and task class, and manage the self-healing whitelist -- autonomy as a controlled setting")
+    aasub = aa.add_subparsers(dest="autonomy_admin_command", required=True)
+
+    aal = aasub.add_parser("show-levels", help="every (agent, task class)'s own current autonomy level, from its own change history")
+    aal.add_argument("--changes", help="path to the guardrails changes log (default: none recorded, every level is L0)")
+    aal.add_argument("--role", help="when given, checked against autonomy-admin.show-levels (every role may read)")
+    aal.add_argument("--json", action="store_true")
+    aal.set_defaults(func=cmd_autonomy_admin_show_levels)
+
+    aas = aasub.add_parser("set-level", help=f"set one (agent, task class)'s own autonomy level; levels are {', '.join(LEVELS)}. A change to L3 needs --acceptance-rate/--sample-size/--window together, all clearing the threshold")
+    aas.add_argument("--changes", required=True, help="path to the guardrails changes log (created on first write)")
+    aas.add_argument("--agent", required=True)
+    aas.add_argument("--task-class", required=True)
+    aas.add_argument("--level", required=True, help=f"levels are {', '.join(LEVELS)}")
+    aas.add_argument("--approver", required=True)
+    aas.add_argument("--reason", required=True)
+    aas.add_argument("--acceptance-rate", type=float, help="required for L3, together with --sample-size and --window")
+    aas.add_argument("--sample-size", type=int)
+    aas.add_argument("--window", help="what period or sample the evidence measures, for example 'trailing 90 days'")
+    aas.add_argument("--role", help="when given, checked against autonomy-admin.set-level before proceeding")
+    aas.set_defaults(func=cmd_autonomy_admin_set_level)
+
+    aaw = aasub.add_parser("show-whitelist", help="every self-healing whitelisted code (auto_resolve: true) in a domain pack's own real rejection taxonomy")
+    aaw.add_argument("--rejections", required=True, help="the domain pack's rejections.yaml")
+    aaw.add_argument("--root", help="repo root, for display paths")
+    aaw.add_argument("--role", help="when given, checked against autonomy-admin.show-whitelist (every role may read)")
+    aaw.add_argument("--json", action="store_true")
+    aaw.set_defaults(func=cmd_autonomy_admin_show_whitelist)
+
+    aar = aasub.add_parser("request-whitelist-change", help="log a request to whitelist (or un-whitelist) a code -- never writes to the real rejections.yaml itself; a steward applies it by hand")
+    aar.add_argument("--requests", required=True, help="path to the whitelist-requests log (created on first write)")
+    aar.add_argument("--code", required=True, help="the rejection code")
+    aar.add_argument("--remove", action="store_true", help="request removing the code from the whitelist, instead of adding it")
+    aar.add_argument("--requested-by", required=True)
+    aar.add_argument("--reason", required=True)
+    aar.add_argument("--rejections", help="the domain pack's rejections.yaml, to validate the code is real and the request is not a no-op (default: not validated)")
+    aar.add_argument("--root", help="repo root, for display paths")
+    aar.add_argument("--role", help="when given, checked against autonomy-admin.request-whitelist-change before proceeding")
+    aar.set_defaults(func=cmd_autonomy_admin_request_whitelist_change)
+
+    aaq = aasub.add_parser("show-whitelist-requests", help="every whitelist change request recorded")
+    aaq.add_argument("--requests", help="default: none recorded, so nothing is shown")
+    aaq.add_argument("--role", help="when given, checked against autonomy-admin.show-whitelist-requests (every role may read)")
+    aaq.add_argument("--json", action="store_true")
+    aaq.set_defaults(func=cmd_autonomy_admin_show_whitelist_requests)
 
     return parser
 

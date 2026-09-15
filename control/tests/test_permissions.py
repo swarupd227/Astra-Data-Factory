@@ -148,6 +148,24 @@ def test_run_status_adds_only_read_actions():
             assert authorized(role, action)
 
 
+def test_autonomy_admin_writes_are_granted_to_pm_only():
+    """S6.3.12's own "architect" actor is not a role, but the product spec's own persona table
+    attributes exactly this responsibility to the "Artizent delivery lead" -- Role.PM -- so both
+    writes are granted there alone, the first non-role-name actor that actually forces a
+    real grant decision (module docstring)."""
+    for action in (Action.AUTONOMY_ADMIN_SET_LEVEL, Action.AUTONOMY_ADMIN_REQUEST_WHITELIST_CHANGE):
+        assert authorized(Role.PM, action)
+        for role in (Role.STEWARD, Role.BSA, Role.ENGINEER, Role.OPS, Role.AUDITOR):
+            assert not authorized(role, action)
+
+
+def test_autonomy_admin_reads_are_available_to_every_role():
+    for action in (Action.AUTONOMY_ADMIN_SHOW_LEVELS, Action.AUTONOMY_ADMIN_SHOW_WHITELIST, Action.AUTONOMY_ADMIN_SHOW_WHITELIST_REQUESTS):
+        assert action in READ_ACTIONS
+        for role in Role:
+            assert authorized(role, action)
+
+
 def test_audit_log_adds_only_read_actions():
     """S6.3.11's own story adds two actions and no write -- auditor already reads everything and
     writes nothing (S6.3.1's own AC3); "security reviewer" (not one of the six closed roles)

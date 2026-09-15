@@ -52,8 +52,15 @@ sources this platform already writes (promotion requests, drift approvals, rule 
 guardrail level changes, gate approvals, board moves), filterable by user, custodian, date and
 action, exported to a real CSV — with two confirmed, honestly-named gaps neither invented around:
 nothing anywhere records an "agent version" on an approval, and no record stores a pointer to the
-evidence actually shown at decision time, only free text. No live Postgres yet: `board.yaml` and
-the promotion-requests log are real, working stand-ins
+evidence actually shown at decision time, only free text; and admin: autonomy levels and the
+whitelist (S6.3.12) — `set_level` reimplements `astra_agents.guardrails.record_change`'s own
+validation faithfully (a reason required, L3 refused outright unless real evidence already clears
+the acceptance-rate and sample-size threshold) without importing the Agents plane, writing the
+identical log shape that module already reads; the self-healing whitelist is `RejectionCode.
+auto_resolve` on a domain pack's own real rejection taxonomy, read directly, never written
+directly — a change is only ever a logged request, since the real file is hand-authored and has
+no safe round-trip writer, the same "propose, log, a human applies it" shape `drift_review.
+approve` already established. No live Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins
 for the store E6 will eventually have (astra_control.board's own module docstring).
 """
 
@@ -227,10 +234,34 @@ from astra_control.audit_log import (
     write_csv,
 )
 from astra_control.audit_log import render_markdown as render_audit_log_markdown
+from astra_control.autonomy_admin import (
+    DEFAULT_LEVEL,
+    L3_ACCEPTANCE_THRESHOLD,
+    L3_MINIMUM_SAMPLE,
+    LEVELS,
+    AutonomyAdminError,
+    Evidence,
+    LevelChange,
+    WhitelistRequest,
+    current_change,
+    current_level,
+    every_current_level,
+    load_changes,
+    load_whitelist,
+    load_whitelist_requests,
+    request_whitelist_change,
+    set_level,
+    whitelisted_codes,
+)
+from astra_control.autonomy_admin import render_levels_markdown, render_whitelist_markdown, render_whitelist_requests_markdown
 
 __all__ = [
     "CSV_COLUMNS",
+    "DEFAULT_LEVEL",
     "KIND_ROLES",
+    "L3_ACCEPTANCE_THRESHOLD",
+    "L3_MINIMUM_SAMPLE",
+    "LEVELS",
     "PERMISSIONS",
     "READ_ACTIONS",
     "REJECTION_TAG_PREFIX",
@@ -249,6 +280,7 @@ __all__ = [
     "AuditRecord",
     "AuditSources",
     "AuthorizationError",
+    "AutonomyAdminError",
     "Board",
     "BoardError",
     "BreakGroup",
@@ -266,6 +298,7 @@ __all__ = [
     "DriftReview",
     "DriftReviewError",
     "Edited",
+    "Evidence",
     "ExpectedFile",
     "FieldChange",
     "FieldDiff",
@@ -275,6 +308,7 @@ __all__ = [
     "GoldenCalendar",
     "GoldenViewerError",
     "Identity",
+    "LevelChange",
     "ParityViewerError",
     "PromotionRequest",
     "QueueItem",
@@ -295,6 +329,7 @@ __all__ = [
     "Transition",
     "Trend",
     "TrendPoint",
+    "WhitelistRequest",
     "accept_agent_review",
     "add_custodian",
     "advance",
@@ -315,10 +350,13 @@ __all__ = [
     "citation_link",
     "compare_specs",
     "counts_by_kind",
+    "current_change",
+    "current_level",
     "drift_approvals_from",
     "drift_from",
     "edit_citation",
     "edit_text",
+    "every_current_level",
     "exceptions_from",
     "field_list",
     "filter_records",
@@ -340,6 +378,8 @@ __all__ = [
     "load_run",
     "load_spec",
     "load_trend",
+    "load_whitelist",
+    "load_whitelist_requests",
     "move",
     "promotion_requests_from",
     "record_pair",
@@ -358,6 +398,7 @@ __all__ = [
     "render_drift_markdown",
     "render_field_list",
     "render_golden_calendar_markdown",
+    "render_levels_markdown",
     "render_markdown",
     "render_permissions_markdown",
     "render_queue_markdown",
@@ -367,7 +408,10 @@ __all__ = [
     "render_spec_compare",
     "render_status_markdown",
     "render_trend_markdown",
+    "render_whitelist_markdown",
+    "render_whitelist_requests_markdown",
     "request_promotion",
+    "request_whitelist_change",
     "require",
     "review",
     "review_drift",
@@ -375,10 +419,12 @@ __all__ = [
     "rule_recovery_item",
     "rule_status_changes_from",
     "save_board",
+    "set_level",
     "set_wip_limit",
     "spec_citation_link",
     "start",
     "to_csv",
+    "whitelisted_codes",
     "write_csv",
     "write_review",
 ]
