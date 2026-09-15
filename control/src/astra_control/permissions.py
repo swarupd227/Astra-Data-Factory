@@ -37,7 +37,9 @@ rather than silently mapped to `engineer` as if the backlog's own wording meant 
 for the same reason (two reads, no write). `drift-review.approve` (S6.3.9) is this file's second
 action granted to two roles at once — engineer and steward together, its own story's actor, and
 the same joint reviewership `astra_control.queue`'s own `KIND_ROLES[QueueItemKind.DRIFT]` already
-anticipated (queue.py's own comment names this exact later story).
+anticipated (queue.py's own comment names this exact later story). `golden-viewer.show` (S6.3.10)
+adds one more read and no write — its own "QE engineer" actor is the same gap named for S6.3.7
+and S6.3.8, moot for the same reason.
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -110,6 +112,7 @@ class Action(Enum):
     DRIFT_REVIEW_SHOW = "drift-review.show"
     DRIFT_REVIEW_SHOW_REQUESTS = "drift-review.show-requests"
     DRIFT_REVIEW_APPROVE = "drift-review.approve"
+    GOLDEN_VIEWER_SHOW = "golden-viewer.show"
 
 
 READ_ACTIONS = (
@@ -130,6 +133,7 @@ READ_ACTIONS = (
     Action.RUN_STATUS_DASHBOARD,
     Action.DRIFT_REVIEW_SHOW,
     Action.DRIFT_REVIEW_SHOW_REQUESTS,
+    Action.GOLDEN_VIEWER_SHOW,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 

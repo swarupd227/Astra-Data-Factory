@@ -3,8 +3,8 @@ start|advance|request-promotion|show-requests`, `astra-control diff-review run`,
 permissions show|resolve`, `astra-control queue show`, `astra-control custodian-page show`,
 `astra-control spec-viewer show|compare`, `astra-control rule-review show|set-status|
 bulk-confirm`, `astra-control agent-review show|edit|accept|reject`, `astra-control
-parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashboard` and
-`astra-control drift-review show|approve|show-requests`.
+parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashboard`,
+`astra-control drift-review show|approve|show-requests` and `astra-control golden-viewer show`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -66,6 +66,9 @@ check fails (2). `drift-review approve` is 0 on success, 2 when the same review 
 -by` is blank (nothing written), or the role check fails; it never writes to `specs/` or
 `configs/`, only the given `--requests` log (`astra_control.drift_review`'s own module docstring).
 `drift-review show-requests` is always 0 unless the role check fails.
+`golden-viewer show` is 0 when every business day in the window is captured, 1 when at least one
+is a gap (a real condition to look at, the same shape `board show` already uses for a stream over
+its limit), 2 for a bad capture file, an inverted `--from`/`--to`, or the role check.
 """
 
 from __future__ import annotations
@@ -73,7 +76,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from astra_control.board import STATIONS, BoardError, add_custodian, load_board, move, render_markdown, save_board, set_wip_limit
@@ -104,6 +107,8 @@ from astra_control.run_status import RunStatusError, build as build_run_status, 
 from astra_control.run_status import render_dashboard_markdown, render_status_markdown
 from astra_control.drift_review import DriftReviewError, approve as approve_drift, load_change_requests, review as review_drift
 from astra_control.drift_review import render_change_requests_markdown, render_markdown as render_drift_markdown
+from astra_control.golden_viewer import GoldenViewerError, build as build_golden_calendar
+from astra_control.golden_viewer import render_markdown as render_golden_calendar_markdown
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -666,6 +671,27 @@ def cmd_drift_review_show_requests(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_golden_viewer_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.GOLDEN_VIEWER_SHOW)) is not None:
+        return code
+    try:
+        calendar = build_golden_calendar(
+            Path(args.capture),
+            Path(args.golden_dir),
+            start=date.fromisoformat(args.start),
+            end=date.fromisoformat(args.end),
+            store=args.store,
+        )
+    except GoldenViewerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(calendar.to_dict(), indent=2))
+    else:
+        print(render_golden_calendar_markdown(calendar))
+    return 1 if calendar.gaps else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -975,6 +1001,19 @@ def build_parser() -> argparse.ArgumentParser:
     drw.add_argument("--role", help="when given, checked against drift-review.show-requests (every role may read)")
     drw.add_argument("--json", action="store_true")
     drw.set_defaults(func=cmd_drift_review_show_requests)
+
+    gv = sub.add_parser("golden-viewer", help="which business days are captured per custodian, with hashes and gaps, so parity runs are known to be complete")
+    gvsub = gv.add_subparsers(dest="golden_viewer_command", required=True)
+
+    gvs = gvsub.add_parser("show", help="the calendar for one custodian over a window: every captured version with its own hash, and every gap with a runnable capture command")
+    gvs.add_argument("--capture", required=True, help="the custodian's capture.yaml (golden/<custodian>/capture.yaml)")
+    gvs.add_argument("--golden-dir", default="golden", help="the golden directory holding <custodian>/datasets.json (default: golden)")
+    gvs.add_argument("--from", dest="start", required=True, help="first business date, YYYY-MM-DD")
+    gvs.add_argument("--to", dest="end", required=True, help="last business date, YYYY-MM-DD")
+    gvs.add_argument("--store", help="the golden store, for a real --store on the shown capture command (default: a placeholder)")
+    gvs.add_argument("--role", help="when given, checked against golden-viewer.show (every role may read)")
+    gvs.add_argument("--json", action="store_true")
+    gvs.set_defaults(func=cmd_golden_viewer_show)
 
     return parser
 

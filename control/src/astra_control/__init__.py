@@ -42,9 +42,13 @@ config already exists, and an impact list (the spec's own custodians, consumers 
 caller supplies them, since nothing tracks a downstream consumer anywhere in this repository) —
 approval appends one entry to a non-prod change-request log, the same shape `astra_control.
 config_studio.request_promotion` already established, never a git operation and never a write to
-`specs/` or `configs/` themselves. No live Postgres yet: `board.yaml` and the promotion-requests
-log are real, working stand-ins for the store E6 will eventually have (astra_control.board's own
-module docstring).
+`specs/` or `configs/` themselves; and the golden dataset viewer (S6.3.10) — which business days
+are captured per custodian, every version with its own real hash, read straight off
+`astra_verification.golden.load_index`, gaps computed against `astra_verification.golden.
+Capture.business_days_between` (the same walk the real capture CLI itself does), each gap paired
+with the real `astra-verify golden capture` command that would fill it — composed and shown, never
+run. No live Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins
+for the store E6 will eventually have (astra_control.board's own module docstring).
 """
 
 from astra_control.board import (
@@ -198,6 +202,8 @@ from astra_control.drift_review import (
     review as review_drift,
 )
 from astra_control.drift_review import render_change_requests_markdown, render_markdown as render_drift_markdown
+from astra_control.golden_viewer import CapturedDay, Gap, GoldenCalendar, GoldenViewerError, build as build_golden_calendar
+from astra_control.golden_viewer import render_markdown as render_golden_calendar_markdown
 
 __all__ = [
     "KIND_ROLES",
@@ -220,6 +226,7 @@ __all__ = [
     "BoardError",
     "BreakGroup",
     "BulkResult",
+    "CapturedDay",
     "ChangeRequest",
     "ConfigStudioError",
     "CustodianCard",
@@ -237,6 +244,9 @@ __all__ = [
     "FieldDiff",
     "FieldEntry",
     "FileStage",
+    "Gap",
+    "GoldenCalendar",
+    "GoldenViewerError",
     "Identity",
     "ParityViewerError",
     "PromotionRequest",
@@ -269,6 +279,7 @@ __all__ = [
     "breaks_from",
     "build_custodian_page",
     "build_dashboard",
+    "build_golden_calendar",
     "build_queue",
     "build_run_status",
     "bulk_confirm",
@@ -312,6 +323,7 @@ __all__ = [
     "render_diff_markdown",
     "render_drift_markdown",
     "render_field_list",
+    "render_golden_calendar_markdown",
     "render_markdown",
     "render_permissions_markdown",
     "render_queue_markdown",

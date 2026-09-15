@@ -148,6 +148,15 @@ def test_run_status_adds_only_read_actions():
             assert authorized(role, action)
 
 
+def test_golden_viewer_adds_only_a_read_action():
+    """S6.3.10's own story adds one action and no write -- "QE engineer" (not one of the six
+    closed roles) needed no new permission grant to resolve, same as S6.3.7/S6.3.8."""
+    assert Action.GOLDEN_VIEWER_SHOW in READ_ACTIONS
+    assert Action.GOLDEN_VIEWER_SHOW not in WRITE_ACTIONS
+    for role in Role:
+        assert authorized(role, Action.GOLDEN_VIEWER_SHOW)
+
+
 def test_drift_review_approve_is_granted_to_engineer_and_steward_only():
     """S6.3.9's own actor -- engineer or steward -- matching queue.py's own KIND_ROLES[DRIFT],
     written before this story to anticipate it."""
