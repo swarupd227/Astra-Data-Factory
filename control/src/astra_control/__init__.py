@@ -11,9 +11,13 @@ identity provider's already-authenticated claims turned into an internal role th
 administrator's own group mapping, and an auditor role with no write action at all; and home / my
 queue (S6.3.2) — approvals, exceptions assigned, breaks to explain and drift changes, aggregated
 straight from the report.json and gate_pack.json files this factory's own agents already wrote,
-filtered by the same six roles. No live Postgres yet: `board.yaml` and the promotion-requests log
-are real, working stand-ins for the store E6 will eventually have (astra_control.board's own
-module docstring).
+filtered by the same six roles; and the custodian page (S6.3.3) — family, tier, config version,
+current station, files today against a real cutoff, parity trend, open exceptions and cost, all
+in one place, each field read from something this repository already built (the board, a real
+parity report, `astra_control.queue`'s own exception count) and never fabricated when its own
+source is missing. No live Postgres yet: `board.yaml` and the promotion-requests log are real,
+working stand-ins for the store E6 will eventually have (astra_control.board's own module
+docstring).
 """
 
 from astra_control.board import (
@@ -80,6 +84,14 @@ from astra_control.queue import (
     for_role,
 )
 from astra_control.queue import render_markdown as render_queue_markdown
+from astra_control.custodian_page import (
+    CustodianPage,
+    CustodianPageError,
+    ExpectedFile,
+    load_arrivals,
+)
+from astra_control.custodian_page import build as build_custodian_page
+from astra_control.custodian_page import render_markdown as render_custodian_page_markdown
 
 __all__ = [
     "KIND_ROLES",
@@ -96,8 +108,11 @@ __all__ = [
     "BoardError",
     "ConfigStudioError",
     "CustodianCard",
+    "CustodianPage",
+    "CustodianPageError",
     "DiffReview",
     "DiffReviewError",
+    "ExpectedFile",
     "Identity",
     "PromotionRequest",
     "QueueItem",
@@ -113,6 +128,7 @@ __all__ = [
     "approvals_from",
     "authorized",
     "breaks_from",
+    "build_custodian_page",
     "build_queue",
     "citation_link",
     "counts_by_kind",
@@ -121,10 +137,12 @@ __all__ = [
     "for_role",
     "identity_from_claims",
     "live_per_week",
+    "load_arrivals",
     "load_board",
     "load_promotion_requests",
     "load_role_mapping",
     "move",
+    "render_custodian_page_markdown",
     "render_diff_markdown",
     "render_markdown",
     "render_permissions_markdown",

@@ -77,9 +77,10 @@ class Action(Enum):
     CONFIG_STUDIO_ADVANCE = "config-studio.advance"
     CONFIG_STUDIO_REQUEST_PROMOTION = "config-studio.request-promotion"
     DIFF_REVIEW_RUN = "diff-review.run"
+    CUSTODIAN_PAGE_SHOW = "custodian-page.show"
 
 
-READ_ACTIONS = (Action.BOARD_SHOW, Action.CONFIG_STUDIO_SHOW_REQUESTS, Action.DIFF_REVIEW_RUN)
+READ_ACTIONS = (Action.BOARD_SHOW, Action.CONFIG_STUDIO_SHOW_REQUESTS, Action.DIFF_REVIEW_RUN, Action.CUSTODIAN_PAGE_SHOW)
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 
 # Every role's own write actions, named by whichever story actually built the action and its own

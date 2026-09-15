@@ -1,6 +1,6 @@
 """Command line: `astra-control board add|move|set-wip-limit|show`, `astra-control config-studio
 start|advance|request-promotion|show-requests`, `astra-control diff-review run`, `astra-control
-permissions show|resolve` and `astra-control queue show`.
+permissions show|resolve`, `astra-control queue show` and `astra-control custodian-page show`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -29,7 +29,11 @@ role, 2 otherwise. `queue show` reads whichever report and gate-pack paths are g
 or unreadable one contributes nothing, never an error, the same "no evidence" shape
 `astra_agents.gate_evidence_compiler` already established — and is 0 when nothing needs the given
 role (or, unfiltered, nobody), 1 when the queue is non-empty (a real condition to look at), 2 only
-for an unrecognized `--role`.
+for an unrecognized `--role`. `custodian-page show` reads a compiled config plus whichever of
+`--board`/`--parity-report`/`--exception-report`/`--arrivals`/`--cost` are given — every one
+optional, each field shown honestly as "no data" rather than fabricated when its own source is
+missing (`astra_control.custodian_page`'s own module docstring) — and is 0 unless the config
+itself fails to compile or the role check fails (2).
 """
 
 from __future__ import annotations
@@ -47,6 +51,9 @@ from astra_control.diff_review import review, write_review
 from astra_control.permissions import Action, AuthorizationError, Role, identity_from_claims, load_role_mapping, render_permissions, require
 from astra_control.queue import QueueSources, build_queue, for_role
 from astra_control.queue import render_markdown as render_queue_markdown
+from astra_control.custodian_page import CustodianPageError, load_arrivals
+from astra_control.custodian_page import build as build_custodian_page
+from astra_control.custodian_page import render_markdown as render_custodian_page_markdown
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -256,6 +263,32 @@ def cmd_queue_show(args: argparse.Namespace) -> int:
     return 1 if items else 0
 
 
+def cmd_custodian_page_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.CUSTODIAN_PAGE_SHOW)) is not None:
+        return code
+    try:
+        arrivals = load_arrivals(Path(args.arrivals) if args.arrivals else None)
+        page = build_custodian_page(
+            Path(args.config),
+            board_path=Path(args.board) if args.board else None,
+            parity_report=Path(args.parity_report) if args.parity_report else None,
+            exception_report=Path(args.exception_report) if args.exception_report else None,
+            arrivals=arrivals,
+            cost=args.cost,
+            specs_dir=Path(args.specs),
+            rules_dir=Path(args.rules),
+            domains_dir=Path(args.domains),
+        )
+    except CustodianPageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(page.to_dict(), indent=2))
+    else:
+        print(render_custodian_page_markdown(page))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -369,6 +402,23 @@ def build_parser() -> argparse.ArgumentParser:
     qus.add_argument("--role", help="show only this role's own items (default: everyone's)")
     qus.add_argument("--json", action="store_true")
     qus.set_defaults(func=cmd_queue_show)
+
+    cp = sub.add_parser("custodian-page", help="one page per custodian: family, tier, config version, current station, files today, parity trend, open exceptions, cost")
+    cpsub = cp.add_subparsers(dest="custodian_page_command", required=True)
+
+    cps = cpsub.add_parser("show", help="assemble one custodian's page from its config, the board, and whichever reports are given")
+    cps.add_argument("--config", required=True, help="the source config to build the page from")
+    cps.add_argument("--board", help="path to a board.yaml, for the current station (default: not on the board)")
+    cps.add_argument("--parity-report", help="a parity_report.json, for the parity trend (default: no parity data)")
+    cps.add_argument("--exception-report", help="an exception-triage report.json, for the open-exceptions count (default: 0)")
+    cps.add_argument("--arrivals", help="a file mapping expected file pattern to real arrival time -- a stand-in for a live file-load log this environment does not have (default: nothing arrived)")
+    cps.add_argument("--cost", type=float, help="cost per day, if known -- no FinOps agent exists yet to compute one (default: no data)")
+    cps.add_argument("--specs", default="specs", help="the spec registry directory (default: specs)")
+    cps.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+    cps.add_argument("--domains", default="domains", help="the domain packs directory (default: domains)")
+    cps.add_argument("--role", help="when given, checked against custodian-page.show (every role may read)")
+    cps.add_argument("--json", action="store_true")
+    cps.set_defaults(func=cmd_custodian_page_show)
 
     return parser
 

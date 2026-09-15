@@ -1,0 +1,7 @@
+# Illustrative — a real, working stand-in for a live file-load-log query this environment does
+# not have. Keyed by the config's own delivery.files[].pattern; a platform's real ingestion
+# pipeline (Snowpipe, the file load log) would populate this for real. Pershing's own position
+# file arrived before cutoff today; the transaction file has not, matching
+# configs/examples/pershing_position.yaml's own delivery block.
+arrivals:
+  pershing/GCUS_%_POS_%.dat: "2026-09-15T05:41:00Z"
