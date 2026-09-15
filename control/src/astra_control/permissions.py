@@ -20,10 +20,11 @@ config studio's guided sequence and promotion request by S6.1.2's own actor (a B
 source's draft... through onboarding"); `board.add`/`board.move`, the board's own general
 management, by ops, engineer and PM together — none of the three stories names one exclusively.
 **The auditor role has no write action at all** — `PERMISSIONS[Role.AUDITOR]` is exactly the read
-actions, nothing more, checked directly against every action this module knows (AC3). **Steward
-has none either, today** — S6.1.3's own actor, but the one action that story built,
-`diff-review.run`, is a read; nothing in this action set is yet a steward-specific write, and
-this module says so honestly rather than inventing one to look complete.
+actions, nothing more, checked directly against every action this module knows (AC3). Steward's
+own first write actions are `rule-review.set-status` and `rule-review.bulk-confirm` (S6.3.5) — the
+product spec names the "data steward / rule owner" role's own top responsibility as "confirms
+recovered rules" (Section 3), the same way a BSA drives config studio and ops/PM/engineer manage
+the board.
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -80,6 +81,9 @@ class Action(Enum):
     CUSTODIAN_PAGE_SHOW = "custodian-page.show"
     SPEC_VIEWER_SHOW = "spec-viewer.show"
     SPEC_VIEWER_COMPARE = "spec-viewer.compare"
+    RULE_REVIEW_SHOW = "rule-review.show"
+    RULE_REVIEW_SET_STATUS = "rule-review.set-status"
+    RULE_REVIEW_BULK_CONFIRM = "rule-review.bulk-confirm"
 
 
 READ_ACTIONS = (
@@ -89,13 +93,14 @@ READ_ACTIONS = (
     Action.CUSTODIAN_PAGE_SHOW,
     Action.SPEC_VIEWER_SHOW,
     Action.SPEC_VIEWER_COMPARE,
+    Action.RULE_REVIEW_SHOW,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 
 # Every role's own write actions, named by whichever story actually built the action and its own
 # actor (module docstring). Reads are added to every role uniformly, below.
 _WRITE_PERMISSIONS: dict[Role, frozenset[Action]] = {
-    Role.STEWARD: frozenset(),
+    Role.STEWARD: frozenset({Action.RULE_REVIEW_SET_STATUS, Action.RULE_REVIEW_BULK_CONFIRM}),
     Role.BSA: frozenset({Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION}),
     Role.ENGINEER: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE}),
     Role.OPS: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION}),

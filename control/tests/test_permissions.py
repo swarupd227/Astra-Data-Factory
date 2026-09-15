@@ -110,9 +110,13 @@ def test_pm_owns_the_wip_limit_the_delivery_leads_own_story_built():
     assert not authorized(Role.ENGINEER, Action.BOARD_SET_WIP_LIMIT)
 
 
-def test_steward_has_no_write_action_in_this_action_set_today():
-    """Named honestly, not papered over: S6.1.3's own actor built only a read action."""
-    assert PERMISSIONS[Role.STEWARD] & set(WRITE_ACTIONS) == set()
+def test_steward_owns_rule_review_and_nothing_else():
+    """S6.1.3's own actor built only a read action; S6.3.5 gives steward its first writes, and
+    only the two this story built (module docstring: the product spec's own "confirms recovered
+    rules" for the data steward / rule owner)."""
+    assert PERMISSIONS[Role.STEWARD] & set(WRITE_ACTIONS) == {Action.RULE_REVIEW_SET_STATUS, Action.RULE_REVIEW_BULK_CONFIRM}
+    assert not authorized(Role.STEWARD, Action.BOARD_ADD)
+    assert not authorized(Role.BSA, Action.RULE_REVIEW_SET_STATUS)
 
 
 # ---------------------------------------------------------------- identity: claims -> role

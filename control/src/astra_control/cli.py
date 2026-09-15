@@ -1,7 +1,8 @@
 """Command line: `astra-control board add|move|set-wip-limit|show`, `astra-control config-studio
 start|advance|request-promotion|show-requests`, `astra-control diff-review run`, `astra-control
-permissions show|resolve`, `astra-control queue show`, `astra-control custodian-page show` and
-`astra-control spec-viewer show|compare`.
+permissions show|resolve`, `astra-control queue show`, `astra-control custodian-page show`,
+`astra-control spec-viewer show|compare` and `astra-control rule-review show|set-status|
+bulk-confirm`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -38,6 +39,14 @@ itself fails to compile or the role check fails (2). `spec-viewer show` is 0 unl
 itself is not found or the role check fails (2). `spec-viewer compare` is 0 when the two versions
 have no differences, 1 when they do (a real condition to look at, the same shape `board show`
 already uses for a stream over its limit), 2 for a missing spec version or the role check.
+`rule-review show` is always 0 unless the role check fails (2) or `--status` names something that
+is not a real status. `rule-review set-status` is 0 on success, 2 when the change is refused (an
+unknown rule id, a status this screen does not set, or anything `astra_knowledge.rules.set_status`
+itself refuses — already at that status, no `--by` given) or the role check fails. `rule-review
+bulk-confirm` confirms the named rule and every rule sharing its exact text (`astra_control.
+rule_review`'s own module docstring); one rule's own refusal (already confirmed, say) never blocks
+the others — 0 when every rule in the batch confirmed, 1 when at least one did not (shown, not
+silently dropped), 2 for an unknown rule id or the role check.
 """
 
 from __future__ import annotations
@@ -61,6 +70,9 @@ from astra_control.custodian_page import render_markdown as render_custodian_pag
 from astra_control.spec_viewer import SpecViewerError, compare, field_list, load_registry, load_spec
 from astra_control.spec_viewer import render_compare as render_spec_compare
 from astra_control.spec_viewer import render_field_list
+from astra_control.rule_review import REVIEW_STATUSES, RuleReviewError, bulk_confirm, change_status, filter_rules, load_catalog, rule_entry
+from astra_control.rule_review import render_bulk_result
+from astra_control.rule_review import render_markdown as render_rule_review_markdown
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -330,6 +342,52 @@ def cmd_spec_viewer_compare(args: argparse.Namespace) -> int:
     return 1 if diffs else 0
 
 
+def cmd_rule_review_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.RULE_REVIEW_SHOW)) is not None:
+        return code
+    try:
+        catalog = load_catalog(Path(args.rules))
+        rules = filter_rules(catalog, status=args.status, custodian=args.custodian, rejection_code=args.rejection_code)
+    except RuleReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    entries = tuple(rule_entry(r) for r in rules)
+    if args.json:
+        print(json.dumps([e.to_dict() for e in entries], indent=2))
+    else:
+        print(render_rule_review_markdown(entries))
+    return 0
+
+
+def cmd_rule_review_set_status(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.RULE_REVIEW_SET_STATUS)) is not None:
+        return code
+    try:
+        catalog = load_catalog(Path(args.rules))
+        rule = change_status(catalog, args.id, args.status, by=args.by, note=args.note)
+    except RuleReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"{rule.id}: {args.status}, by {args.by}")
+    return 0
+
+
+def cmd_rule_review_bulk_confirm(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.RULE_REVIEW_BULK_CONFIRM)) is not None:
+        return code
+    try:
+        catalog = load_catalog(Path(args.rules))
+        results = bulk_confirm(catalog, args.id, by=args.by, note=args.note)
+    except RuleReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps([r.to_dict() for r in results], indent=2))
+    else:
+        print(render_bulk_result(results))
+    return 1 if any(not r.ok for r in results) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -480,6 +538,36 @@ def build_parser() -> argparse.ArgumentParser:
     svc.add_argument("--role", help="when given, checked against spec-viewer.compare (every role may read)")
     svc.add_argument("--json", action="store_true")
     svc.set_defaults(func=cmd_spec_viewer_compare)
+
+    rv = sub.add_parser("rule-review", help="the rule catalog browser: a rule beside its citation, confirmed, rejected or marked a legacy defect, with a comment")
+    rvsub = rv.add_subparsers(dest="rule_review_command", required=True)
+
+    rvs = rvsub.add_parser("show", help="every rule matching a filter, beside its class and citation")
+    rvs.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+    rvs.add_argument("--status", help="only this status")
+    rvs.add_argument("--custodian", help="only rules applying to this custodian")
+    rvs.add_argument("--rejection-code", help="only rules tagged rejection-<code> with this code (case-insensitive)")
+    rvs.add_argument("--role", help="when given, checked against rule-review.show (every role may read)")
+    rvs.add_argument("--json", action="store_true")
+    rvs.set_defaults(func=cmd_rule_review_show)
+
+    rvss = rvsub.add_parser("set-status", help=f"confirm, reject or mark a legacy defect; statuses are {', '.join(REVIEW_STATUSES)}")
+    rvss.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+    rvss.add_argument("--id", required=True, help="the rule id, for example pershing_gcus.quantity_sign")
+    rvss.add_argument("--status", required=True, help=f"statuses are {', '.join(REVIEW_STATUSES)}")
+    rvss.add_argument("--by", required=True)
+    rvss.add_argument("--note")
+    rvss.add_argument("--role", help="when given, checked against rule-review.set-status before proceeding")
+    rvss.set_defaults(func=cmd_rule_review_set_status)
+
+    rvb = rvsub.add_parser("bulk-confirm", help="confirm one rule and every other rule in the catalog with exactly the same text")
+    rvb.add_argument("--rules", default="rules", help="the rule catalog directory (default: rules)")
+    rvb.add_argument("--id", required=True, help="confirms this rule, and every rule identical to it")
+    rvb.add_argument("--by", required=True)
+    rvb.add_argument("--note")
+    rvb.add_argument("--role", help="when given, checked against rule-review.bulk-confirm before proceeding")
+    rvb.add_argument("--json", action="store_true")
+    rvb.set_defaults(func=cmd_rule_review_bulk_confirm)
 
     return parser
 
