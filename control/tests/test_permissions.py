@@ -123,6 +123,18 @@ def test_steward_owns_rule_review_and_agent_review():
     assert not authorized(Role.STEWARD, Action.BOARD_ADD)
 
 
+def test_parity_viewer_adds_only_read_actions():
+    """S6.3.7's own story adds four actions and no write -- every role already reads every one
+    of them uniformly, so its "steward or QE engineer" actor (QE engineer is not one of the six
+    closed roles) needed no new permission grant to resolve."""
+    parity_actions = {Action.PARITY_VIEWER_TREND, Action.PARITY_VIEWER_BREAKS, Action.PARITY_VIEWER_RECORDS, Action.PARITY_VIEWER_RECORD}
+    assert parity_actions <= set(READ_ACTIONS)
+    assert parity_actions & set(WRITE_ACTIONS) == set()
+    for action in parity_actions:
+        for role in Role:
+            assert authorized(role, action)
+
+
 def test_agent_review_accept_reject_are_granted_to_steward_and_bsa_only():
     """The one action set in this file granted to two roles at once (module docstring) --
     grounded in the story's own "steward or BSA" actor, not any other role."""

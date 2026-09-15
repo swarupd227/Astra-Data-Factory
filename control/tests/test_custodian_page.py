@@ -180,10 +180,22 @@ def test_links_spec_and_config_are_real_paths_that_exist():
     assert Path(page.links["config"]).is_file() or (REPO / page.links["config"]).is_file()
 
 
-def test_links_note_the_unbuilt_viewer_screens_honestly():
+def test_links_note_the_still_unbuilt_exceptions_screen_honestly():
     page = _build()
-    assert "S6.3.7" in page.links["parity_viewer_note"]
     assert "S6.2.5" in page.links["exceptions_note"]
+
+
+def test_parity_viewer_note_points_at_the_real_command_once_a_report_is_given():
+    """S6.3.7 shipped a real parity-viewer command -- the note now points at it, not at a story
+    number that no longer describes an unbuilt screen."""
+    page = _build(parity_report=PARITY_REPORT)
+    assert "astra-control parity-viewer trend" in page.links["parity_viewer_note"]
+    assert str(PARITY_REPORT) in page.links["parity_viewer_note"]
+
+
+def test_parity_viewer_note_with_no_report_given():
+    page = _build()
+    assert page.links["parity_viewer_note"] == "no parity report given"
 
 
 def test_links_point_at_the_real_report_when_one_is_given():

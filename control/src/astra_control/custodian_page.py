@@ -28,11 +28,11 @@ Every field is read from something this repository already built, never re-deriv
                          fabricated number
 
 AC2's four links are real references where a real one exists, and an honest note where it does
-not: `spec` and `config` are real file paths; `parity_viewer` and `exceptions` point at the real
-report a caller gave (its own data, inspectable today) with a note that the *viewer* screens
-themselves (S6.3.7, S6.2.5) are not built yet — the same honesty `astra_control.diff_review`'s
-own citation links and `astra_control.queue`'s own per-item targets already practice, never a
-link to a screen that does not exist.
+not: `spec` and `config` are real file paths; `parity_viewer` points at the real report a caller
+gave with the real `astra-control parity-viewer trend` command to inspect it (S6.3.7, built);
+`exceptions` still names only the report and a note that the *screen* itself (S6.2.5) is not built
+yet — the same honesty `astra_control.diff_review`'s own citation links and `astra_control.queue`'s
+own per-item targets already practice, never a link to a screen that does not exist.
 """
 
 from __future__ import annotations
@@ -200,7 +200,7 @@ def build(
         "config": str(config.path),
         "config_diff": f"astra-control diff-review run --old <an earlier {Path(config_path).name}> --new {config_path}",
         "parity_viewer": str(parity_report) if parity_report else "no parity report given",
-        "parity_viewer_note": "S6.3.7 (dual-run and parity viewer) is not built yet" if not parity_report else "S6.3.7 is not built yet; this is the real report the viewer would render",
+        "parity_viewer_note": "no parity report given" if not parity_report else "astra-control parity-viewer trend --parity-report " + str(parity_report),
         "exceptions": str(exception_report) if exception_report else "no exception report given",
         "exceptions_note": "S6.2.5 (ops exception UI) is not built yet" if not exception_report else "S6.2.5 is not built yet; this is the real report the screen would render",
     }

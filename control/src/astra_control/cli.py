@@ -2,7 +2,8 @@
 start|advance|request-promotion|show-requests`, `astra-control diff-review run`, `astra-control
 permissions show|resolve`, `astra-control queue show`, `astra-control custodian-page show`,
 `astra-control spec-viewer show|compare`, `astra-control rule-review show|set-status|
-bulk-confirm` and `astra-control agent-review show|edit|accept|reject`.
+bulk-confirm`, `astra-control agent-review show|edit|accept|reject` and `astra-control
+parity-viewer trend|breaks|records|record`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -51,7 +52,10 @@ silently dropped), 2 for an unknown rule id or the role check.
 (2); `edit` writes nothing, it only shows a diff. `agent-review accept|reject` are 0 on success, 2
 when the draft fails to load, the gold set does not exist or is for a different agent, the case id
 already exists, the given tier has no threshold in that gold set, or the role check fails
-(`astra_control.agent_review`'s own module docstring).
+(`astra_control.agent_review`'s own module docstring). `parity-viewer trend|breaks|records` are 0
+unless the given report file is missing, unreadable, or (for `trend`) not a parity report at all,
+or the role check fails (2). `parity-viewer record` is the same, plus 2 when no record matches the
+given `--key`.
 """
 
 from __future__ import annotations
@@ -83,6 +87,8 @@ from astra_knowledge.rules import Citation
 from astra_control.agent_review import AgentReviewError, Edited, accept, edit_citation, edit_text, load_draft_rule, reject, rule_recovery_item
 from astra_control.agent_review import render_diff_markdown as render_agent_review_diff_markdown
 from astra_control.agent_review import render_markdown as render_agent_review_markdown
+from astra_control.parity_viewer import ParityViewerError, break_groups, load_trend, record_pair, record_pairs
+from astra_control.parity_viewer import render_break_groups_markdown, render_record_pair_markdown, render_record_pairs_markdown, render_trend_markdown
 
 
 def _check(args: argparse.Namespace, action: Action) -> int | None:
@@ -484,6 +490,66 @@ def cmd_agent_review_reject(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_parity_viewer_trend(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.PARITY_VIEWER_TREND)) is not None:
+        return code
+    try:
+        trend = load_trend(Path(args.parity_report))
+    except ParityViewerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(trend.to_dict(), indent=2))
+    else:
+        print(render_trend_markdown(trend))
+    return 0
+
+
+def cmd_parity_viewer_breaks(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.PARITY_VIEWER_BREAKS)) is not None:
+        return code
+    try:
+        groups = break_groups(Path(args.break_report))
+    except ParityViewerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps([g.to_dict() for g in groups], indent=2))
+    else:
+        print(render_break_groups_markdown(groups))
+    return 0
+
+
+def cmd_parity_viewer_records(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.PARITY_VIEWER_RECORDS)) is not None:
+        return code
+    try:
+        pairs = record_pairs(Path(args.break_report))
+    except ParityViewerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps([p.to_dict() for p in pairs], indent=2))
+    else:
+        print(render_record_pairs_markdown(pairs))
+    return 0
+
+
+def cmd_parity_viewer_record(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.PARITY_VIEWER_RECORD)) is not None:
+        return code
+    try:
+        pair = record_pair(Path(args.break_report), tuple(args.key))
+    except ParityViewerError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(pair.to_dict(), indent=2))
+    else:
+        print(render_record_pair_markdown(pair))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -707,6 +773,34 @@ def build_parser() -> argparse.ArgumentParser:
     arr.add_argument("--case-id", required=True)
     arr.add_argument("--role", help="when given, checked against agent-review.reject before proceeding")
     arr.set_defaults(func=cmd_agent_review_reject)
+
+    pv = sub.add_parser("parity-viewer", help="dual-run gate evidence, inspected: match rate by day, break groups by rule and field, and a record pair drill-down")
+    pvsub = pv.add_subparsers(dest="parity_viewer_command", required=True)
+
+    pvt = pvsub.add_parser("trend", help="match rate per day, from an already-written astra_verification.parity_report.ParityReport")
+    pvt.add_argument("--parity-report", required=True, help="path to a parity report.json (astra_verification.parity_report.write_report's own output)")
+    pvt.add_argument("--role", help="when given, checked against parity-viewer.trend (every role may read)")
+    pvt.add_argument("--json", action="store_true")
+    pvt.set_defaults(func=cmd_parity_viewer_trend)
+
+    pvb = pvsub.add_parser("breaks", help="every (rule, field, cause) an already-written break-explainer report touches, counted, busiest first")
+    pvb.add_argument("--break-report", required=True, help="path to a break-explainer report.json")
+    pvb.add_argument("--role", help="when given, checked against parity-viewer.breaks (every role may read)")
+    pvb.add_argument("--json", action="store_true")
+    pvb.set_defaults(func=cmd_parity_viewer_breaks)
+
+    pvr = pvsub.add_parser("records", help="every differing record, its own explanations grouped by key")
+    pvr.add_argument("--break-report", required=True)
+    pvr.add_argument("--role", help="when given, checked against parity-viewer.records (every role may read)")
+    pvr.add_argument("--json", action="store_true")
+    pvr.set_defaults(func=cmd_parity_viewer_records)
+
+    pvo = pvsub.add_parser("record", help="one record pair by its own key: legacy vs lakehouse, differing fields highlighted")
+    pvo.add_argument("--break-report", required=True)
+    pvo.add_argument("--key", action="append", required=True, help="one component of the record's own key, in order (repeatable)")
+    pvo.add_argument("--role", help="when given, checked against parity-viewer.record (every role may read)")
+    pvo.add_argument("--json", action="store_true")
+    pvo.set_defaults(func=cmd_parity_viewer_record)
 
     return parser
 

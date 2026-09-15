@@ -26,9 +26,13 @@ reaching every rule sharing the exact same text; and agent suggestion review (S6
 Recovery draft's own text and citation side by side, an edit diffed against the kept original, and
 accept/reject each appending a new case straight into that agent's own gold set
 (`astra_verification.agent_eval.append_case`), naming which rule id should be recovered from the
-reviewed input, never its wording. No live Postgres yet: `board.yaml` and the promotion-requests
-log are real, working stand-ins for the store E6 will eventually have (astra_control.board's own
-module docstring).
+reviewed input, never its wording; and the dual-run and parity viewer (S6.3.7) — match rate per
+day straight from `astra_verification.parity_report.ParityReport`'s own `by_cycle`, break groups
+by rule and field with counts, and a record-pair drill-down showing legacy vs lakehouse with the
+differing field highlighted, both from `astra_agents.break_explainer`'s own already-written
+report, grouped two different ways rather than recomputed. No live Postgres yet: `board.yaml` and
+the promotion-requests log are real, working stand-ins for the store E6 will eventually have
+(astra_control.board's own module docstring).
 """
 
 from astra_control.board import (
@@ -146,6 +150,19 @@ from astra_control.agent_review import (
 )
 from astra_control.agent_review import render_diff_markdown as render_agent_review_diff_markdown
 from astra_control.agent_review import render_markdown as render_agent_review_markdown
+from astra_control.parity_viewer import (
+    BreakGroup,
+    FieldDiff,
+    ParityViewerError,
+    RecordPair,
+    Trend,
+    TrendPoint,
+    break_groups,
+    load_trend,
+    record_pair,
+    record_pairs,
+)
+from astra_control.parity_viewer import render_break_groups_markdown, render_record_pair_markdown, render_record_pairs_markdown, render_trend_markdown
 
 __all__ = [
     "KIND_ROLES",
@@ -164,6 +181,7 @@ __all__ = [
     "AuthorizationError",
     "Board",
     "BoardError",
+    "BreakGroup",
     "BulkResult",
     "ConfigStudioError",
     "CustodianCard",
@@ -174,12 +192,15 @@ __all__ = [
     "Edited",
     "ExpectedFile",
     "FieldChange",
+    "FieldDiff",
     "FieldEntry",
     "Identity",
+    "ParityViewerError",
     "PromotionRequest",
     "QueueItem",
     "QueueItemKind",
     "QueueSources",
+    "RecordPair",
     "ReviewItem",
     "Role",
     "RoleMapping",
@@ -190,11 +211,14 @@ __all__ = [
     "SpecViewerError",
     "Station",
     "Transition",
+    "Trend",
+    "TrendPoint",
     "accept_agent_review",
     "add_custodian",
     "advance",
     "approvals_from",
     "authorized",
+    "break_groups",
     "breaks_from",
     "build_custodian_page",
     "build_queue",
@@ -221,11 +245,15 @@ __all__ = [
     "load_registry",
     "load_role_mapping",
     "load_spec",
+    "load_trend",
     "move",
+    "record_pair",
+    "record_pairs",
     "reject_agent_review",
     "rejection_codes",
     "render_agent_review_diff_markdown",
     "render_agent_review_markdown",
+    "render_break_groups_markdown",
     "render_bulk_result",
     "render_custodian_page_markdown",
     "render_diff_markdown",
@@ -233,8 +261,11 @@ __all__ = [
     "render_markdown",
     "render_permissions_markdown",
     "render_queue_markdown",
+    "render_record_pair_markdown",
+    "render_record_pairs_markdown",
     "render_rule_review_markdown",
     "render_spec_compare",
+    "render_trend_markdown",
     "request_promotion",
     "require",
     "review",

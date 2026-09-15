@@ -28,6 +28,11 @@ the board. `agent-review.accept` and `agent-review.reject` (S6.3.6) are this fil
 granted to two roles at once — steward and BSA together, exactly as the backlog's own story names
 both as this screen's actor, and the same joint reviewership the product spec's own "steward
 reviews (simple tier: BSA reviews)" (Section 7.1) already establishes for a source's promotion.
+`parity-viewer.*` (S6.3.7) adds four read actions and no write — its own story names "steward or QE
+engineer" as its actor, and "QE engineer" is not one of the six closed roles above (nor named
+anywhere in `docs/ux/personas.md`'s own role mapping); this is moot for this story specifically,
+since every action it adds is already available to every role uniformly, but is named here plainly
+rather than silently mapped to `engineer` as if the backlog's own wording meant that.
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -91,6 +96,10 @@ class Action(Enum):
     AGENT_REVIEW_EDIT = "agent-review.edit"
     AGENT_REVIEW_ACCEPT = "agent-review.accept"
     AGENT_REVIEW_REJECT = "agent-review.reject"
+    PARITY_VIEWER_TREND = "parity-viewer.trend"
+    PARITY_VIEWER_BREAKS = "parity-viewer.breaks"
+    PARITY_VIEWER_RECORDS = "parity-viewer.records"
+    PARITY_VIEWER_RECORD = "parity-viewer.record"
 
 
 READ_ACTIONS = (
@@ -103,6 +112,10 @@ READ_ACTIONS = (
     Action.RULE_REVIEW_SHOW,
     Action.AGENT_REVIEW_SHOW,
     Action.AGENT_REVIEW_EDIT,
+    Action.PARITY_VIEWER_TREND,
+    Action.PARITY_VIEWER_BREAKS,
+    Action.PARITY_VIEWER_RECORDS,
+    Action.PARITY_VIEWER_RECORD,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 
