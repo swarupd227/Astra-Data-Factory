@@ -8,7 +8,7 @@ parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashb
 `astra-control audit-log show|export`, `astra-control autonomy-admin show-levels|set-level|
 show-whitelist|request-whitelist-change|show-whitelist-requests` and `astra-control
 notification-preferences show|set|show-thresholds|set-threshold|reaches` and `astra-control
-approvals approve|reject|show` and `astra-control git-provenance commit|verify` and `astra-control throughput-metrics show|export` and `astra-control gate-evidence-pack show|export`.
+approvals approve|reject|show` and `astra-control git-provenance commit|verify` and `astra-control throughput-metrics show|export` and `astra-control gate-evidence-pack show|export` and `astra-control exception-review show|accept|edit|resubmit|close|ageing`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -112,6 +112,15 @@ at, the same shape `board show` already uses for a stream over its limit). `gate
 export` is the same, plus 2 when the given `--out` path cannot be written — both are reads; a PDF
 exported to a caller-given path is no more a factory-state write than a CSV or a weekly report
 already were (`astra_control.gate_evidence_pack`'s own module docstring).
+`exception-review show|ageing` are always 0 unless the role check fails (2); a given `--report`
+syncs any new suggestion group onto the board for display only, never written back until an
+actual transition runs. `exception-review accept|edit|resubmit|close` are 0 on success, 2 when the
+change is refused (the group is not in the status this transition requires, `--by` is blank, an
+edited `--resolution` is blank, or the group is not yet tracked at all — sync it first with
+`--report`) or the role check fails; each writes the board back only on success
+(`astra_control.exception_review`'s own module docstring: `resubmit` never actually re-runs
+anything — no environment here has a callable single-record resolution step — and says so plainly
+in the transition it records).
 """
 
 from __future__ import annotations
@@ -163,6 +172,19 @@ from astra_control.git_provenance import GitProvenanceError, commit_approval, ve
 from astra_control.git_provenance import render_commit_markdown, render_verify_markdown
 from astra_control.throughput_metrics import build_report, render_markdown as render_throughput_markdown, write_report
 from astra_control.gate_evidence_pack import GateEvidencePackError, build_pack as build_gate_evidence_pack, render_markdown as render_gate_evidence_pack_markdown, write_pdf as write_gate_evidence_pdf
+from astra_control.exception_review import (
+    ExceptionReviewError,
+    accept as accept_exception_group,
+    ageing_report,
+    close as close_exception_group,
+    edit as edit_exception_group,
+    groups_from as exception_groups_from,
+    load_review_board,
+    resubmit as resubmit_exception_group,
+    save_review_board,
+    sync as sync_exception_review,
+)
+from astra_control.exception_review import render_ageing_markdown, render_markdown as render_exception_review_markdown
 from astra_control.audit_log import render_markdown as render_audit_log_markdown
 
 
@@ -1126,6 +1148,65 @@ def cmd_gate_evidence_pack_export(args: argparse.Namespace) -> int:
     return 0 if pack.all_met else 1
 
 
+def _load_exception_review_board(args: argparse.Namespace):
+    board = load_review_board(Path(args.board))
+    if getattr(args, "report", None):
+        board = sync_exception_review(board, exception_groups_from(Path(args.report)))
+    return board
+
+
+def cmd_exception_review_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.EXCEPTION_REVIEW_SHOW)) is not None:
+        return code
+    board = _load_exception_review_board(args)
+    if args.json:
+        print(json.dumps(board.to_dict(), indent=2))
+    else:
+        print(render_exception_review_markdown(board))
+    return 0
+
+
+def _exception_review_transition(args: argparse.Namespace, action: Action, apply) -> int:
+    if (code := _check(args, action)) is not None:
+        return code
+    board = _load_exception_review_board(args)
+    try:
+        board = apply(board)
+    except ExceptionReviewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    save_review_board(board, Path(args.board))
+    print(f"{action.value.split('.', 1)[1]}: {args.code}:{args.group}")
+    return 0
+
+
+def cmd_exception_review_accept(args: argparse.Namespace) -> int:
+    return _exception_review_transition(args, Action.EXCEPTION_REVIEW_ACCEPT, lambda board: accept_exception_group(board, args.code, args.group, by=args.by))
+
+
+def cmd_exception_review_edit(args: argparse.Namespace) -> int:
+    return _exception_review_transition(args, Action.EXCEPTION_REVIEW_EDIT, lambda board: edit_exception_group(board, args.code, args.group, args.resolution, by=args.by))
+
+
+def cmd_exception_review_resubmit(args: argparse.Namespace) -> int:
+    return _exception_review_transition(args, Action.EXCEPTION_REVIEW_RESUBMIT, lambda board: resubmit_exception_group(board, args.code, args.group, by=args.by))
+
+
+def cmd_exception_review_close(args: argparse.Namespace) -> int:
+    return _exception_review_transition(args, Action.EXCEPTION_REVIEW_CLOSE, lambda board: close_exception_group(board, args.code, args.group, by=args.by))
+
+
+def cmd_exception_review_ageing(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.EXCEPTION_REVIEW_AGEING)) is not None:
+        return code
+    report = ageing_report(Path(args.exceptions))
+    if args.json:
+        print(json.dumps([r.to_dict() for r in report], indent=2))
+    else:
+        print(render_ageing_markdown(report))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1664,6 +1745,52 @@ def build_parser() -> argparse.ArgumentParser:
     gepe.add_argument("--out", required=True, help="path to write the PDF to")
     gepe.add_argument("--role", help="when given, checked against gate-evidence-pack.export before proceeding")
     gepe.set_defaults(func=cmd_gate_evidence_pack_export)
+
+    er = sub.add_parser("exception-review", help="exceptions grouped by cause, moved through new -> suggested -> approved -> resubmitted -> closed, plus an ageing report by code")
+    ersub = er.add_subparsers(dest="exception_review_command", required=True)
+
+    def _add_board_args(p):
+        p.add_argument("--board", required=True, help="path to the exception review board (created on first write)")
+        p.add_argument("--report", help="path to a real Exception Triage report.json; when given, every new suggestion group it names is synced onto the board before anything else runs")
+
+    ers = ersub.add_parser("show", help="every tracked exception group, grouped by cause")
+    _add_board_args(ers)
+    ers.add_argument("--role", help="when given, checked against exception-review.show (every role may read)")
+    ers.add_argument("--json", action="store_true")
+    ers.set_defaults(func=cmd_exception_review_show)
+
+    def _add_transition_args(p):
+        _add_board_args(p)
+        p.add_argument("--code", required=True, help="the exception group's own rejection_code")
+        p.add_argument("--group", required=True, help="the exception group's own group_key")
+        p.add_argument("--by", required=True, help="who made this change")
+
+    era = ersub.add_parser("accept", help="accept a suggested resolution -- suggested -> approved")
+    _add_transition_args(era)
+    era.add_argument("--role", help="when given, checked against exception-review.accept before proceeding")
+    era.set_defaults(func=cmd_exception_review_accept)
+
+    ere = ersub.add_parser("edit", help="correct an approved group's own resolution text before resubmitting")
+    _add_transition_args(ere)
+    ere.add_argument("--resolution", required=True, help="the corrected resolution text")
+    ere.add_argument("--role", help="when given, checked against exception-review.edit before proceeding")
+    ere.set_defaults(func=cmd_exception_review_edit)
+
+    err = ersub.add_parser("resubmit", help="approved -> resubmitted -- no live re-run capability exists in this environment; tracked honestly, not run")
+    _add_transition_args(err)
+    err.add_argument("--role", help="when given, checked against exception-review.resubmit before proceeding")
+    err.set_defaults(func=cmd_exception_review_resubmit)
+
+    erc = ersub.add_parser("close", help="resubmitted -> closed -- the manual queue shrinks by one")
+    _add_transition_args(erc)
+    erc.add_argument("--role", help="when given, checked against exception-review.close before proceeding")
+    erc.set_defaults(func=cmd_exception_review_close)
+
+    era2 = ersub.add_parser("ageing", help="how long the oldest still-open exception of each code has been open")
+    era2.add_argument("--exceptions", required=True, help="a CSV of exception rows (the CDM Exception entity's own columns, the same file Exception Triage itself reads)")
+    era2.add_argument("--role", help="when given, checked against exception-review.ageing (every role may read)")
+    era2.add_argument("--json", action="store_true")
+    era2.set_defaults(func=cmd_exception_review_ageing)
 
     return parser
 

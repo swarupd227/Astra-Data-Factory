@@ -76,6 +76,13 @@ assembling and exporting a report is a read, available to every role. `gate-evid
 assemble and export a gate's own pack, and exporting a PDF to a caller-given path is no more a
 factory-state write than exporting a CSV (`audit-log.export`) or a weekly report
 (`throughput-metrics.export`) already were; both reads, available to every role.
+`exception-review.show`/`exception-review.ageing` (S6.2.5, closing F6.2) are two more reads, no
+write gate; `exception-review.accept`/`edit`/`resubmit`/`close` are real writes to this plane's own
+shared exception review board, granted to ops and BSA together — its own "reconciliation
+operator" actor is `docs/ux/personas.md`'s own renaming of the product spec's "ops / business
+analyst" persona, and `astra_control.queue`'s own `KIND_ROLES[QueueItemKind.EXCEPTION]` already
+anticipated both roles sharing this exact screen, the same shape `drift-review.approve` (S6.3.9)
+already established for a queue-anticipated joint grant.
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -169,6 +176,12 @@ class Action(Enum):
     THROUGHPUT_METRICS_EXPORT = "throughput-metrics.export"
     GATE_EVIDENCE_PACK_SHOW = "gate-evidence-pack.show"
     GATE_EVIDENCE_PACK_EXPORT = "gate-evidence-pack.export"
+    EXCEPTION_REVIEW_SHOW = "exception-review.show"
+    EXCEPTION_REVIEW_ACCEPT = "exception-review.accept"
+    EXCEPTION_REVIEW_EDIT = "exception-review.edit"
+    EXCEPTION_REVIEW_RESUBMIT = "exception-review.resubmit"
+    EXCEPTION_REVIEW_CLOSE = "exception-review.close"
+    EXCEPTION_REVIEW_AGEING = "exception-review.ageing"
 
 
 READ_ACTIONS = (
@@ -203,6 +216,8 @@ READ_ACTIONS = (
     Action.THROUGHPUT_METRICS_EXPORT,
     Action.GATE_EVIDENCE_PACK_SHOW,
     Action.GATE_EVIDENCE_PACK_EXPORT,
+    Action.EXCEPTION_REVIEW_SHOW,
+    Action.EXCEPTION_REVIEW_AGEING,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 
@@ -210,9 +225,9 @@ WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 # actor (module docstring). Reads are added to every role uniformly, below.
 _WRITE_PERMISSIONS: dict[Role, frozenset[Action]] = {
     Role.STEWARD: frozenset({Action.RULE_REVIEW_SET_STATUS, Action.RULE_REVIEW_BULK_CONFIRM, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT, Action.DRIFT_REVIEW_APPROVE, Action.APPROVALS_APPROVE, Action.APPROVALS_REJECT}),
-    Role.BSA: frozenset({Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT}),
+    Role.BSA: frozenset({Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.AGENT_REVIEW_ACCEPT, Action.AGENT_REVIEW_REJECT, Action.EXCEPTION_REVIEW_ACCEPT, Action.EXCEPTION_REVIEW_EDIT, Action.EXCEPTION_REVIEW_RESUBMIT, Action.EXCEPTION_REVIEW_CLOSE}),
     Role.ENGINEER: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.DRIFT_REVIEW_APPROVE, Action.GIT_PROVENANCE_COMMIT}),
-    Role.OPS: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.NOTIFICATION_PREFERENCES_SET_THRESHOLD}),
+    Role.OPS: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.CONFIG_STUDIO_START, Action.CONFIG_STUDIO_ADVANCE, Action.CONFIG_STUDIO_REQUEST_PROMOTION, Action.NOTIFICATION_PREFERENCES_SET_THRESHOLD, Action.EXCEPTION_REVIEW_ACCEPT, Action.EXCEPTION_REVIEW_EDIT, Action.EXCEPTION_REVIEW_RESUBMIT, Action.EXCEPTION_REVIEW_CLOSE}),
     Role.PM: frozenset({Action.BOARD_ADD, Action.BOARD_MOVE, Action.BOARD_SET_WIP_LIMIT, Action.AUTONOMY_ADMIN_SET_LEVEL, Action.AUTONOMY_ADMIN_REQUEST_WHITELIST_CHANGE}),
     Role.AUDITOR: frozenset(),
 }

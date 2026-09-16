@@ -95,6 +95,19 @@ approvals log rather than the pack's own snapshot, the two shown side by side an
 exported as the first real PDF this codebase writes — criteria, their evidence and every
 approval — verified in its own tests by reading the produced bytes back with `pdfplumber`, already
 a real dependency here for Spec Reader's own input parsing, rather than trusting the writer alone.
+And, closing feature F6.2, the ops exception UI (S6.2.5) — Exception Triage's own real suggestion
+groups (`report.json`, read directly, never imported) moved through new -> suggested -> approved
+-> resubmitted -> closed on a full-state card with its own history, the same shape
+`astra_control.board.CustodianCard` already established; "new" and "suggested" fall straight out
+of whether a real taxonomy resolution already exists for the code, never an invented vocabulary,
+and this screen's own workflow status is kept deliberately separate from the CDM's differently
+-shaped, per-record `Exception.STATUS` column. Deliberately scoped at the same suggestion-group
+granularity `astra_control.queue` already uses, not per-exception-id — a real per-exception store
+is its own later story (the backlog's own S7.1.4). `resubmit` records its own transition honestly:
+no callable single-record re-run exists anywhere in this codebase, so nothing is silently faked as
+having run. An ageing report by code reads the real per-exception `raised_at` timestamps straight
+off the same `exceptions.csv` Exception Triage itself reads — the only place that real timestamp
+exists, since Exception Triage's own report never carries it forward.
 No live Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins
 for the store E6 will eventually have (astra_control.board's own module docstring).
 """
@@ -344,6 +357,25 @@ from astra_control.gate_evidence_pack import (
     write_pdf as write_gate_evidence_pdf,
 )
 from astra_control.gate_evidence_pack import render_markdown as render_gate_evidence_pack_markdown
+from astra_control.exception_review import (
+    STATUSES as EXCEPTION_REVIEW_STATUSES,
+    AgeingByCode,
+    ExceptionGroup,
+    ExceptionReviewError,
+    ReviewBoard,
+    ReviewCard,
+    ReviewTransition,
+    accept as accept_exception_group,
+    ageing_report,
+    close as close_exception_group,
+    edit as edit_exception_group,
+    groups_from as exception_groups_from,
+    load_review_board,
+    resubmit as resubmit_exception_group,
+    save_review_board,
+    sync as sync_exception_review,
+)
+from astra_control.exception_review import render_ageing_markdown, render_markdown as render_exception_review_markdown
 
 __all__ = [
     "ACCEPTED_STATUS",
@@ -351,6 +383,7 @@ __all__ = [
     "COUNTED_STATUSES",
     "CSV_COLUMNS",
     "DEFAULT_LEVEL",
+    "EXCEPTION_REVIEW_STATUSES",
     "KIND_ROLES",
     "L3_ACCEPTANCE_THRESHOLD",
     "L3_MINIMUM_SAMPLE",
@@ -370,6 +403,7 @@ __all__ = [
     "TIERS",
     "WRITE_ACTIONS",
     "Action",
+    "AgeingByCode",
     "AgentReviewError",
     "Approval",
     "ApprovalError",
@@ -400,6 +434,8 @@ __all__ = [
     "DriftReviewError",
     "Edited",
     "Evidence",
+    "ExceptionGroup",
+    "ExceptionReviewError",
     "ExpectedFile",
     "FieldChange",
     "FieldDiff",
@@ -424,7 +460,10 @@ __all__ = [
     "QueueSources",
     "RecordPair",
     "Rejection",
+    "ReviewBoard",
+    "ReviewCard",
     "ReviewItem",
+    "ReviewTransition",
     "Role",
     "RoleMapping",
     "RuleEntry",
@@ -441,9 +480,11 @@ __all__ = [
     "TrendPoint",
     "WhitelistRequest",
     "accept_agent_review",
+    "accept_exception_group",
     "acceptance_by_custodian_day",
     "add_custodian",
     "advance",
+    "ageing_report",
     "apply_drift_findings",
     "approvals_from",
     "approve",
@@ -463,6 +504,7 @@ __all__ = [
     "bulk_confirm",
     "change_status",
     "citation_link",
+    "close_exception_group",
     "commit_approval",
     "compare_specs",
     "counts_by_kind",
@@ -471,8 +513,10 @@ __all__ = [
     "drift_approvals_from",
     "drift_from",
     "edit_citation",
+    "edit_exception_group",
     "edit_text",
     "every_current_level",
+    "exception_groups_from",
     "exceptions_from",
     "field_list",
     "filter_records",
@@ -493,6 +537,7 @@ __all__ = [
     "load_promotion_requests",
     "load_registry",
     "load_rejections",
+    "load_review_board",
     "load_role_mapping",
     "load_run",
     "load_spec",
@@ -508,6 +553,7 @@ __all__ = [
     "reject",
     "reject_agent_review",
     "rejection_codes",
+    "render_ageing_markdown",
     "render_agent_review_diff_markdown",
     "render_agent_review_markdown",
     "render_approvals_markdown",
@@ -520,6 +566,7 @@ __all__ = [
     "render_dashboard_markdown",
     "render_diff_markdown",
     "render_drift_markdown",
+    "render_exception_review_markdown",
     "render_field_list",
     "render_gate_evidence_pack_markdown",
     "render_gate_evidence_pdf",
@@ -544,12 +591,14 @@ __all__ = [
     "request_promotion",
     "request_whitelist_change",
     "require",
+    "resubmit_exception_group",
     "review",
     "review_drift",
     "rule_entry",
     "rule_recovery_item",
     "rule_status_changes_from",
     "save_board",
+    "save_review_board",
     "save_settings",
     "set_custodian_threshold",
     "set_level",
@@ -557,6 +606,7 @@ __all__ = [
     "set_wip_limit",
     "spec_citation_link",
     "start",
+    "sync_exception_review",
     "to_csv",
     "verify_committed",
     "whitelisted_codes",

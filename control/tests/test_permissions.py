@@ -182,6 +182,31 @@ def test_gate_evidence_pack_adds_only_read_actions():
             assert authorized(role, action)
 
 
+def test_exception_review_show_and_ageing_are_read_actions():
+    """S6.2.5's own story adds two reads -- seeing the board and the ageing report needs no
+    special grant, the same shape every other viewer in this plane already has."""
+    read_actions = {Action.EXCEPTION_REVIEW_SHOW, Action.EXCEPTION_REVIEW_AGEING}
+    assert read_actions <= set(READ_ACTIONS)
+    assert read_actions & set(WRITE_ACTIONS) == set()
+    for action in read_actions:
+        for role in Role:
+            assert authorized(role, action)
+
+
+def test_exception_review_writes_are_granted_to_ops_and_bsa_only():
+    """S6.2.5's own actor -- "a reconciliation operator" -- is docs/ux/personas.md's own renaming
+    of the product spec's "ops / business analyst" persona; astra_control.queue's own
+    KIND_ROLES[QueueItemKind.EXCEPTION], written before this story, already anticipated both roles
+    sharing this exact screen, the same shape S6.3.9's own DRIFT grant already established."""
+    write_actions = {Action.EXCEPTION_REVIEW_ACCEPT, Action.EXCEPTION_REVIEW_EDIT, Action.EXCEPTION_REVIEW_RESUBMIT, Action.EXCEPTION_REVIEW_CLOSE}
+    assert write_actions <= set(WRITE_ACTIONS)
+    for action in write_actions:
+        assert authorized(Role.OPS, action)
+        assert authorized(Role.BSA, action)
+        for role in (Role.STEWARD, Role.ENGINEER, Role.PM, Role.AUDITOR):
+            assert not authorized(role, action)
+
+
 def test_git_provenance_commit_is_granted_to_engineer_only():
     """S6.2.2's own actor is "a data engineer" -- Role.ENGINEER."""
     assert authorized(Role.ENGINEER, Action.GIT_PROVENANCE_COMMIT)
