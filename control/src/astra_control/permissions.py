@@ -71,7 +71,11 @@ is "a data engineer," and the action itself (turning an already-made approval in
 commit) is a mechanical, deterministic step, not a second review a steward would perform.
 `throughput-metrics.show`/`throughput-metrics.export` (S6.2.3) add two more reads and no write —
 its own actor, "a project manager," is real (`Role.PM`), but nothing here mutates anything;
-assembling and exporting a report is a read, available to every role.
+assembling and exporting a report is a read, available to every role. `gate-evidence-pack.show`/
+`gate-evidence-pack.export` (S6.2.4) are the same shape again — "a project manager" wanting to
+assemble and export a gate's own pack, and exporting a PDF to a caller-given path is no more a
+factory-state write than exporting a CSV (`audit-log.export`) or a weekly report
+(`throughput-metrics.export`) already were; both reads, available to every role.
 
 Real SSO — redirecting to the client's own identity provider, validating a SAML assertion or an
 OIDC token's signature — needs a live IdP this module cannot honestly promise in every
@@ -163,6 +167,8 @@ class Action(Enum):
     GIT_PROVENANCE_VERIFY = "git-provenance.verify"
     THROUGHPUT_METRICS_SHOW = "throughput-metrics.show"
     THROUGHPUT_METRICS_EXPORT = "throughput-metrics.export"
+    GATE_EVIDENCE_PACK_SHOW = "gate-evidence-pack.show"
+    GATE_EVIDENCE_PACK_EXPORT = "gate-evidence-pack.export"
 
 
 READ_ACTIONS = (
@@ -195,6 +201,8 @@ READ_ACTIONS = (
     Action.GIT_PROVENANCE_VERIFY,
     Action.THROUGHPUT_METRICS_SHOW,
     Action.THROUGHPUT_METRICS_EXPORT,
+    Action.GATE_EVIDENCE_PACK_SHOW,
+    Action.GATE_EVIDENCE_PACK_EXPORT,
 )
 WRITE_ACTIONS = tuple(a for a in Action if a not in READ_ACTIONS)
 

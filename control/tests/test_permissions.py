@@ -170,6 +170,18 @@ def test_throughput_metrics_adds_only_read_actions():
             assert authorized(role, action)
 
 
+def test_gate_evidence_pack_adds_only_read_actions():
+    """S6.2.4's own story adds two actions and no write -- assembling and exporting a PDF pack is
+    a read, available to every role, the same shape S6.2.3's own report export already has, even
+    though its own actor (project manager) is a real role."""
+    pack_actions = {Action.GATE_EVIDENCE_PACK_SHOW, Action.GATE_EVIDENCE_PACK_EXPORT}
+    assert pack_actions <= set(READ_ACTIONS)
+    assert pack_actions & set(WRITE_ACTIONS) == set()
+    for action in pack_actions:
+        for role in Role:
+            assert authorized(role, action)
+
+
 def test_git_provenance_commit_is_granted_to_engineer_only():
     """S6.2.2's own actor is "a data engineer" -- Role.ENGINEER."""
     assert authorized(Role.ENGINEER, Action.GIT_PROVENANCE_COMMIT)

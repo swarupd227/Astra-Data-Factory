@@ -9,11 +9,13 @@ dependencies = [
   "astra-data",
   "astra-verification",
   "pyyaml>=6.0",
+  "reportlab>=4.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8",
+  "pdfplumber>=0.11",
 ]
 
 [project.scripts]

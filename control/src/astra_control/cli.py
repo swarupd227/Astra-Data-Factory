@@ -8,7 +8,7 @@ parity-viewer trend|breaks|records|record`, `astra-control run-status show|dashb
 `astra-control audit-log show|export`, `astra-control autonomy-admin show-levels|set-level|
 show-whitelist|request-whitelist-change|show-whitelist-requests` and `astra-control
 notification-preferences show|set|show-thresholds|set-threshold|reaches` and `astra-control
-approvals approve|reject|show` and `astra-control git-provenance commit|verify` and `astra-control throughput-metrics show|export`.
+approvals approve|reject|show` and `astra-control git-provenance commit|verify` and `astra-control throughput-metrics show|export` and `astra-control gate-evidence-pack show|export`.
 
 No credentials, no live Postgres: `board.yaml` and the promotion-requests log (named on every
 command with `--board`/`--requests`) are the whole state, read fresh and rewritten on every
@@ -106,6 +106,12 @@ CLI that actually mutates git history).
 `throughput-metrics show|export` are always 0 unless a `--cost` triple is malformed, a given
 `--agent-eval-weekly` file cannot be read, or the role check fails (2) — both are reads; nothing
 here mutates anything.
+`gate-evidence-pack show` is 0 unless the given `--gate-pack` does not exist or is not real JSON,
+or the role check fails (2); 1 when at least one criterion is NOT MET (a real condition to look
+at, the same shape `board show` already uses for a stream over its limit). `gate-evidence-pack
+export` is the same, plus 2 when the given `--out` path cannot be written — both are reads; a PDF
+exported to a caller-given path is no more a factory-state write than a CSV or a weekly report
+already were (`astra_control.gate_evidence_pack`'s own module docstring).
 """
 
 from __future__ import annotations
@@ -156,6 +162,7 @@ from astra_control.approvals import render_approvals_markdown, render_rejections
 from astra_control.git_provenance import GitProvenanceError, commit_approval, verify_committed
 from astra_control.git_provenance import render_commit_markdown, render_verify_markdown
 from astra_control.throughput_metrics import build_report, render_markdown as render_throughput_markdown, write_report
+from astra_control.gate_evidence_pack import GateEvidencePackError, build_pack as build_gate_evidence_pack, render_markdown as render_gate_evidence_pack_markdown, write_pdf as write_gate_evidence_pdf
 from astra_control.audit_log import render_markdown as render_audit_log_markdown
 
 
@@ -1087,6 +1094,38 @@ def cmd_throughput_metrics_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gate_evidence_pack_show(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.GATE_EVIDENCE_PACK_SHOW)) is not None:
+        return code
+    try:
+        pack = build_gate_evidence_pack(Path(args.gate_pack), Path(args.approvals) if args.approvals else None)
+    except GateEvidencePackError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(pack.to_dict(), indent=2))
+    else:
+        print(render_gate_evidence_pack_markdown(pack))
+    return 0 if pack.all_met else 1
+
+
+def cmd_gate_evidence_pack_export(args: argparse.Namespace) -> int:
+    if (code := _check(args, Action.GATE_EVIDENCE_PACK_EXPORT)) is not None:
+        return code
+    try:
+        pack = build_gate_evidence_pack(Path(args.gate_pack), Path(args.approvals) if args.approvals else None)
+    except GateEvidencePackError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        out = write_gate_evidence_pdf(pack, Path(args.out))
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"exported: {out}")
+    return 0 if pack.all_met else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="astra-control", description="Astra Data Factory control plane.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1606,6 +1645,25 @@ def build_parser() -> argparse.ArgumentParser:
     tme.add_argument("--out", required=True, help="directory to write weekly.md/weekly.json into")
     tme.add_argument("--role", help="when given, checked against throughput-metrics.export before proceeding")
     tme.set_defaults(func=cmd_throughput_metrics_export)
+
+    gep = sub.add_parser("gate-evidence-pack", help="a gate's own criteria, evidence and approvals assembled into one exportable pack")
+    gepsub = gep.add_subparsers(dest="gate_evidence_pack_command", required=True)
+
+    def _add_gate_evidence_pack_args(p):
+        p.add_argument("--gate-pack", required=True, help="path to a gate_pack.json (astra_agents.gate_evidence_compiler's own GatePack.to_dict() shape)")
+        p.add_argument("--approvals", help="path to the gate's own approvals log (astra_agents.gate_evidence_compiler.record_approval's own shape); omitted, no approvals are shown")
+
+    geps = gepsub.add_parser("show", help="the pack: every criterion, its evidence, and every real approval for this release")
+    _add_gate_evidence_pack_args(geps)
+    geps.add_argument("--role", help="when given, checked against gate-evidence-pack.show (every role may read)")
+    geps.add_argument("--json", action="store_true")
+    geps.set_defaults(func=cmd_gate_evidence_pack_show)
+
+    gepe = gepsub.add_parser("export", help="the pack, rendered to a real PDF -- criteria, evidence and approvals")
+    _add_gate_evidence_pack_args(gepe)
+    gepe.add_argument("--out", required=True, help="path to write the PDF to")
+    gepe.add_argument("--role", help="when given, checked against gate-evidence-pack.export before proceeding")
+    gepe.set_defaults(func=cmd_gate_evidence_pack_export)
 
     return parser
 

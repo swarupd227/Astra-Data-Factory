@@ -87,8 +87,15 @@ separately in one report rather than conflated the way the product spec's own AP
 cost per custodian per day shown only when a caller supplies it, since no query-tag mechanism
 exists anywhere in this repository to compute one — assembled into one weekly Markdown and JSON
 report for the client's own reporting cadence, the same `weekly.md`/`weekly.json` convention
-`astra_verification.agent_eval.write_weekly_report` already established. No live Postgres
-yet: `board.yaml` and the promotion-requests log are real, working stand-ins
+`astra_verification.agent_eval.write_weekly_report` already established. And the gate evidence
+pack (S6.2.4) — a gate's own criteria and evidence read straight off `gate_pack.json`
+(`astra_agents.gate_evidence_compiler`'s own shape, read directly, never imported) exactly as
+compiled, paired with every real approval recorded for that release read fresh off its own
+approvals log rather than the pack's own snapshot, the two shown side by side and never conflated;
+exported as the first real PDF this codebase writes — criteria, their evidence and every
+approval — verified in its own tests by reading the produced bytes back with `pdfplumber`, already
+a real dependency here for Spec Reader's own input parsing, rather than trusting the writer alone.
+No live Postgres yet: `board.yaml` and the promotion-requests log are real, working stand-ins
 for the store E6 will eventually have (astra_control.board's own module docstring).
 """
 
@@ -326,6 +333,17 @@ from astra_control.throughput_metrics import (
     write_report as write_throughput_report,
 )
 from astra_control.throughput_metrics import render_markdown as render_throughput_markdown
+from astra_control.gate_evidence_pack import (
+    CriterionEvidence,
+    GateApprovalRecord,
+    GateEvidencePack,
+    GateEvidencePackError,
+    build_pack as build_gate_evidence_pack,
+    gate_approvals_for,
+    render_pdf as render_gate_evidence_pdf,
+    write_pdf as write_gate_evidence_pdf,
+)
+from astra_control.gate_evidence_pack import render_markdown as render_gate_evidence_pack_markdown
 
 __all__ = [
     "ACCEPTED_STATUS",
@@ -368,6 +386,7 @@ __all__ = [
     "ChangeRequest",
     "Commit",
     "ConfigStudioError",
+    "CriterionEvidence",
     "CustodianCard",
     "CustodianDayAcceptance",
     "CustodianDayCost",
@@ -387,6 +406,9 @@ __all__ = [
     "FieldEntry",
     "FileStage",
     "Gap",
+    "GateApprovalRecord",
+    "GateEvidencePack",
+    "GateEvidencePackError",
     "GitProvenanceError",
     "GoldenCalendar",
     "GoldenViewerError",
@@ -432,6 +454,7 @@ __all__ = [
     "breaks_from",
     "build_custodian_page",
     "build_dashboard",
+    "build_gate_evidence_pack",
     "build_golden_calendar",
     "build_provenance",
     "build_queue",
@@ -455,6 +478,7 @@ __all__ = [
     "filter_records",
     "filter_rules",
     "for_role",
+    "gate_approvals_for",
     "gate_approvals_from",
     "guardrail_changes_from",
     "identical_rules",
@@ -497,6 +521,8 @@ __all__ = [
     "render_diff_markdown",
     "render_drift_markdown",
     "render_field_list",
+    "render_gate_evidence_pack_markdown",
+    "render_gate_evidence_pdf",
     "render_golden_calendar_markdown",
     "render_levels_markdown",
     "render_markdown",
@@ -535,6 +561,7 @@ __all__ = [
     "verify_committed",
     "whitelisted_codes",
     "write_csv",
+    "write_gate_evidence_pdf",
     "write_provenance",
     "write_review",
     "write_throughput_report",
