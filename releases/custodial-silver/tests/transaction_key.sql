@@ -1,0 +1,5 @@
+-- Transaction: the key (CUSTODIAN_ID, TRANSACTION_ID) identifies one row. Returns keys with more than one row.
+SELECT "CUSTODIAN_ID", "TRANSACTION_ID", COUNT(*) AS ROW_COUNT
+FROM {{ DATABASE }}."SILVER"."TRANSACTION"
+GROUP BY "CUSTODIAN_ID", "TRANSACTION_ID"
+HAVING COUNT(*) > 1;

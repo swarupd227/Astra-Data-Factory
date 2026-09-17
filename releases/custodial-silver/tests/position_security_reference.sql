@@ -1,0 +1,5 @@
+-- Position -> Security: (SECURITY_ID) must exist in SECURITY. Returns rows with no match.
+SELECT e."CUSTODIAN_ID", e."ACCOUNT_NUMBER", e."SECURITY_ID", e."AS_OF_DATE"
+FROM {{ DATABASE }}."SILVER"."POSITION" AS e
+LEFT JOIN {{ DATABASE }}."SILVER"."SECURITY" AS r ON r."SECURITY_ID" = e."SECURITY_ID"
+WHERE r."SECURITY_ID" IS NULL;

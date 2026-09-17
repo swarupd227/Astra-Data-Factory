@@ -1,0 +1,5 @@
+-- Price: the key (SECURITY_ID, PRICE_DATE, PRICE_SOURCE) identifies one row. Returns keys with more than one row.
+SELECT "SECURITY_ID", "PRICE_DATE", "PRICE_SOURCE", COUNT(*) AS ROW_COUNT
+FROM {{ DATABASE }}."SILVER"."PRICE"
+GROUP BY "SECURITY_ID", "PRICE_DATE", "PRICE_SOURCE"
+HAVING COUNT(*) > 1;

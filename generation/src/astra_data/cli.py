@@ -22,6 +22,7 @@ from astra_data.custodians import custodians_from_configs, sync, sync_statements
 from astra_data.lint import lint_bundles
 from astra_data.migration import PHASES, load_run_bundle, plan as migration_plan, run_migration, validate_paths as validate_migrations
 from astra_data.gold import bundle_name as gold_bundle_name, check_bundle as check_gold_bundle, packs_with_read_models, write_bundle as write_gold_bundle
+from astra_data.silver import bundle_name as silver_bundle_name, check_bundle as check_silver_bundle, packs_with_cdm, write_bundle as write_silver_bundle
 from astra_data.reference_data import bundle_name, check_bundle, packs_with_reference_data, sync as sync_reference_feeds, sync_statements as reference_feed_statements, write_bundle
 from astra_data.rejections import sync as sync_rejections, sync_statements as rejection_statements, taxonomies_from_packs
 from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExecutor, connect
@@ -463,6 +464,30 @@ def cmd_gold_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_silver_render(args: argparse.Namespace) -> int:
+    packs, problems = packs_with_cdm(args.domains, root=Path(args.root), domain=args.domain)
+    if problems:
+        _print_problems(problems, args.format)
+        return 1
+    if not packs:
+        _summary("no domain pack declares a CDM model", args.format)
+        return 0
+    releases = Path(args.releases)
+    if args.check:
+        problems = [p for pack in packs for p in check_silver_bundle(pack, releases, Path(args.root))]
+        if problems:
+            _print_problems(problems, args.format)
+            _summary(f"{len(problems)} Silver bundle file{'s' if len(problems) != 1 else ''} out of date; run astra-data silver render and commit the result", args.format)
+            return 1
+        _summary(f"Silver bundles are current for {len(packs)} domain pack{'s' if len(packs) != 1 else ''}", args.format)
+        return 0
+    for pack in packs:
+        root = write_silver_bundle(pack, releases)
+        entities = len(pack.latest.entities)
+        _summary(f"rendered {silver_bundle_name(pack)}: {entities} entit{'y' if entities == 1 else 'ies'} (model {pack.latest.version}) -> {_rel(root, Path(args.root))}", args.format)
+    return 0
+
+
 def cmd_reference_sync(args: argparse.Namespace) -> int:
     packs, problems = packs_with_reference_data(args.domains, root=Path(args.root), domain=args.domain)
     if problems:
@@ -593,6 +618,15 @@ def build_parser() -> argparse.ArgumentParser:
     gr.add_argument("--releases", default="releases", help="bundles directory (default: releases)")
     gr.add_argument("--check", action="store_true")
     gr.set_defaults(func=cmd_gold_render)
+
+    sv = sub.add_parser("silver", help="Silver CDM on Iceberg: render each domain pack's canonical model as a release bundle")
+    svsub = sv.add_subparsers(dest="silver_command", required=True)
+    svr = svsub.add_parser("render", help="write releases/<pack>-silver/ from the pack's current CDM model version; --check fails when it is stale")
+    svr.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
+    svr.add_argument("--domain", help="one domain pack (default: all)")
+    svr.add_argument("--releases", default="releases", help="bundles directory (default: releases)")
+    svr.add_argument("--check", action="store_true")
+    svr.set_defaults(func=cmd_silver_render)
 
     mg = sub.add_parser("migrate", help="historical migration with SnowConvert AI: validate migration files, plan the commands, run the phases and store the results with the release")
     mgsub = mg.add_subparsers(dest="migrate_command", required=True)

@@ -1,0 +1,11 @@
+# Silver CDM tables of the custodial domain pack, model version 1.0. Rendered by astra-data silver
+# render from domains/custodial/cdm/1.0.yaml -- the same DDL and tests astra-spec cdm render already
+# writes under cdm/rendered/1.0/, wrapped as a release bundle; the version is a digest of the rendered
+# files. Do not edit.
+bundle: custodial-silver
+version: "cd892c5ece54"
+source: custodial_silver
+steps:
+  - ddl/silver_tables.sql
+tests:
+  - tests/*.sql

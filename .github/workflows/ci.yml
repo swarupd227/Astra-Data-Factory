@@ -127,6 +127,9 @@ jobs:
       - name: Check that the Gold bundles are rendered and current
         run: astra-data --format github gold render --check
 
+      - name: Check that the Silver bundles are rendered and current
+        run: astra-data --format github silver render --check
+
   core:
     name: astra-core tests
     runs-on: ubuntu-latest
