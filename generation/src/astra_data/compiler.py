@@ -128,11 +128,24 @@ class PriceResolution:
 
 
 @dataclass(frozen=True)
+class OrphanPolicy:
+    """How long a held row (any resolution above) may wait for the reference data it needs
+    before it counts as an aged orphan rather than a routine one -- never how the row is held;
+    every resolution failure is always held, never silently dropped (S7.1.3, ADR 0077)."""
+
+    grace_hours: int = 24
+
+
+DEFAULT_ORPHAN_POLICY = OrphanPolicy()
+
+
+@dataclass(frozen=True)
 class Resolution:
     account: AccountResolution | None = None
     security: SecurityResolution | None = None
     transaction_code: TransactionCodeResolution | None = None
     price: PriceResolution | None = None
+    orphan_policy: OrphanPolicy = DEFAULT_ORPHAN_POLICY
 
     @property
     def any(self) -> bool:
@@ -144,6 +157,7 @@ class Resolution:
             "security": {"feed": self.security.feed.id, "by": [{"identifier": b.identifier, "source": b.source.name} for b in self.security.by], "require_active": self.security.require_active, "not_found": self.security.not_found, "ambiguous": self.security.ambiguous, "inactive": self.security.inactive} if self.security else None,
             "transaction_code": {"source": self.transaction_code.source.name, "map": dict(self.transaction_code.map), "unmapped": self.transaction_code.unmapped} if self.transaction_code else None,
             "price": {"when": self.price.when, "lookback_days": self.price.lookback_days, "price_type": self.price.price_type, "missing": self.price.missing} if self.price else None,
+            "orphan_policy": {"grace_hours": self.orphan_policy.grace_hours},
         }
 
 
@@ -487,7 +501,11 @@ def _resolution(data: LineDict, display: str, spec: SourceSpec, pack: DomainPack
         block = raw["price"]
         price = PriceResolution(block["when"], int(block.get("lookback_days", 5)), str(block.get("price_type", "CLOSE")), _code(data, display, pack, ["resolution", "price", "missing"], block.get("missing", "PRICE_MISSING"), problems))
 
-    return Resolution(account, security, transaction_code, price)
+    orphan_policy = DEFAULT_ORPHAN_POLICY
+    if "orphan_policy" in raw:
+        orphan_policy = OrphanPolicy(int(raw["orphan_policy"].get("grace_hours", DEFAULT_ORPHAN_POLICY.grace_hours)))
+
+    return Resolution(account, security, transaction_code, price, orphan_policy)
 
 
 def provided_columns(entity: Entity, model: Model, resolution: Resolution) -> set[str]:

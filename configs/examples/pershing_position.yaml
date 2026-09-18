@@ -47,7 +47,10 @@ mappings:
 
 # Custodian identifiers become platform identifiers by joining the replicated
 # reference data (domains/custodial/reference-data.yaml); what cannot be
-# resolved becomes an exception with the code named here.
+# resolved becomes an exception with the code named here and the row is held,
+# never dropped (Loader parity, ADR 0022). orphan_policy names how long, for
+# this custodian, a held row may wait before it is an aged orphan rather than
+# a routine one (S7.1.3, ADR 0077) -- it never changes whether the row holds.
 resolution:
   account:
     source: account_number
@@ -58,6 +61,8 @@ resolution:
   price:
     when: missing
     lookback_days: 5
+  orphan_policy:
+    grace_hours: 24
 
 # Rule catalog entries this config depends on (rules/<group>/<name>.yaml).
 # The catalog holds the rule's text, citation, owner and status; a rejected

@@ -172,6 +172,14 @@
             "price_type": { "type": "string", "minLength": 1, "default": "CLOSE" },
             "missing": { "$ref": "#/$defs/rejection_code", "description": "Raised when no price is found within the lookback (default PRICE_MISSING)." }
           }
+        },
+        "orphan_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A held row (any resolution above) is never dropped -- this only names how long, per this custodian, it may sit unresolved before it is a stale-orphan concern rather than a routine one, the same shape reference-data.yaml's own expected_every_hours already established for a feed's own freshness.",
+          "properties": {
+            "grace_hours": { "type": "integer", "minimum": 1, "default": 24, "description": "Hours a held row may wait for the reference data it needs before it counts as an aged orphan (default 24)." }
+          }
         }
       }
     },

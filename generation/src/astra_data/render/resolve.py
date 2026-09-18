@@ -26,19 +26,40 @@ implementation is the pattern library's Replica.resolve
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from astra_knowledge.cdm import Column, Entity
 
 from astra_core.problems import Problem
-from astra_data.compiler import CompiledConfig, CompiledMapping, provided_columns
+from astra_data.compiler import CompiledConfig, CompiledMapping, PriceResolution, provided_columns
 from astra_data.render.names import BRONZE, EXCEPTIONS, REFERENCE, SILVER, exceptions_table, lit, procedure, q, runs_table, silver_table
 
 
 def problems(compiled: CompiledConfig) -> list[Problem]:
     """A source that maps nothing has no resolve stage; a source that maps needs its merge (reported by the merge renderer)."""
     return []
+
+
+def resolve_price(prices: list[tuple[date, Decimal]], as_of: date, res: PriceResolution) -> Decimal | None:
+    """Mirrors `render_resolve`'s own price lookup exactly, in Python, so it can be seeded and
+    checked directly (the same "reference implementation checked against the rendered SQL" shape
+    `astra_knowledge.patterns.reference_data.Replica.resolve` already established for account and
+    security resolution, S7.1.3, ADR 0077): the most recent price within
+    `[as_of - lookback_days, as_of]`, or None (`PRICE_MISSING`) when none exists.
+    `prices` is a security's own price history as `(price_date, price)` pairs, unordered."""
+    window = [(d, p) for d, p in prices if as_of - timedelta(days=res.lookback_days) <= d <= as_of]
+    if not window:
+        return None
+    return max(window, key=lambda dp: dp[0])[1]
+
+
+def resolved_price(source_price: Decimal | None, prices: list[tuple[date, Decimal]], as_of: date, res: PriceResolution) -> Decimal | None:
+    """The full outcome `render_resolve` computes: the source's own price when `when: missing`
+    and it sent one, otherwise the lookback lookup (`resolve_price`) -- `None` is `PRICE_MISSING`."""
+    if res.when == "missing" and source_price is not None:
+        return source_price
+    return resolve_price(prices, as_of, res)
 
 
 def _constant_sql(column: Column, value) -> str:
@@ -207,7 +228,7 @@ CREATE OR REPLACE PROCEDURE {BRONZE}.{q(procedure(compiled, "RESOLVE"))}(RUN_ID 
 RETURNS INTEGER
 LANGUAGE SQL
 EXECUTE AS OWNER
-COMMENT = 'Resolves {source} into {entity.table}: {", ".join(k for k, v in (("account", res.account), ("security", res.security), ("transaction code", res.transaction_code), ("price", res.price)) if v) or "no resolution configured"}; exceptions to {exceptions_table(compiled)}.'
+COMMENT = 'Resolves {source} into {entity.table}: {", ".join(k for k, v in (("account", res.account), ("security", res.security), ("transaction code", res.transaction_code), ("price", res.price)) if v) or "no resolution configured"}; exceptions to {exceptions_table(compiled)}. A held row is never dropped; past {res.orphan_policy.grace_hours}h unresolved it is an aged orphan (ADR 0077).'
 AS
 $$
 DECLARE

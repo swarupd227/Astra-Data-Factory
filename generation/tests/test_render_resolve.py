@@ -1,8 +1,10 @@
-"""The resolution stage (S3.2.4)."""
+"""The resolution stage (S3.2.4). Orphan policy and seeded-data reproduction: S7.1.3, ADR 0077."""
 
 from __future__ import annotations
 
 import shutil
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -11,8 +13,9 @@ from astra_knowledge.cdm import load_packs
 from astra_knowledge.registry import Registry
 from astra_knowledge.rules import Catalog
 
-from astra_data.compiler import CompileError, compile_config
+from astra_data.compiler import CompileError, PriceResolution, compile_config
 from astra_data.render import render_bundle
+from astra_data.render.resolve import resolve_price, resolved_price
 from tests.test_validate import EXAMPLE, VALID
 
 REPO = EXAMPLE.parents[2]
@@ -157,3 +160,73 @@ def test_transaction_code_map_must_yield_canonical_types(tmp_path, inputs):
     with pytest.raises(CompileError) as excinfo:
         _transaction_config(tmp_path, inputs, tx_map="{ BUY: PURCHASE }")
     assert any("custodian code 'BUY' maps to 'PURCHASE', which is not a canonical transaction type" in p.message for p in excinfo.value.problems)
+
+
+# ---------------------------------------------------------------- orphan policy (S7.1.3, ADR 0077)
+
+
+def test_orphan_policy_defaults_to_24_hours_and_is_rendered_into_the_procedure_comment(resolve):
+    assert "past 24h unresolved it is an aged orphan (ADR 0077)" in resolve
+
+
+def test_orphan_policy_grace_hours_is_configurable_per_custodian(tmp_path, inputs):
+    compiled = _transaction_config(tmp_path, inputs)
+    assert compiled.resolution.orphan_policy.grace_hours == 24  # the default, unconfigured
+    assert compiled.to_dict()["resolution"]["orphan_policy"] == {"grace_hours": 24}
+
+    text = (tmp_path / "example_transactions.yaml").read_text(encoding="utf-8")
+    text = text.replace("resolution:\n  account:", "resolution:\n  orphan_policy:\n    grace_hours: 72\n  account:")
+    (tmp_path / "example_transactions.yaml").write_text(text, encoding="utf-8")
+    registry, problems = Registry.load(tmp_path / "specs", tmp_path)  # the tmp_path registry _transaction_config patched with a merge block
+    assert problems == []
+    _, catalog, packs = inputs
+    configured = compile_config(tmp_path / "example_transactions.yaml", registry=registry, catalog=catalog, packs=packs, root=tmp_path)
+    assert configured.resolution.orphan_policy.grace_hours == 72
+    sql = render_bundle(configured)["pipeline/example_transactions_resolve.sql"]
+    assert "past 72h unresolved it is an aged orphan (ADR 0077)" in sql
+
+
+def test_orphan_policy_never_changes_which_rows_are_held(resolve):
+    """A held row is always held -- the policy only names when it is an aged concern, never
+    whether it merges; this is what keeps Loader parity (never silently drop data) unconditional."""
+    assert 'WHERE NOT (' in resolve
+    hold = resolve[resolve.index("WHERE NOT ("):]
+    assert "grace_hours" not in hold and "24" not in hold and "ADR 0077" not in hold
+
+
+# ---------------------------------------------------------------- rejection codes reproduced on seeded data
+
+
+def test_transaction_code_reproduces_unmapped_and_every_real_mapping_on_seeded_codes(tmp_path, inputs):
+    """The compiled resolution.transaction_code.map IS the reference: it is the exact dict the
+    rendered VALUES table is built from (test_a_missing_transaction_code_mapping_raises_the_
+    configured_code, above), so seeding real custodian codes through it directly reproduces what
+    the rendered SQL's join would resolve each to -- no separate reimplementation needed."""
+    compiled = _transaction_config(tmp_path, inputs)
+    mapping = compiled.resolution.transaction_code.map
+    assert mapping.get("BUY") == "BUY" and mapping.get("SELL") == "SELL" and mapping.get("DIV") == "DIVIDEND" and mapping.get("DRIP") == "BUY"
+    assert mapping.get("ZZ") is None  # TRANSACTION_CODE_UNMAPPED: no mapping, held back
+    assert compiled.resolution.transaction_code.unmapped == "TRANSACTION_CODE_UNMAPPED"
+
+
+def test_price_resolves_the_most_recent_within_the_lookback_and_reproduces_price_missing():
+    res = PriceResolution(when="missing", lookback_days=5, price_type="CLOSE", missing="PRICE_MISSING")
+    as_of = date(2026, 9, 17)
+    history = [(date(2026, 9, 15), Decimal("101.50")), (date(2026, 9, 12), Decimal("99.00"))]
+
+    assert resolve_price(history, as_of, res) == Decimal("101.50")  # most recent within the window wins
+    assert resolve_price([(date(2026, 9, 10), Decimal("50.00"))], as_of, res) is None  # older than the lookback: PRICE_MISSING
+    assert resolve_price([], as_of, res) is None  # no price at all: PRICE_MISSING
+    assert resolve_price([(as_of, Decimal("100.00"))], as_of, res) == Decimal("100.00")  # exactly on the boundary date
+
+
+def test_resolved_price_prefers_the_sources_own_price_only_when_when_is_missing():
+    missing = PriceResolution(when="missing", lookback_days=5, price_type="CLOSE", missing="PRICE_MISSING")
+    always = PriceResolution(when="always", lookback_days=5, price_type="CLOSE", missing="PRICE_MISSING")
+    as_of = date(2026, 9, 17)
+    history = [(date(2026, 9, 16), Decimal("200.00"))]
+
+    assert resolved_price(Decimal("199.99"), history, as_of, missing) == Decimal("199.99")  # the custodian's own price wins
+    assert resolved_price(None, history, as_of, missing) == Decimal("200.00")  # none sent: fall back to the lookback
+    assert resolved_price(Decimal("199.99"), history, as_of, always) == Decimal("200.00")  # "always": the lookback wins regardless
+    assert resolved_price(None, [], as_of, missing) is None  # nothing sent, nothing in the lookback: PRICE_MISSING
