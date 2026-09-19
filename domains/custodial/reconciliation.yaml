@@ -1,0 +1,49 @@
+# How the custodial pack's canonical tables are reconciled with each other (S7.1.5, ADR 0079): the
+# position identity, "prior + transactions = current", and the cash balance identity, checked per
+# custodian and business date over SILVER.POSITION, SILVER.TRANSACTION and SILVER.CASH_BALANCE.
+# A difference beyond tolerance is a break, categorised and written to CONTROL.RECONCILIATION_BREAKS
+# with the taxonomy code of the check (POSITION_QUANTITY_MISMATCH, CASH_BALANCE_MISMATCH).
+reconciliation_version: 0
+domain: custodial
+model_version: "1.0"
+
+# Tolerance per field type, in the shape the parity mappings already use: exact, decimal_places
+# (both sides rounded to `places`), absolute (`epsilon` the largest difference) or relative
+# (`epsilon` a fraction of the larger magnitude). A quantity is compared as a `quantity`, a cash
+# amount as an `amount`; a type left out is exact. No value here is the client's -- a threshold
+# nobody agreed would be invented (ADR 0046) -- so a real engagement sets its own.
+tolerances:
+  quantity: { kind: exact }
+  amount: { kind: exact }
+
+# The position identity: for each account with an earlier snapshot, a position's quantity must equal
+# its quantity in that snapshot (nothing if it was not held) plus the securities movement of the
+# transactions dated after the snapshot up to and including the business date. Only ACTIVE
+# transactions count (Transaction.STATUS). The movement of a transaction is the direction of its type
+# times the size of its quantity; a type whose effect on quantity cannot be computed from the row is
+# `unreconcilable`, and a position it touches is reported as unverifiable rather than guessed at.
+# Every transaction type of the model is named here exactly once, so a new type forces a decision.
+position_identity:
+  movement_date: trade_date   # the date that places a transaction between two snapshots: trade_date or settle_date
+  movements:
+    BUY: 1
+    SELL: -1
+    TRANSFER_IN: 1
+    TRANSFER_OUT: -1
+    DIVIDEND: 0
+    INTEREST: 0
+    CAPITAL_GAIN: 0
+    FEE: 0
+    DEPOSIT: 0
+    WITHDRAWAL: 0
+    CORPORATE_ACTION: unreconcilable
+    ADJUSTMENT: unreconcilable
+    OTHER: unreconcilable
+
+# The cash balance identity, one check per balance type: the balance equals the previous balance of
+# the same account, currency and type plus the net amount of the ACTIVE transactions dated after it.
+# A settled balance moves on the settle date, a trade-date balance on the trade date. A transaction
+# without a settle date cannot be placed by it and makes the check unverifiable.
+cash_identity:
+  - { balance_type: SETTLED, movement_date: settle_date }
+  - { balance_type: TRADE_DATE, movement_date: trade_date }

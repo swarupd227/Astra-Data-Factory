@@ -133,6 +133,9 @@ jobs:
       - name: Check that the exceptions bundles are rendered and current
         run: astra-data --format github exceptions render --check
 
+      - name: Check that the reconciliation bundles are rendered and current
+        run: astra-data --format github reconciliation render --check
+
   core:
     name: astra-core tests
     runs-on: ubuntu-latest

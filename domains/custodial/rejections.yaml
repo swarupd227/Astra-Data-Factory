@@ -549,6 +549,16 @@ codes:
     resolution: Correct the source system; the conflicting identifier resolves to nothing until then.
 
   # --- reconciliation: the record does not agree with itself or Silver ----
+  - code: POSITION_QUANTITY_MISMATCH
+    name: Position quantity does not agree
+    description: The quantity of a position differs from the previous snapshot's quantity plus the transactions between the two dates beyond tolerance.
+    level: record
+    severity: error
+    category: reconciliation
+    owner: steward
+    entity: Position
+    resolution: Look for missing, duplicated or late transactions, or a corporate action the transactions do not carry; the custodian's quantity is loaded with the flag.
+
   - code: POSITION_VALUE_MISMATCH
     name: Market value does not agree
     description: Quantity times price times the price factor differs from the market value the custodian reported beyond tolerance.

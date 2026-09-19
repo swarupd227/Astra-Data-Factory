@@ -32,6 +32,7 @@ from astra_core.yamlsource import SourceError, line_of, load
 
 from astra_knowledge.columns import SQL_TYPES, Code, Column, Lookup, column_from, column_problems
 from astra_knowledge.read_models import READ_MODELS_FILE, ReadModels, load_read_models, resolve_read_models
+from astra_knowledge.reconciliation import CHECK_CODES, RECONCILIATION_FILE, Reconciliation, load_reconciliation, resolve_reconciliation
 from astra_knowledge.reference_data import REFERENCE_DATA_FILE, ReferenceData, load_reference_data, reference_data_problems
 from astra_knowledge.rejections import LOADER_REFERENCE_FILE, REJECTIONS_FILE, LoaderReference, Taxonomy, load_loader_reference, load_taxonomy, parity, parity_problems
 
@@ -129,6 +130,7 @@ class DomainPack:
     loader_reference: LoaderReference | None = None
     reference_data: ReferenceData | None = None
     read_models: ReadModels | None = None  # Gold read models over the model version they pin
+    reconciliation: Reconciliation | None = None  # how the canonical tables are checked against each other, over the model version it pins
 
     @property
     def latest(self) -> Model:
@@ -372,7 +374,27 @@ def load_pack(root: Path, repo_root: Path | None = None) -> tuple[DomainPack | N
         read_models, problems = resolve_read_models(raw, pinned, repo_root)
         if read_models is None:
             return None, problems
-    return DomainPack(root.name, root, glossary, tuple(models), taxonomy, reference, reference_data, read_models), []
+
+    # Reconciliation reads the model version it pins and names taxonomy codes, so it also comes after the pack holds together.
+    reconciliation: Reconciliation | None = None
+    reconciliation_path = root / RECONCILIATION_FILE
+    if reconciliation_path.is_file():
+        raw, problems = load_reconciliation(reconciliation_path, repo_root)
+        if raw is None:
+            return None, problems
+        display_reconciliation = display_path(reconciliation_path, repo_root)
+        if raw["domain"] != root.name:
+            return None, [Problem(display_reconciliation, None, f"reconciliation domain '{raw['domain']}' must match the pack directory '{root.name}'")]
+        pinned = next((m for m in models if m.version == raw["model_version"]), None)
+        if pinned is None:
+            return None, [Problem(display_reconciliation, None, f"reconciliation reads model version {raw['model_version']}, which the pack does not have; versions are {', '.join(m.version for m in models)}")]
+        reconciliation, problems = resolve_reconciliation(raw, pinned, repo_root)
+        if reconciliation is None:
+            return None, problems
+        unknown = [code for code in CHECK_CODES.values() if taxonomy.code(code) is None]
+        if unknown:
+            return None, [Problem(display_reconciliation, None, f"reconciliation raises {', '.join(unknown)}, which is not in the rejection taxonomy")]
+    return DomainPack(root.name, root, glossary, tuple(models), taxonomy, reference, reference_data, read_models, reconciliation), []
 
 
 def _version_key(name: str) -> tuple[int, int]:

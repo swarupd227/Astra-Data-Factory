@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astra.artizent.com/schemas/reconciliation-v0.schema.json",
+  "title": "Reconciliation, file version 0",
+  "description": "How a domain pack's canonical tables are reconciled with each other: the tolerance per field type, which transaction types move a position's quantity and which date places a transaction between two snapshots, and the cash balance identity per balance type.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reconciliation_version", "domain", "model_version", "tolerances", "position_identity", "cash_identity"],
+  "properties": {
+    "reconciliation_version": { "const": 0 },
+    "domain": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "model_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$", "description": "The canonical model version the identities are checked over." },
+    "tolerances": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Tolerance per field type. A type left out is exact.",
+      "properties": {
+        "quantity": { "$ref": "#/$defs/tolerance", "description": "Applied to a position's quantity." },
+        "amount": { "$ref": "#/$defs/tolerance", "description": "Applied to a cash balance." }
+      }
+    },
+    "position_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["movement_date", "movements"],
+      "properties": {
+        "movement_date": { "$ref": "#/$defs/movement_date", "description": "The date that places a transaction between two position snapshots." },
+        "movements": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "additionalProperties": { "oneOf": [{ "enum": [1, -1, 0] }, { "const": "unreconcilable" }] },
+          "description": "Every transaction type of the model, once: 1 adds its quantity to the position, -1 takes it away, 0 does not touch quantity, unreconcilable is a type whose effect on quantity the row cannot say."
+        }
+      }
+    },
+    "cash_identity": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One check per cash balance type.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["balance_type", "movement_date"],
+        "properties": {
+          "balance_type": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "description": "A code of Cash Balance.BALANCE_TYPE." },
+          "movement_date": { "$ref": "#/$defs/movement_date", "description": "The date on which a transaction's net amount moves this balance." }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "movement_date": { "enum": ["trade_date", "settle_date"] },
+    "tolerance": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "exact" } } },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "places"],
+          "properties": { "kind": { "const": "decimal_places" }, "places": { "type": "integer", "minimum": 0, "maximum": 12, "description": "Both sides are rounded to this many places and compared." } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "epsilon"],
+          "properties": { "kind": { "const": "absolute" }, "epsilon": { "type": "number", "minimum": 0, "description": "The largest difference that still agrees." } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "epsilon"],
+          "properties": { "kind": { "const": "relative" }, "epsilon": { "type": "number", "minimum": 0, "description": "The largest difference that still agrees, as a fraction of the larger of the two magnitudes." } }
+        }
+      ]
+    }
+  }
+}

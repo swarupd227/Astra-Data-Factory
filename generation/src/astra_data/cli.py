@@ -24,6 +24,7 @@ from astra_data.migration import PHASES, load_run_bundle, plan as migration_plan
 from astra_data.gold import bundle_name as gold_bundle_name, check_bundle as check_gold_bundle, packs_with_read_models, write_bundle as write_gold_bundle
 from astra_data.silver import bundle_name as silver_bundle_name, check_bundle as check_silver_bundle, packs_with_cdm, write_bundle as write_silver_bundle
 from astra_data.exception_store import bundle_name as exceptions_bundle_name, check_bundle as check_exceptions_bundle, packs_with_exceptions, write_bundle as write_exceptions_bundle
+from astra_data.reconciliation import bundle_name as reconciliation_bundle_name, check_bundle as check_reconciliation_bundle, packs_with_reconciliation, write_bundle as write_reconciliation_bundle
 from astra_data.reference_data import bundle_name, check_bundle, packs_with_reference_data, sync as sync_reference_feeds, sync_statements as reference_feed_statements, write_bundle
 from astra_data.rejections import sync as sync_rejections, sync_statements as rejection_statements, taxonomies_from_packs
 from astra_data.snowflake_connection import ConnectionConfigError, SnowflakeExecutor, connect
@@ -512,6 +513,30 @@ def cmd_exceptions_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reconciliation_render(args: argparse.Namespace) -> int:
+    packs, problems = packs_with_reconciliation(args.domains, root=Path(args.root), domain=args.domain)
+    if problems:
+        _print_problems(problems, args.format)
+        return 1
+    if not packs:
+        _summary("no domain pack declares a reconciliation", args.format)
+        return 0
+    releases = Path(args.releases)
+    if args.check:
+        problems = [p for pack in packs for p in check_reconciliation_bundle(pack, releases, Path(args.root))]
+        if problems:
+            _print_problems(problems, args.format)
+            _summary(f"{len(problems)} reconciliation bundle file{'s' if len(problems) != 1 else ''} out of date; run astra-data reconciliation render and commit the result", args.format)
+            return 1
+        _summary(f"Reconciliation bundles are current for {len(packs)} domain pack{'s' if len(packs) != 1 else ''}", args.format)
+        return 0
+    for pack in packs:
+        root = write_reconciliation_bundle(pack, releases)
+        checks = 1 + len(pack.reconciliation.cash)
+        _summary(f"rendered {reconciliation_bundle_name(pack)}: {checks} check{'s' if checks != 1 else ''} (model {pack.reconciliation.model_version}) -> {_rel(root, Path(args.root))}", args.format)
+    return 0
+
+
 def cmd_reference_sync(args: argparse.Namespace) -> int:
     packs, problems = packs_with_reference_data(args.domains, root=Path(args.root), domain=args.domain)
     if problems:
@@ -660,6 +685,15 @@ def build_parser() -> argparse.ArgumentParser:
     exr.add_argument("--releases", default="releases", help="bundles directory (default: releases)")
     exr.add_argument("--check", action="store_true")
     exr.set_defaults(func=cmd_exceptions_render)
+
+    rc = sub.add_parser("reconciliation", help="Reconciliation: render each domain pack's position and cash identity checks as a release bundle")
+    rcsub = rc.add_subparsers(dest="reconciliation_command", required=True)
+    rcr = rcsub.add_parser("render", help="write releases/<pack>-reconciliation/ from the pack's reconciliation.yaml; --check fails when it is stale")
+    rcr.add_argument("--domains", default="domains", help="domain packs directory (default: domains)")
+    rcr.add_argument("--domain", help="one domain pack (default: all)")
+    rcr.add_argument("--releases", default="releases", help="bundles directory (default: releases)")
+    rcr.add_argument("--check", action="store_true")
+    rcr.set_defaults(func=cmd_reconciliation_render)
 
     mg = sub.add_parser("migrate", help="historical migration with SnowConvert AI: validate migration files, plan the commands, run the phases and store the results with the release")
     mgsub = mg.add_subparsers(dest="migrate_command", required=True)

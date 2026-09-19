@@ -373,7 +373,7 @@ def test_a_pack_needs_a_glossary_and_a_model(tmp_path):
 
 def test_cli_validate_reports_the_pack(capsys):
     assert main(["--root", str(REPO), "--domains", str(DOMAINS), "cdm", "validate"]) == 0
-    assert "checked 1 model version, 15 glossary terms, 67 rejection codes, 4 Gold read models across 1 domain pack: no problems" in capsys.readouterr().out
+    assert "checked 1 model version, 15 glossary terms, 68 rejection codes, 4 Gold read models across 1 domain pack: no problems" in capsys.readouterr().out
 
     assert main(["--root", str(REPO), "--domains", str(DOMAINS), "--format", "json", "cdm", "validate"]) == 0
     payload = json.loads(capsys.readouterr().out)

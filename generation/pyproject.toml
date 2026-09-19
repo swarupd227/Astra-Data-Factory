@@ -23,6 +23,8 @@ lint = [
 dev = [
   "pytest>=8",
   "sqlglot>=25",
+  # runs the rendered reconciliation SQL over seeded tables, to check it against its reference implementation
+  "duckdb>=1.0",
 ]
 
 [project.scripts]

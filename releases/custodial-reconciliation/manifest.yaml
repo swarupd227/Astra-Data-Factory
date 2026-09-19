@@ -1,0 +1,11 @@
+# Reconciliation of the custodial domain pack's canonical tables: the findings, the procedure that produces them and the
+# invariants they must satisfy. Rendered by astra-data reconciliation render from domains/custodial/reconciliation.yaml; the
+# version is a digest of the rendered files. Do not edit.
+bundle: custodial-reconciliation
+version: "80acae969c46"
+source: custodial_reconciliation
+steps:
+  - ddl/reconciliation.sql
+  - pipeline/reconcile.sql
+tests:
+  - tests/*.sql
