@@ -161,7 +161,7 @@ def test_every_generated_test_parses_as_one_snowflake_select(compiled, tmp_path)
 
 def test_the_committed_bundles_lint_clean_and_a_broken_test_is_named(tmp_path, capsys):
     results, problems = lint_bundles(REPO / "releases", REPO)
-    assert problems == [] and {r.bundle for r in results} == {"custodial-gold", "custodial-reference-data", "custodial-silver"}
+    assert problems == [] and {r.bundle for r in results} == {"custodial-exceptions", "custodial-gold", "custodial-reference-data", "custodial-silver"}
     releases = tmp_path / "releases"
     shutil.copytree(REPO / "releases" / "custodial-gold", releases / "custodial-gold")
     broken = releases / "custodial-gold" / "tests" / "watermark_one_per_custodian_and_date.sql"

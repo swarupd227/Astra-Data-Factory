@@ -1,0 +1,11 @@
+# Exception workflow of the custodial domain pack: history, assignments and the procedures that enforce the allowed
+# moves. Rendered by astra-data exceptions render from the model's Exception entity (domains/custodial/cdm/1.0.yaml) and
+# astra_knowledge.patterns.exception_workflow; the version is a digest of the rendered files. Do not edit.
+bundle: custodial-exceptions
+version: "21ba8dab7066"
+source: custodial_exceptions
+steps:
+  - ddl/exception_workflow.sql
+  - pipeline/exception_workflow.sql
+tests:
+  - tests/*.sql
